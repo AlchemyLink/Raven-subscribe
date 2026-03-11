@@ -1,0 +1,103 @@
+[
+  {
+    "tag": "vless-reality",
+    "port": 443,
+    "protocol": "vless",
+    "settings": {
+      "clients": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440000",
+          "flow": "xtls-rprx-vision",
+          "email": "alice@example.com"
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440001",
+          "flow": "xtls-rprx-vision",
+          "email": "bob@example.com"
+        }
+      ],
+      "decryption": "none"
+    },
+    "streamSettings": {
+      "network": "tcp",
+      "security": "reality",
+      "realitySettings": {
+        "show": false,
+        "dest": "www.microsoft.com:443",
+        "xver": 0,
+        "serverNames": ["www.microsoft.com"],
+        "privateKey": "YOUR_PRIVATE_KEY_HERE",
+        "publicKey": "YOUR_PUBLIC_KEY_HERE",
+        "shortIds": ["", "0123456789abcdef"]
+      }
+    }
+  },
+  {
+    "tag": "vmess-ws-tls",
+    "port": 8443,
+    "protocol": "vmess",
+    "settings": {
+      "clients": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440000",
+          "alterId": 0,
+          "email": "alice@example.com"
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440002",
+          "alterId": 0,
+          "email": "carol@example.com"
+        }
+      ]
+    },
+    "streamSettings": {
+      "network": "ws",
+      "security": "tls",
+      "tlsSettings": {
+        "serverName": "your.domain.com",
+        "alpn": ["http/1.1"]
+      },
+      "wsSettings": {
+        "path": "/ws",
+        "headers": {
+          "Host": "your.domain.com"
+        }
+      }
+    }
+  },
+  {
+    "tag": "trojan-grpc",
+    "port": 9443,
+    "protocol": "trojan",
+    "settings": {
+      "clients": [
+        {"password": "secret-alice", "email": "alice@example.com"},
+        {"password": "secret-bob",   "email": "bob@example.com"}
+      ]
+    },
+    "streamSettings": {
+      "network": "grpc",
+      "security": "tls",
+      "tlsSettings": {
+        "serverName": "your.domain.com"
+      },
+      "grpcSettings": {
+        "serviceName": "trojan-grpc"
+      }
+    }
+  },
+  {
+    "tag": "shadowsocks-2022",
+    "port": 8388,
+    "protocol": "shadowsocks",
+    "settings": {
+      "method": "2022-blake3-aes-256-gcm",
+      "password": "server-password",
+      "clients": [
+        {"password": "alice-password", "email": "alice@example.com"},
+        {"password": "bob-password",   "email": "bob@example.com"}
+      ],
+      "network": "tcp,udp"
+    }
+  }
+]

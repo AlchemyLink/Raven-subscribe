@@ -1,0 +1,25 @@
+[Unit]
+Description=Xray Subscription Server
+Documentation=https://github.com/XTLS/Xray-core
+After=network.target xray.service
+
+[Service]
+Type=simple
+User=nobody
+Group=nogroup
+# Allow reading xray config files
+SupplementaryGroups=xray
+ExecStart=/usr/local/bin/xray-subscription -config /etc/xray-subscription/config.json
+Restart=on-failure
+RestartSec=5s
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/xray-subscription
+ReadOnlyPaths=/etc/xray/config.d /etc/xray-subscription
+PrivateTmp=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
