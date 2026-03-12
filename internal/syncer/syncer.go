@@ -155,7 +155,7 @@ func (s *Syncer) syncClient(inboundID int64, client xray.ParsedClient) error {
 		if err != nil {
 			return fmt.Errorf("create user %s: %w", identity, err)
 		}
-		log.Printf("Auto-created user: %s (token: %s)", identity, token)
+		log.Printf("Auto-created user: %s", identity)
 	}
 
 	// Upsert the user-inbound mapping

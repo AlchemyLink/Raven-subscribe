@@ -8,6 +8,8 @@ import (
 // generateToken creates a cryptographically random 32-byte hex token
 func generateToken() string {
 	b := make([]byte, 32)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
 	return hex.EncodeToString(b)
 }

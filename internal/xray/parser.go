@@ -61,12 +61,17 @@ func ParseConfigFile(path string) ([]ParsedInbound, error) {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
 
-	// xray config can be just an inbounds array or a full config
+	// xray config can be just an inbounds array (`[...]`) or a full config
+	// (`{"inbounds":[...]}`) — support both.
 	var cfg struct {
 		Inbounds []json.RawMessage `json:"inbounds"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("json parse: %w", err)
+		var inboundsOnly []json.RawMessage
+		if err2 := json.Unmarshal(data, &inboundsOnly); err2 != nil {
+			return nil, fmt.Errorf("json parse: %w", err)
+		}
+		cfg.Inbounds = inboundsOnly
 	}
 
 	var result []ParsedInbound
