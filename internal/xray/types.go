@@ -308,8 +308,6 @@ type RoutingRule struct {
 	InboundTag  []string `json:"inboundTag,omitempty"`
 	OutboundTag string   `json:"outboundTag"`
 	Domain      []string `json:"domain,omitempty"`
-	GeoSite     []string `json:"geosite,omitempty"`
-	GeoIP       []string `json:"geoip,omitempty"`
 	IP          []string `json:"ip,omitempty"`
 	Network     string   `json:"network,omitempty"`
 	Port        string   `json:"port,omitempty"`

@@ -371,10 +371,13 @@ func defaultRouting() *Routing {
 	return &Routing{
 		DomainStrategy: "IPIfNonMatch",
 		Rules: []RoutingRule{
-			{Type: "field", OutboundTag: "block", GeoSite: []string{"category-ads-all"}},
-			{Type: "field", OutboundTag: "direct", GeoIP: []string{"private"}},
-			{Type: "field", OutboundTag: "direct", GeoSite: []string{"cn"}},
-			{Type: "field", OutboundTag: "direct", GeoIP: []string{"cn"}},
+			// Block ads / trackers
+			{Type: "field", OutboundTag: "block", Domain: []string{"geosite:category-ads-all"}},
+			// Direct for private networks
+			{Type: "field", OutboundTag: "direct", IP: []string{"geoip:private"}},
+			// Direct for CN domains / IPs
+			{Type: "field", OutboundTag: "direct", Domain: []string{"geosite:cn"}},
+			{Type: "field", OutboundTag: "direct", IP: []string{"geoip:cn"}},
 		},
 	}
 }
