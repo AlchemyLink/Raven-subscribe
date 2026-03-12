@@ -1,0 +1,5 @@
+build/
+*.sqlite
+*.sqlite3
+*.db
+/config.json

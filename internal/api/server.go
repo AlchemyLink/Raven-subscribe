@@ -317,6 +317,9 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 
 func generateToken() string {
 	b := make([]byte, 32)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// If crypto/rand fails, the process is in a broken state; crash loudly.
+		panic(err)
+	}
 	return hex.EncodeToString(b)
 }
