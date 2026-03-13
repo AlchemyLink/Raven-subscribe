@@ -261,6 +261,7 @@ type VLESSUser struct {
 	ID         string `json:"id"`
 	Flow       string `json:"flow,omitempty"`
 	Encryption string `json:"encryption"`
+	Email      string `json:"email,omitempty"`
 	Level      int    `json:"level,omitempty"`
 }
 
