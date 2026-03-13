@@ -221,9 +221,9 @@ xray x25519
   "routing": {
     "domainStrategy": "IPIfNonMatch",
     "rules": [
-      {"type": "field", "outboundTag": "block",  "geosite": ["category-ads-all"]},
-      {"type": "field", "outboundTag": "direct", "geoip":   ["private", "cn"]},
-      {"type": "field", "outboundTag": "direct", "geosite": ["cn"]},
+      {"type": "field", "outboundTag": "block",  "domain": ["geosite:category-ads-all"]},
+      {"type": "field", "outboundTag": "direct", "ip":     ["geoip:private", "geoip:cn"]},
+      {"type": "field", "outboundTag": "direct", "domain": ["geosite:cn"]},
       {"type": "field", "outboundTag": "vless-reality-0", "network": "tcp,udp"}
     ]
   }
