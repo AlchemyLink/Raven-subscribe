@@ -208,9 +208,9 @@ func convertStreamSettings(ss *StreamSettings, serverHost string) (*StreamSettin
 	client.WSSettings = ss.WSSettings
 	client.GRPCSettings = ss.GRPCSettings
 	client.HTTPUpgradeSettings = ss.HTTPUpgradeSettings
-	// For xhttp, filter out server-only fields
+	// For xhttp, filter out server-only fields and ensure host is present
 	if ss.XHTTPSettings != nil {
-		xHttpSettings, err := convertXHTTPSettings(ss.XHTTPSettings)
+		xHttpSettings, err := convertXHTTPSettings(ss.XHTTPSettings, ss.RealitySettings)
 		if err != nil {
 			return nil, fmt.Errorf("convert xhttp settings: %w", err)
 		}
@@ -288,7 +288,8 @@ func convertReality(rs *RealitySettings, serverHost string) (*RealitySettings, e
 }
 
 // convertXHTTPSettings filters xhttp settings to include only client-side fields
-func convertXHTTPSettings(raw json.RawMessage) (json.RawMessage, error) {
+// If host is missing, it uses serverName from realitySettings
+func convertXHTTPSettings(raw json.RawMessage, rs *RealitySettings) (json.RawMessage, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
@@ -305,6 +306,9 @@ func convertXHTTPSettings(raw json.RawMessage) (json.RawMessage, error) {
 	}
 	if host, ok := serverSettings["host"]; ok {
 		clientSettings["host"] = host
+	} else if rs != nil && rs.ServerName != "" {
+		// If host is missing, use serverName from realitySettings
+		clientSettings["host"] = rs.ServerName
 	}
 	if mode, ok := serverSettings["mode"]; ok {
 		clientSettings["mode"] = mode
