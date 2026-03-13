@@ -84,8 +84,12 @@ type StreamSettings struct {
 	Security            string               `json:"security,omitempty"`
 	TLSSettings         *TLSSettings         `json:"tlsSettings,omitempty"`
 	RealitySettings     *RealitySettings     `json:"realitySettings,omitempty"`
-	// Transport-specific settings are kept as raw JSON to avoid losing
-	// newer/unknown fields as Xray evolves (e.g. XHTTP "extra", "xmux", etc.).
+	// Transport-specific settings are kept as raw JSON to avoid losing fields as
+	// Xray evolves.
+	//
+	// This is especially important for XHTTP (SplitHTTP), where `xhttpSettings`
+	// may include `extra`, `xmux`, `downloadSettings` and other nested objects
+	// (see upstream discussion: https://github.com/XTLS/Xray-core/discussions/4113).
 	WSSettings          json.RawMessage      `json:"wsSettings,omitempty"`
 	GRPCSettings        json.RawMessage      `json:"grpcSettings,omitempty"`
 	TCPSettings         *TCPSettings         `json:"tcpSettings,omitempty"`
