@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"golang.org/x/crypto/curve25519"
 	"xray-subscription/internal/models"
+
+	"golang.org/x/crypto/curve25519"
 )
 
 // GenerateClientConfig produces a complete xray client JSON config for a user
@@ -203,7 +204,14 @@ func convertStreamSettings(ss *StreamSettings, serverHost string) (*StreamSettin
 	client.WSSettings = ss.WSSettings
 	client.GRPCSettings = ss.GRPCSettings
 	client.HTTPUpgradeSettings = ss.HTTPUpgradeSettings
-	client.XHTTPSettings = ss.XHTTPSettings
+	// For xhttp, filter out server-only fields
+	if ss.XHTTPSettings != nil {
+		xHttpSettings, err := convertXHTTPSettings(ss.XHTTPSettings)
+		if err != nil {
+			return nil, fmt.Errorf("convert xhttp settings: %w", err)
+		}
+		client.XHTTPSettings = xHttpSettings
+	}
 	client.KCPSettings = ss.KCPSettings
 	client.QUICSettings = ss.QUICSettings
 
@@ -273,6 +281,39 @@ func convertReality(rs *RealitySettings, serverHost string) (*RealitySettings, e
 		ShortId:     shortId,
 		SpiderX:     rs.SpiderX,
 	}, nil
+}
+
+// convertXHTTPSettings filters xhttp settings to include only client-side fields
+func convertXHTTPSettings(raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	var serverSettings map[string]interface{}
+	if err := json.Unmarshal(raw, &serverSettings); err != nil {
+		return nil, fmt.Errorf("unmarshal xhttp settings: %w", err)
+	}
+
+	// Keep only client-side fields: path, host, mode, headers
+	clientSettings := make(map[string]interface{})
+	if path, ok := serverSettings["path"]; ok {
+		clientSettings["path"] = path
+	}
+	if host, ok := serverSettings["host"]; ok {
+		clientSettings["host"] = host
+	}
+	if mode, ok := serverSettings["mode"]; ok {
+		clientSettings["mode"] = mode
+	}
+	if headers, ok := serverSettings["headers"]; ok {
+		clientSettings["headers"] = headers
+	}
+
+	result, err := json.Marshal(clientSettings)
+	if err != nil {
+		return nil, fmt.Errorf("marshal xhttp settings: %w", err)
+	}
+	return result, nil
 }
 
 // derivePublicKey computes X25519 public key from base64url-encoded private key
