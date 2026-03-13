@@ -139,15 +139,19 @@ func buildVMessSettings(host string, port int, cred StoredClientConfig) (json.Ra
 }
 
 func buildVLESSSettings(host string, port int, cred StoredClientConfig) (json.RawMessage, error) {
+	user := VLESSUser{
+		ID:         cred.ID,
+		Flow:       cred.Flow,
+		Encryption: "none",
+	}
+	if cred.Email != "" {
+		user.Email = cred.Email
+	}
 	s := VLESSOutboundSettings{
 		Vnext: []VLESSServer{{
 			Address: host,
 			Port:    port,
-			Users: []VLESSUser{{
-				ID:         cred.ID,
-				Flow:       cred.Flow,
-				Encryption: "none",
-			}},
+			Users:   []VLESSUser{user},
 		}},
 	}
 	return json.Marshal(s)

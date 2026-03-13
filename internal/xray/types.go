@@ -327,6 +327,7 @@ type StoredClientConfig struct {
 	ID      string `json:"id,omitempty"`
 	AlterId int    `json:"alter_id,omitempty"`
 	Flow    string `json:"flow,omitempty"`
+	Email   string `json:"email,omitempty"`
 	// Trojan/SS/SOCKS
 	Password string `json:"password,omitempty"`
 	Method   string `json:"method,omitempty"`
