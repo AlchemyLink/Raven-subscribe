@@ -84,14 +84,16 @@ type StreamSettings struct {
 	Security            string               `json:"security,omitempty"`
 	TLSSettings         *TLSSettings         `json:"tlsSettings,omitempty"`
 	RealitySettings     *RealitySettings     `json:"realitySettings,omitempty"`
-	WSSettings          *WSSettings          `json:"wsSettings,omitempty"`
-	GRPCSettings        *GRPCSettings        `json:"grpcSettings,omitempty"`
+	// Transport-specific settings are kept as raw JSON to avoid losing
+	// newer/unknown fields as Xray evolves (e.g. XHTTP "extra", "xmux", etc.).
+	WSSettings          json.RawMessage      `json:"wsSettings,omitempty"`
+	GRPCSettings        json.RawMessage      `json:"grpcSettings,omitempty"`
 	TCPSettings         *TCPSettings         `json:"tcpSettings,omitempty"`
 	HTTPSettings        *HTTPSettings        `json:"httpSettings,omitempty"`
 	KCPSettings         *KCPSettings         `json:"kcpSettings,omitempty"`
 	QUICSettings        *QUICSettings        `json:"quicSettings,omitempty"`
-	HTTPUpgradeSettings *HTTPUpgradeSettings `json:"httpupgradeSettings,omitempty"`
-	XHTTPSettings       *XHTTPSettings       `json:"xhttpSettings,omitempty"`
+	HTTPUpgradeSettings json.RawMessage      `json:"httpupgradeSettings,omitempty"`
+	XHTTPSettings       json.RawMessage      `json:"xhttpSettings,omitempty"`
 }
 
 type TLSSettings struct {
@@ -129,10 +131,10 @@ type WSSettings struct {
 }
 
 type GRPCSettings struct {
-	ServiceName    string `json:"serviceName,omitempty"`
-	MultiMode      bool   `json:"multiMode,omitempty"`
-	IdleTimeout    int    `json:"idle_timeout,omitempty"`
-	HealthCheckTimeout int `json:"health_check_timeout,omitempty"`
+	ServiceName         string `json:"serviceName,omitempty"`
+	MultiMode           bool   `json:"multiMode,omitempty"`
+	IdleTimeout         int    `json:"idle_timeout,omitempty"`
+	HealthCheckTimeout  int    `json:"health_check_timeout,omitempty"`
 }
 
 type TCPSettings struct {
