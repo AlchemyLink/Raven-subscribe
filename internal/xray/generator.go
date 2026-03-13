@@ -302,8 +302,8 @@ func shouldUseMux(proto string, ss *StreamSettings) bool {
 			return false
 		}
 	}
-	// No Mux for QUIC, KCP
-	if ss != nil && (ss.Network == "quic" || ss.Network == "kcp") {
+	// No Mux for QUIC, KCP, xhttp (SplitHTTP)
+	if ss != nil && (ss.Network == "quic" || ss.Network == "kcp" || ss.Network == "xhttp") {
 		return false
 	}
 	return proto == "vmess" || proto == "vless"
