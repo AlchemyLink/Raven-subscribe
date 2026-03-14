@@ -1,5 +1,7 @@
 # xray-subscription
 
+Languages: **English** | [Русский](README.ru.md)
+
 A subscription server for [Xray-core](https://github.com/XTLS/Xray-core) that:
 
 - Generates **per-user xray client JSON configs** from server-side inbound configs
@@ -201,12 +203,32 @@ All admin endpoints require `X-Admin-Token: <your-token>` header.
 |--------|-----|-------------|
 | `GET` | `/sub/{token}` | Download xray client config JSON |
 | `GET` | `/sub/{token}/links` | List helper links: all, by protocol, by inbound tag |
+| `GET` | `/sub/{token}/links.txt` | Proxy subscription links (plain text, one link per line) |
+| `GET` | `/sub/{token}/links.b64` | Proxy subscription links in base64 (V2Box-friendly) |
 | `GET` | `/health` | Health check |
 
 `/sub/{token}` supports optional filters:
 
 - `?protocol=vless` (or `vmess`, `trojan`, `shadowsocks`, `socks`)
 - `?inbound_tag=vless-xhttp-in-1`
+- `?format=v2box` or `?format=links` (plain-text proxy links instead of full JSON)
+- `?format=b64` (base64-encoded proxy links)
+
+Examples:
+
+```bash
+# Full client JSON (Xray/v2rayN style)
+curl "http://HOST:8080/sub/<token>"
+
+# V2Box-friendly links (plain text, one per line)
+curl "http://HOST:8080/sub/<token>/links.txt"
+
+# V2Box-friendly links (base64)
+curl "http://HOST:8080/sub/<token>/links.b64"
+
+# Same as links.txt, via format query
+curl "http://HOST:8080/sub/<token>?format=v2box"
+```
 
 ### Users
 
@@ -247,6 +269,42 @@ Routing rule constraints for both user/global routes:
 - rule must contain at least one effective field: `domain`, `ip`, `network`, `port`, `protocol`, or `inboundTag`
 - `type` must be `field` (or empty)
 
+Route payload examples:
+
+```bash
+# Replace all user routes
+curl -X PUT "http://HOST:8080/api/users/1/routes" \
+  -H "X-Admin-Token: TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rules": [
+      {
+        "id": "allow-okko",
+        "outboundTag": "direct",
+        "domain": ["okko.tv", "okko.sport"]
+      },
+      {
+        "outboundTag": "block",
+        "domain": ["geosite:category-ads-all"]
+      }
+    ]
+  }'
+
+# Add one global route
+curl -X POST "http://HOST:8080/api/routes/global" \
+  -H "X-Admin-Token: TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "outboundTag": "proxy",
+    "domain": ["geosite:ru-blocked"]
+  }'
+```
+
+`/api/inbounds` response notes:
+
+- `raw_config` is returned as parsed JSON object/array when valid.
+- If stored raw config is malformed JSON, `raw_config` is returned as string (fallback).
+
 ---
 
 ## Supported Protocols
@@ -266,6 +324,11 @@ TCP, WebSocket (WS), gRPC, HTTP/2 (h2), mKCP, QUIC, HTTPUpgrade, XHTTP (SplitHTT
 ## Supported Security
 
 TLS (with fingerprint), REALITY (auto-derives public key from private key via X25519)
+
+REALITY extras supported in generated client config:
+
+- `mldsa65Verify` (derived from server `mldsa65Seed` if needed)
+- `publicKey` (derived from `privateKey` if not provided)
 
 ---
 

@@ -41,6 +41,8 @@ func (s *Server) Router() http.Handler {
 	// ── Subscription endpoint (public, authenticated by token) ──────────────
 	r.HandleFunc("/sub/{token}", s.handleSubscription).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/links", s.handleSubscriptionLinks).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/links.txt", s.handleSubscriptionLinksText).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/links.b64", s.handleSubscriptionLinksB64).Methods(http.MethodGet)
 
 	// ── Admin API (protected by admin token header) ───────────────────────
 	api := r.PathPrefix("/api").Subrouter()
@@ -164,6 +166,16 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("ERROR generate config for %s: %v", user.Username, err)
 		jsonError(w, "could not generate config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	if format == "v2box" || format == "links" || format == "links.txt" {
+		writeProxyLinksText(w, user.Username, cfg)
+		return
+	}
+	if format == "b64" || format == "links.b64" {
+		writeProxyLinksB64(w, user.Username, cfg)
 		return
 	}
 
