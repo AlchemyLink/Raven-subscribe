@@ -837,7 +837,26 @@ func (s *Server) listInbounds(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	jsonOK(w, inbounds)
+	resp := make([]map[string]interface{}, 0, len(inbounds))
+	for _, ib := range inbounds {
+		item := map[string]interface{}{
+			"id":          ib.ID,
+			"tag":         ib.Tag,
+			"protocol":    ib.Protocol,
+			"port":        ib.Port,
+			"config_file": ib.ConfigFile,
+			"updated_at":  ib.UpdatedAt,
+		}
+		var raw interface{}
+		if err := json.Unmarshal([]byte(ib.RawConfig), &raw); err != nil {
+			// Keep backward-compatible behavior if raw JSON is malformed.
+			item["raw_config"] = ib.RawConfig
+		} else {
+			item["raw_config"] = raw
+		}
+		resp = append(resp, item)
+	}
+	jsonOK(w, resp)
 }
 
 // ─── Sync handler ─────────────────────────────────────────────────────────────
