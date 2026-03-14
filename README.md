@@ -74,6 +74,75 @@ Add this URL to your Xray/v2rayN/Nekoray/Sing-box client to auto-update.
 
 ---
 
+## Docker Test Environment (Real Xray)
+
+The repository includes a Docker test stack with a **real Xray container** and
+the `xray-subscription` API container.
+
+### Start test stack
+
+```bash
+make docker-test-up
+```
+
+or:
+
+```bash
+make build
+docker compose -f docker-compose.test.yml up -d
+```
+
+Services:
+
+- `xray` on `127.0.0.1:18443` (from `docker/xray/config.d/01_vless.json`)
+- `xray-subscription` API on `127.0.0.1:18080`
+- admin token: `test-admin-token` (from `docker/xray-subscription/config.json`)
+
+`docker-compose.test.yml` uses the local binary `build/xray-subscription`.
+`Dockerfile` is still useful for production/CI image builds.
+
+Quick API checks:
+
+```bash
+curl http://127.0.0.1:18080/health
+curl -H "X-Admin-Token: test-admin-token" http://127.0.0.1:18080/api/users
+```
+
+Quick subscription check (extract Alice token and request links):
+
+```bash
+TOKEN=$(curl -s -H "X-Admin-Token: test-admin-token" http://127.0.0.1:18080/api/users | jq -r '.[] | select(.user.username=="alice@example.com") | .user.token')
+curl "http://127.0.0.1:18080/sub/$TOKEN/links.txt"
+```
+
+### Run Docker E2E test
+
+```bash
+make docker-test-e2e
+```
+
+This test (`integration/e2e_docker_test.go`) launches real Xray + app containers
+and verifies:
+
+- sync from `config.d` to SQLite
+- admin API (`/api/users`)
+- subscription links (`/sub/{token}/links.txt` and `/sub/{token}/links.b64`)
+
+Optional image override (if you want another Xray tag):
+
+```bash
+XRAY_IMAGE=ghcr.io/xtls/xray-core:latest E2E_DOCKER=1 go test ./integration -v
+```
+
+### Logs and teardown
+
+```bash
+make docker-test-logs
+make docker-test-down
+```
+
+---
+
 ## Run on Server (systemd)
 
 This is a production-oriented setup checklist.

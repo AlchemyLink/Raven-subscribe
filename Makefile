@@ -3,7 +3,7 @@ BUILD_DIR=./build
 VERSION=$(shell git describe --tags --always 2>/dev/null || echo "dev")
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: all build install clean deps
+.PHONY: all build install clean deps docker-test-up docker-test-down docker-test-logs docker-test-e2e
 
 all: build
 
@@ -29,3 +29,15 @@ install: build
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+docker-test-up: build
+	docker compose -f docker-compose.test.yml up -d
+
+docker-test-down:
+	docker compose -f docker-compose.test.yml down -v
+
+docker-test-logs:
+	docker compose -f docker-compose.test.yml logs -f --tail=200
+
+docker-test-e2e:
+	E2E_DOCKER=1 go test ./integration -v

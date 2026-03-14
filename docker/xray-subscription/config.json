@@ -1,0 +1,12 @@
+{
+  "listen_addr": ":8080",
+  "server_host": "127.0.0.1",
+  "config_dir": "/etc/xray/config.d",
+  "db_path": "/var/lib/xray-subscription/db.sqlite",
+  "sync_interval_seconds": 60,
+  "base_url": "http://127.0.0.1:18080",
+  "admin_token": "test-admin-token",
+  "balancer_strategy": "leastPing",
+  "balancer_probe_url": "https://www.gstatic.com/generate_204",
+  "balancer_probe_interval": "30s"
+}
