@@ -191,7 +191,15 @@ type ClientConfig struct {
 	DNS       *DNSConfig `json:"dns"`
 	Inbounds  []Inbound  `json:"inbounds"`
 	Outbounds []Outbound `json:"outbounds"`
+	Observatory *ObservatoryConfig `json:"observatory,omitempty"`
 	Routing   *Routing   `json:"routing"`
+}
+
+type ObservatoryConfig struct {
+	SubjectSelector   []string `json:"subjectSelector,omitempty"`
+	ProbeURL          string   `json:"probeURL,omitempty"`
+	ProbeInterval     string   `json:"probeInterval,omitempty"`
+	EnableConcurrency bool     `json:"enableConcurrency,omitempty"`
 }
 
 type LogConfig struct {
@@ -314,8 +322,14 @@ type Routing struct {
 }
 
 type Balancer struct {
-	Tag      string   `json:"tag"`
-	Selector []string `json:"selector"`
+	Tag         string            `json:"tag"`
+	Selector    []string          `json:"selector"`
+	Strategy    *BalancerStrategy `json:"strategy,omitempty"`
+	FallbackTag string            `json:"fallbackTag,omitempty"`
+}
+
+type BalancerStrategy struct {
+	Type string `json:"type"`
 }
 
 type RoutingRule struct {

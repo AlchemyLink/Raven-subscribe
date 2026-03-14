@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,12 @@ import (
 
 type DB struct {
 	conn *sql.DB
+}
+
+type BalancerRuntimeConfig struct {
+	Strategy     string `json:"strategy"`
+	ProbeURL     string `json:"probe_url"`
+	ProbeInterval string `json:"probe_interval"`
 }
 
 func New(path string) (*DB, error) {
@@ -220,6 +227,41 @@ func (db *DB) UpdateGlobalClientRoutes(routesJSON string) error {
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
 		routesJSON,
 	)
+	return err
+}
+
+func (db *DB) GetBalancerRuntimeConfig() (*BalancerRuntimeConfig, error) {
+	var raw string
+	err := db.conn.QueryRow(`SELECT value FROM app_settings WHERE key = 'balancer_runtime_config'`).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var cfg BalancerRuntimeConfig
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func (db *DB) SetBalancerRuntimeConfig(cfg BalancerRuntimeConfig) error {
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	_, err = db.conn.Exec(
+		`INSERT INTO app_settings (key, value)
+		 VALUES ('balancer_runtime_config', ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		string(raw),
+	)
+	return err
+}
+
+func (db *DB) DeleteBalancerRuntimeConfig() error {
+	_, err := db.conn.Exec(`DELETE FROM app_settings WHERE key = 'balancer_runtime_config'`)
 	return err
 }
 

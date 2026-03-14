@@ -56,7 +56,21 @@ func (s *Server) handleSubscriptionLinksByFormat(w http.ResponseWriter, r *http.
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	cfg, err := xray.GenerateClientConfig(s.cfg.ServerHost, *user, clients, globalRoutesJSON)
+	balancerStrategy, balancerProbeURL, balancerProbeInterval, err := s.getEffectiveBalancerConfig()
+	if err != nil {
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	cfg, err := xray.GenerateClientConfig(
+		s.cfg.ServerHost,
+		*user,
+		clients,
+		globalRoutesJSON,
+		balancerStrategy,
+		balancerProbeURL,
+		balancerProbeInterval,
+	)
 	if err != nil {
 		jsonError(w, "could not generate config: "+err.Error(), http.StatusInternalServerError)
 		return
