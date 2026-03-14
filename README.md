@@ -196,9 +196,26 @@ All admin endpoints require `X-Admin-Token: <your-token>` header.
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/sub/{token}` | Download xray client config JSON |
+| `GET` | `/sub/{token}/protocol/{protocol}` | Download config JSON for one protocol |
+| `GET` | `/sub/{token}/inbound/{inboundTag}` | Download config JSON for one inbound tag |
 | `GET` | `/sub/{token}/links` | List helper links: all, by protocol, by inbound tag |
 | `GET` | `/sub/{token}/links.txt` | Proxy subscription links (plain text, one link per line) |
 | `GET` | `/sub/{token}/links.b64` | Proxy subscription links in base64 (V2Box-friendly) |
+| `GET` | `/sub/{token}/vless` | VLESS-only links (plain text, one per line) |
+| `GET` | `/sub/{token}/vless.b64` | VLESS-only links (base64) |
+| `GET` | `/sub/{token}/vless/list` | List VLESS configs (tags + direct URLs) |
+| `GET` | `/sub/{token}/vless/{vlessTag}` | Single VLESS link by tag |
+| `GET` | `/sub/{token}/vless/{vlessTag}/b64` | Single VLESS link by tag (base64) |
+| `GET` | `/sub/{token}/vmess` | VMess-only links (plain text) |
+| `GET` | `/sub/{token}/vmess.b64` | VMess-only links (base64) |
+| `GET` | `/sub/{token}/trojan` | Trojan-only links (plain text) |
+| `GET` | `/sub/{token}/trojan.b64` | Trojan-only links (base64) |
+| `GET` | `/sub/{token}/ss` | Shadowsocks-only links (plain text) |
+| `GET` | `/sub/{token}/ss.b64` | Shadowsocks-only links (base64) |
+| `GET` | `/sub/{token}/protocol/{protocol}/links.txt` | Protocol-scoped proxy links (plain text) |
+| `GET` | `/sub/{token}/protocol/{protocol}/links.b64` | Protocol-scoped proxy links (base64) |
+| `GET` | `/sub/{token}/inbound/{inboundTag}/links.txt` | Inbound-tag-scoped proxy links (plain text) |
+| `GET` | `/sub/{token}/inbound/{inboundTag}/links.b64` | Inbound-tag-scoped proxy links (base64) |
 | `GET` | `/health` | Health check |
 
 `/sub/{token}` supports optional filters:
@@ -222,8 +239,34 @@ curl "http://HOST:8080/sub/<token>/links.txt"
 # V2Box-friendly links (base64)
 curl "http://HOST:8080/sub/<token>/links.b64"
 
+# VLESS-only links
+curl "http://HOST:8080/sub/<token>/vless"
+curl "http://HOST:8080/sub/<token>/vless.b64"
+curl "http://HOST:8080/sub/<token>/vmess"
+curl "http://HOST:8080/sub/<token>/trojan.b64"
+curl "http://HOST:8080/sub/<token>/ss"
+
+# List all VLESS configs with tags and direct URLs
+curl "http://HOST:8080/sub/<token>/vless/list"
+
+# Single VLESS config by tag
+curl "http://HOST:8080/sub/<token>/vless/vless-xhttp-in-1"
+curl "http://HOST:8080/sub/<token>/vless/vless-xhttp-in-1/b64"
+
 # Same as links.txt, via format query
 curl "http://HOST:8080/sub/<token>?format=v2box"
+
+# Protocol-separated JSON subscription (example: vless)
+curl "http://HOST:8080/sub/<token>/protocol/vless"
+
+# Protocol-separated links for V2Box (example: vmess)
+curl "http://HOST:8080/sub/<token>/protocol/vmess/links.b64"
+
+# Inbound-tag-separated JSON subscription
+curl "http://HOST:8080/sub/<token>/inbound/vless-xhttp-in-1"
+
+# Inbound-tag-separated links for V2Box
+curl "http://HOST:8080/sub/<token>/inbound/vless-xhttp-in-1/links.b64"
 
 # Mobile-friendly JSON profile (no geosite/geoip selectors in routing rules)
 curl "http://HOST:8080/sub/<token>?profile=mobile"
