@@ -64,6 +64,75 @@ cp config.json.example /etc/xray-subscription/config.json
 
 ---
 
+## Docker тестовый стенд (реальный Xray)
+
+В репозитории есть Docker-стенд с **реальным контейнером Xray** и контейнером
+`xray-subscription`.
+
+### Запуск стенда
+
+```bash
+make docker-test-up
+```
+
+или:
+
+```bash
+make build
+docker compose -f docker-compose.test.yml up -d
+```
+
+Сервисы:
+
+- `xray` на `127.0.0.1:18443` (конфиг: `docker/xray/config.d/01_vless.json`)
+- API `xray-subscription` на `127.0.0.1:18080`
+- admin token: `test-admin-token` (из `docker/xray-subscription/config.json`)
+
+`docker-compose.test.yml` использует локальный бинарник `build/xray-subscription`.
+`Dockerfile` при этом остается полезным для сборки production/CI образа.
+
+Быстрая проверка API:
+
+```bash
+curl http://127.0.0.1:18080/health
+curl -H "X-Admin-Token: test-admin-token" http://127.0.0.1:18080/api/users
+```
+
+Быстрая проверка подписок (взять токен Alice и запросить ссылки):
+
+```bash
+TOKEN=$(curl -s -H "X-Admin-Token: test-admin-token" http://127.0.0.1:18080/api/users | jq -r '.[] | select(.user.username=="alice@example.com") | .user.token')
+curl "http://127.0.0.1:18080/sub/$TOKEN/links.txt"
+```
+
+### Запуск Docker E2E теста
+
+```bash
+make docker-test-e2e
+```
+
+Тест (`integration/e2e_docker_test.go`) поднимает реальные контейнеры Xray + app
+и проверяет:
+
+- синхронизацию `config.d` в SQLite
+- admin API (`/api/users`)
+- ссылки подписки (`/sub/{token}/links.txt` и `/sub/{token}/links.b64`)
+
+Опционально можно переопределить образ Xray:
+
+```bash
+XRAY_IMAGE=ghcr.io/xtls/xray-core:latest E2E_DOCKER=1 go test ./integration -v
+```
+
+### Логи и остановка
+
+```bash
+make docker-test-logs
+make docker-test-down
+```
+
+---
+
 ## Подписки
 
 ### Базовые URL
