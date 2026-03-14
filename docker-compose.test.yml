@@ -1,0 +1,28 @@
+services:
+  xray:
+    image: ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:latest}
+    container_name: raven-xray-test
+    command: ["run", "-confdir", "/etc/xray/config.d"]
+    volumes:
+      - ./docker/xray/config.d:/etc/xray/config.d:ro
+    ports:
+      - "18443:18443"
+    restart: unless-stopped
+
+  app:
+    image: alpine:3.20
+    container_name: raven-subscribe-test
+    command: ["/usr/local/bin/xray-subscription", "-config", "/etc/xray-subscription/config.json"]
+    volumes:
+      - ./docker/xray/config.d:/etc/xray/config.d:ro
+      - ./docker/xray-subscription/config.json:/etc/xray-subscription/config.json:ro
+      - ./build/xray-subscription:/usr/local/bin/xray-subscription:ro
+      - raven_subscribe_db:/var/lib/xray-subscription
+    ports:
+      - "18080:8080"
+    depends_on:
+      - xray
+    restart: unless-stopped
+
+volumes:
+  raven_subscribe_db:

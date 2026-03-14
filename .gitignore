@@ -38,3 +38,7 @@ go.work.sum
 # .vscode/
 curent_xhttp.json
 test_conf_xhttp.json
+
+.cursorignore
+.cursorindexingignore
+.cursor
