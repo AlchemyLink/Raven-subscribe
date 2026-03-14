@@ -69,8 +69,29 @@ cp config.json.example /etc/xray-subscription/config.json
 ### Базовые URL
 
 - Полный клиентский JSON: `GET /sub/{token}`
+- JSON только для одного протокола: `GET /sub/{token}/protocol/{protocol}`
+- JSON только для одного inbound-тега: `GET /sub/{token}/inbound/{inboundTag}`
 - Ссылки (plain text): `GET /sub/{token}/links.txt`
 - Ссылки (base64): `GET /sub/{token}/links.b64`
+- Только VLESS-ссылки:
+  - `GET /sub/{token}/vless`
+  - `GET /sub/{token}/vless.b64`
+  - `GET /sub/{token}/vless/list`
+  - `GET /sub/{token}/vless/{vlessTag}`
+  - `GET /sub/{token}/vless/{vlessTag}/b64`
+- Быстрые ссылки по протоколам:
+  - `GET /sub/{token}/vmess`
+  - `GET /sub/{token}/vmess.b64`
+  - `GET /sub/{token}/trojan`
+  - `GET /sub/{token}/trojan.b64`
+  - `GET /sub/{token}/ss`
+  - `GET /sub/{token}/ss.b64`
+- Ссылки только для одного протокола:
+  - `GET /sub/{token}/protocol/{protocol}/links.txt`
+  - `GET /sub/{token}/protocol/{protocol}/links.b64`
+- Ссылки только для одного inbound-тега:
+  - `GET /sub/{token}/inbound/{inboundTag}/links.txt`
+  - `GET /sub/{token}/inbound/{inboundTag}/links.b64`
 - Вспомогательный список ссылок: `GET /sub/{token}/links`
 
 ### Фильтры
@@ -87,7 +108,19 @@ cp config.json.example /etc/xray-subscription/config.json
 curl "http://HOST:8080/sub/<token>"
 curl "http://HOST:8080/sub/<token>/links.txt"
 curl "http://HOST:8080/sub/<token>/links.b64"
+curl "http://HOST:8080/sub/<token>/vless"
+curl "http://HOST:8080/sub/<token>/vless.b64"
+curl "http://HOST:8080/sub/<token>/vmess"
+curl "http://HOST:8080/sub/<token>/trojan.b64"
+curl "http://HOST:8080/sub/<token>/ss"
+curl "http://HOST:8080/sub/<token>/vless/list"
+curl "http://HOST:8080/sub/<token>/vless/vless-xhttp-in-1"
+curl "http://HOST:8080/sub/<token>/vless/vless-xhttp-in-1/b64"
 curl "http://HOST:8080/sub/<token>?format=v2box"
+curl "http://HOST:8080/sub/<token>/protocol/vless"
+curl "http://HOST:8080/sub/<token>/protocol/vmess/links.b64"
+curl "http://HOST:8080/sub/<token>/inbound/vless-xhttp-in-1"
+curl "http://HOST:8080/sub/<token>/inbound/vless-xhttp-in-1/links.b64"
 curl "http://HOST:8080/sub/<token>?profile=mobile"
 ```
 

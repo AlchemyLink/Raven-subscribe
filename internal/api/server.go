@@ -43,6 +43,25 @@ func (s *Server) Router() http.Handler {
 	r.HandleFunc("/sub/{token}/links", s.handleSubscriptionLinks).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/links.txt", s.handleSubscriptionLinksText).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/links.b64", s.handleSubscriptionLinksB64).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/vless", s.handleVLESSLinksText).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/vless.b64", s.handleVLESSLinksB64).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/vless/list", s.handleVLESSList).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/vless/{vlessTag}", s.handleVLESSLinkByTagText).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/vless/{vlessTag}/b64", s.handleVLESSLinkByTagB64).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/vmess", s.handleVMessLinksText).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/vmess.b64", s.handleVMessLinksB64).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/trojan", s.handleTrojanLinksText).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/trojan.b64", s.handleTrojanLinksB64).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/ss", s.handleShadowsocksLinksText).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/ss.b64", s.handleShadowsocksLinksB64).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/shadowsocks", s.handleShadowsocksLinksText).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/shadowsocks.b64", s.handleShadowsocksLinksB64).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/protocol/{protocol}", s.handleSubscription).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/protocol/{protocol}/links.txt", s.handleSubscriptionLinksText).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/protocol/{protocol}/links.b64", s.handleSubscriptionLinksB64).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/inbound/{inboundTag}", s.handleSubscription).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/inbound/{inboundTag}/links.txt", s.handleSubscriptionLinksText).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/inbound/{inboundTag}/links.b64", s.handleSubscriptionLinksB64).Methods(http.MethodGet)
 
 	// ── Admin API (protected by admin token header) ───────────────────────
 	api := r.PathPrefix("/api").Subrouter()
@@ -134,7 +153,7 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	// Examples:
 	//   /sub/<token>?protocol=vless
 	//   /sub/<token>?inbound_tag=vless-xhttp-in-1
-	if p := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("protocol"))); p != "" {
+	if p := extractProtocolFilter(r); p != "" {
 		filtered := make([]models.UserClientFull, 0, len(clients))
 		for _, c := range clients {
 			if strings.EqualFold(c.InboundProtocol, p) {
@@ -143,10 +162,10 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		}
 		clients = filtered
 	}
-	if t := strings.TrimSpace(r.URL.Query().Get("inbound_tag")); t != "" {
+	if t := extractInboundTagFilter(r); t != "" {
 		filtered := make([]models.UserClientFull, 0, len(clients))
-		for _, c := range clients {
-			if c.InboundTag == t {
+		for i, c := range clients {
+			if matchesInboundTagFilter(c.InboundTag, t, i) {
 				filtered = append(filtered, c)
 			}
 		}
