@@ -213,6 +213,8 @@ All admin endpoints require `X-Admin-Token: <your-token>` header.
 - `?inbound_tag=vless-xhttp-in-1`
 - `?format=v2box` or `?format=links` (plain-text proxy links instead of full JSON)
 - `?format=b64` (base64-encoded proxy links)
+- `?profile=mobile` (strip `geosite:` / `geoip:` selectors from routing rules)
+- `?mobile=1` (same as `profile=mobile`)
 
 Examples:
 
@@ -228,6 +230,9 @@ curl "http://HOST:8080/sub/<token>/links.b64"
 
 # Same as links.txt, via format query
 curl "http://HOST:8080/sub/<token>?format=v2box"
+
+# Mobile-friendly JSON profile (no geosite/geoip selectors in routing rules)
+curl "http://HOST:8080/sub/<token>?profile=mobile"
 ```
 
 ### Users

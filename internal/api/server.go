@@ -168,6 +168,9 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "could not generate config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if isMobileProfileRequest(r) {
+		applyMobileRoutingProfile(cfg)
+	}
 
 	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
 	if format == "v2box" || format == "links" || format == "links.txt" {
@@ -925,6 +928,61 @@ func generateToken() string {
 	return hex.EncodeToString(b)
 }
 
+func isMobileProfileRequest(r *http.Request) bool {
+	profile := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("profile")))
+	if profile == "mobile" {
+		return true
+	}
+	mobile := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("mobile")))
+	if mobile == "1" || mobile == "true" || mobile == "yes" {
+		return true
+	}
+	ua := strings.ToLower(r.UserAgent())
+	return strings.Contains(ua, "android") ||
+		strings.Contains(ua, "iphone") ||
+		strings.Contains(ua, "ipad") ||
+		strings.Contains(ua, "v2box") ||
+		strings.Contains(ua, "v2rayng") ||
+		strings.Contains(ua, "nekobox")
+}
+
+func applyMobileRoutingProfile(cfg *xray.ClientConfig) {
+	if cfg == nil || cfg.Routing == nil {
+		return
+	}
+	rules := make([]xray.RoutingRule, 0, len(cfg.Routing.Rules))
+	for _, rule := range cfg.Routing.Rules {
+		rule.Domain = stripGeoSelectors(rule.Domain)
+		rule.IP = stripGeoSelectors(rule.IP)
+		// Keep only effective rules after stripping geo selectors.
+		if len(rule.Domain) == 0 &&
+			len(rule.IP) == 0 &&
+			strings.TrimSpace(rule.Network) == "" &&
+			strings.TrimSpace(rule.Port) == "" &&
+			len(rule.Protocol) == 0 &&
+			len(rule.InboundTag) == 0 {
+			continue
+		}
+		rules = append(rules, rule)
+	}
+	cfg.Routing.Rules = rules
+}
+
+func stripGeoSelectors(values []string) []string {
+	if len(values) == 0 {
+		return values
+	}
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		s := strings.ToLower(strings.TrimSpace(v))
+		if strings.HasPrefix(s, "geosite:") || strings.HasPrefix(s, "geoip:") {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
 func parseUserRoutes(raw string) ([]models.UserRouteRule, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -961,6 +1019,31 @@ func validateUserRoutes(rules []models.UserRouteRule) error {
 		}
 		if rule.Type != "" && strings.ToLower(strings.TrimSpace(rule.Type)) != "field" {
 			return fmt.Errorf("rules[%d].type must be 'field' or empty", i)
+		}
+		if err := validateRouteSelectors(rule); err != nil {
+			return fmt.Errorf("rules[%d] %w", i, err)
+		}
+	}
+	return nil
+}
+
+func validateRouteSelectors(rule models.UserRouteRule) error {
+	for _, d := range rule.Domain {
+		v := strings.TrimSpace(strings.ToLower(d))
+		if strings.HasPrefix(v, "geoip:") {
+			return fmt.Errorf("domain contains geoip selector %q; use ip:[\"geoip:...\"]", d)
+		}
+		if strings.HasPrefix(v, "geositeip:") {
+			return fmt.Errorf("invalid selector %q; use geosite:... in domain or geoip:... in ip", d)
+		}
+	}
+	for _, ip := range rule.IP {
+		v := strings.TrimSpace(strings.ToLower(ip))
+		if strings.HasPrefix(v, "geosite:") {
+			return fmt.Errorf("ip contains geosite selector %q; use domain:[\"geosite:...\"]", ip)
+		}
+		if strings.HasPrefix(v, "geositeip:") {
+			return fmt.Errorf("invalid selector %q; use geosite:... in domain or geoip:... in ip", ip)
 		}
 	}
 	return nil

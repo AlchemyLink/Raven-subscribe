@@ -70,6 +70,8 @@ cp config.json.example /etc/xray-subscription/config.json
 - `?protocol=vless` (также `vmess`, `trojan`, `shadowsocks`, `socks`)
 - `?inbound_tag=vless-xhttp-in-1`
 - `?format=v2box` / `?format=links` / `?format=b64`
+- `?profile=mobile` (удаляет из роутинга селекторы `geosite:` / `geoip:`)
+- `?mobile=1` (то же, что `profile=mobile`)
 
 Примеры:
 
@@ -78,6 +80,7 @@ curl "http://HOST:8080/sub/<token>"
 curl "http://HOST:8080/sub/<token>/links.txt"
 curl "http://HOST:8080/sub/<token>/links.b64"
 curl "http://HOST:8080/sub/<token>?format=v2box"
+curl "http://HOST:8080/sub/<token>?profile=mobile"
 ```
 
 ---
