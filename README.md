@@ -4,12 +4,14 @@ A subscription server for [Xray-core](https://github.com/XTLS/Xray-core) that:
 
 - Generates **per-user xray client JSON configs** from server-side inbound configs
 - Exposes a **unique subscription URL** per user for automatic updates in clients
+- Exposes **filtered subscription URLs** per protocol / inbound tag
 - **Auto-syncs** users from `/etc/xray/config.d` on startup and on file changes
 - Supports **all major Xray protocols**: VLESS, VMess, Trojan, Shadowsocks, SOCKS
 - Supports **all transport layers**: TCP, WebSocket, gRPC, HTTP/2, KCP, QUIC, HTTPUpgrade, XHTTP
 - Supports **REALITY** and **TLS** security layers (auto-derives public key from private key)
 - Stores users and mappings in **SQLite**
 - Admin REST API for user and inbound management
+- Admin REST API for **user/global routing rules** (`direct` / `proxy` / `block`)
 
 ---
 
@@ -97,7 +99,13 @@ All admin endpoints require `X-Admin-Token: <your-token>` header.
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/sub/{token}` | Download xray client config JSON |
+| `GET` | `/sub/{token}/links` | List helper links: all, by protocol, by inbound tag |
 | `GET` | `/health` | Health check |
+
+`/sub/{token}` supports optional filters:
+
+- `?protocol=vless` (or `vmess`, `trojan`, `shadowsocks`, `socks`)
+- `?inbound_tag=vless-xhttp-in-1`
 
 ### Users
 
@@ -110,16 +118,33 @@ All admin endpoints require `X-Admin-Token: <your-token>` header.
 | `PUT` | `/api/users/{id}/enable` | Enable user |
 | `PUT` | `/api/users/{id}/disable` | Disable user |
 | `POST` | `/api/users/{id}/token` | Regenerate subscription token |
+| `GET` | `/api/users/{id}/routes` | Get user routing rules |
+| `POST` | `/api/users/{id}/routes` | Add one user routing rule |
+| `PUT` | `/api/users/{id}/routes` | Replace all user routing rules |
+| `PUT` | `/api/users/{id}/routes/{index}` | Update one user routing rule by index |
+| `DELETE` | `/api/users/{id}/routes/{index}` | Delete one user routing rule by index |
+| `PUT` | `/api/users/{id}/routes/id/{routeId}` | Update one user routing rule by stable id |
+| `DELETE` | `/api/users/{id}/routes/id/{routeId}` | Delete one user routing rule by stable id |
 | `GET` | `/api/users/{id}/clients` | List user's inbound mappings |
 | `PUT` | `/api/users/{userId}/clients/{inboundId}/enable` | Enable specific inbound for user |
 | `PUT` | `/api/users/{userId}/clients/{inboundId}/disable` | Disable specific inbound for user |
 
-### Inbounds & Sync
+### Inbounds, Global Routes & Sync
 
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/api/inbounds` | List all detected inbounds |
+| `GET` | `/api/routes/global` | Get global routing rules |
+| `POST` | `/api/routes/global` | Add one global routing rule |
+| `PUT` | `/api/routes/global` | Replace all global routing rules |
+| `DELETE` | `/api/routes/global` | Clear all global routing rules |
 | `POST` | `/api/sync` | Trigger manual sync from config.d |
+
+Routing rule constraints for both user/global routes:
+
+- `outboundTag` must be one of: `direct`, `proxy`, `block`
+- rule must contain at least one effective field: `domain`, `ip`, `network`, `port`, `protocol`, or `inboundTag`
+- `type` must be `field` (or empty)
 
 ---
 
@@ -194,7 +219,7 @@ xray x25519
   "log": {"loglevel": "warning"},
   "dns": {"servers": ["8.8.8.8", "1.1.1.1", ...]},
   "inbounds": [
-    {"tag": "socks", "port": 1080, "protocol": "socks"},
+    {"tag": "socks", "port": 2080, "protocol": "socks"},
     {"tag": "http",  "port": 1081, "protocol": "http"}
   ],
   "outbounds": [
@@ -219,16 +244,25 @@ xray x25519
     {"tag": "block",  "protocol": "blackhole"}
   ],
   "routing": {
-    "domainStrategy": "IPIfNonMatch",
+    "domainStrategy": "IPOnDemand",
     "rules": [
-      {"type": "field", "outboundTag": "block",  "geosite": ["category-ads-all"]},
-      {"type": "field", "outboundTag": "direct", "geoip":   ["private", "cn"]},
-      {"type": "field", "outboundTag": "direct", "geosite": ["cn"]},
-      {"type": "field", "outboundTag": "vless-reality-0", "network": "tcp,udp"}
+      {"type": "field", "outboundTag": "proxy",  "domain": ["geosite:ru-blocked"]},
+      {"type": "field", "outboundTag": "proxy",  "ip":     ["geoip:ru-blocked"]},
+      {"type": "field", "outboundTag": "block",  "domain": ["geosite:category-ads-all", "geosite:category-ads", "geosite:category-public-tracker"]},
+      {"type": "field", "outboundTag": "direct", "ip":     ["geoip:private", "geoip:ru"]},
+      {"type": "field", "outboundTag": "direct", "domain": ["geosite:private"]},
+      {"type": "field", "outboundTag": "<resolved-proxy-or-balancer>", "port": "0-65535"}
     ]
   }
 }
 ```
+
+Notes:
+
+- `outboundTag: "proxy"` in custom/default rules is a **logical target**. Generator resolves it to:
+  - concrete outbound tag when there is one proxy outbound
+  - routing balancer (`balancerTag`) when there are multiple proxy outbounds
+- Rule priority is: **user rules > global rules > defaults**
 
 ---
 

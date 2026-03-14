@@ -7,6 +7,7 @@ type User struct {
 	Username  string    `json:"username"`
 	Token     string    `json:"token"`
 	Enabled   bool      `json:"enabled"`
+	ClientRoutes string `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -48,4 +49,18 @@ type CreateUserRequest struct {
 type UserResponse struct {
 	User   User   `json:"user"`
 	SubURL string `json:"sub_url"`
+}
+
+// UserRouteRule describes a user-defined client routing rule.
+// OutboundTag is restricted to: direct, proxy, block.
+type UserRouteRule struct {
+	ID         string   `json:"id,omitempty"`
+	Type       string   `json:"type,omitempty"`
+	OutboundTag string   `json:"outboundTag"`
+	Domain     []string `json:"domain,omitempty"`
+	IP         []string `json:"ip,omitempty"`
+	Network    string   `json:"network,omitempty"`
+	Port       string   `json:"port,omitempty"`
+	Protocol   []string `json:"protocol,omitempty"`
+	InboundTag []string `json:"inboundTag,omitempty"`
 }

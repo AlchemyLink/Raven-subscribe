@@ -171,6 +171,7 @@ func extractVLESS(si ServerInbound) ([]ParsedClient, error) {
 			Protocol: "vless",
 			ID:       c.ID,
 			Flow:     c.Flow,
+			Email:    c.Email,
 		}
 		b, _ := json.Marshal(cred)
 		identity := firstNonEmpty(c.Email, c.ID)
@@ -186,7 +187,11 @@ func extractTrojan(si ServerInbound) ([]ParsedClient, error) {
 	}
 	var clients []ParsedClient
 	for _, c := range s.Clients {
-		cred := StoredClientConfig{Protocol: "trojan", Password: c.Password}
+		cred := StoredClientConfig{
+			Protocol: "trojan",
+			Password: c.Password,
+			Email:    c.Email,
+		}
 		b, _ := json.Marshal(cred)
 		identity := firstNonEmpty(c.Email, c.Password)
 		clients = append(clients, ParsedClient{Identity: identity, ConfigJSON: string(b)})
@@ -205,7 +210,12 @@ func extractShadowsocks(si ServerInbound) ([]ParsedClient, error) {
 		// Multi-user shadowsocks
 		for _, c := range s.Clients {
 			method := firstNonEmpty(c.Method, s.Method, "aes-256-gcm")
-			cred := StoredClientConfig{Protocol: "shadowsocks", Password: c.Password, Method: method}
+			cred := StoredClientConfig{
+				Protocol: "shadowsocks",
+				Password: c.Password,
+				Method:   method,
+				Email:    c.Email,
+			}
 			b, _ := json.Marshal(cred)
 			identity := firstNonEmpty(c.Email, c.Password)
 			clients = append(clients, ParsedClient{Identity: identity, ConfigJSON: string(b)})
