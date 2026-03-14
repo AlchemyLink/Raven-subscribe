@@ -54,10 +54,10 @@ type TrojanClient struct {
 }
 
 type ShadowsocksInboundSettings struct {
-	Method   string               `json:"method,omitempty"`
-	Password string               `json:"password,omitempty"`
-	Clients  []ShadowsocksClient  `json:"clients,omitempty"`
-	Network  string               `json:"network,omitempty"`
+	Method   string              `json:"method,omitempty"`
+	Password string              `json:"password,omitempty"`
+	Clients  []ShadowsocksClient `json:"clients,omitempty"`
+	Network  string              `json:"network,omitempty"`
 }
 
 type ShadowsocksClient struct {
@@ -80,26 +80,32 @@ type SOCKSAccount struct {
 // ─── Stream Settings (shared server+client) ────────────────────────────────
 
 type StreamSettings struct {
-	Network             string               `json:"network,omitempty"`
-	Security            string               `json:"security,omitempty"`
-	TLSSettings         *TLSSettings         `json:"tlsSettings,omitempty"`
-	RealitySettings     *RealitySettings     `json:"realitySettings,omitempty"`
-	WSSettings          *WSSettings          `json:"wsSettings,omitempty"`
-	GRPCSettings        *GRPCSettings        `json:"grpcSettings,omitempty"`
-	TCPSettings         *TCPSettings         `json:"tcpSettings,omitempty"`
-	HTTPSettings        *HTTPSettings        `json:"httpSettings,omitempty"`
-	KCPSettings         *KCPSettings         `json:"kcpSettings,omitempty"`
-	QUICSettings        *QUICSettings        `json:"quicSettings,omitempty"`
-	HTTPUpgradeSettings *HTTPUpgradeSettings `json:"httpupgradeSettings,omitempty"`
-	XHTTPSettings       *XHTTPSettings       `json:"xhttpSettings,omitempty"`
+	Network         string           `json:"network,omitempty"`
+	Security        string           `json:"security,omitempty"`
+	TLSSettings     *TLSSettings     `json:"tlsSettings,omitempty"`
+	RealitySettings *RealitySettings `json:"realitySettings,omitempty"`
+	// Transport-specific settings are kept as raw JSON to avoid losing fields as
+	// Xray evolves.
+	//
+	// This is especially important for XHTTP (SplitHTTP), where `xhttpSettings`
+	// may include `extra`, `xmux`, `downloadSettings` and other nested objects
+	// (see upstream discussion: https://github.com/XTLS/Xray-core/discussions/4113).
+	WSSettings          json.RawMessage `json:"wsSettings,omitempty"`
+	GRPCSettings        json.RawMessage `json:"grpcSettings,omitempty"`
+	TCPSettings         *TCPSettings    `json:"tcpSettings,omitempty"`
+	HTTPSettings        *HTTPSettings   `json:"httpSettings,omitempty"`
+	KCPSettings         *KCPSettings    `json:"kcpSettings,omitempty"`
+	QUICSettings        *QUICSettings   `json:"quicSettings,omitempty"`
+	HTTPUpgradeSettings json.RawMessage `json:"httpupgradeSettings,omitempty"`
+	XHTTPSettings       json.RawMessage `json:"xhttpSettings,omitempty"`
 }
 
 type TLSSettings struct {
-	ServerName    string        `json:"serverName,omitempty"`
-	Fingerprint   string        `json:"fingerprint,omitempty"`
-	ALPN          []string      `json:"alpn,omitempty"`
-	AllowInsecure bool          `json:"allowInsecure,omitempty"`
-	Certificates  interface{}   `json:"certificates,omitempty"` // server-side only
+	ServerName    string      `json:"serverName,omitempty"`
+	Fingerprint   string      `json:"fingerprint,omitempty"`
+	ALPN          []string    `json:"alpn,omitempty"`
+	AllowInsecure bool        `json:"allowInsecure,omitempty"`
+	Certificates  interface{} `json:"certificates,omitempty"` // server-side only
 }
 
 type RealitySettings struct {
@@ -110,16 +116,18 @@ type RealitySettings struct {
 	ServerNames  []string `json:"serverNames,omitempty"`
 	PrivateKey   string   `json:"privateKey,omitempty"`
 	ShortIds     []string `json:"shortIds,omitempty"`
+	MLDSA65Seed  string   `json:"mldsa65Seed,omitempty"`
 	MinClientVer string   `json:"minClientVer,omitempty"`
 	MaxClientVer string   `json:"maxClientVer,omitempty"`
 	MaxTimeDiff  int64    `json:"maxTimeDiff,omitempty"`
 	// Stored alongside for convenience (or derived)
-	PublicKey    string   `json:"publicKey,omitempty"`
+	PublicKey string `json:"publicKey,omitempty"`
 	// Client-side fields
-	ServerName   string   `json:"serverName,omitempty"`
-	Fingerprint  string   `json:"fingerprint,omitempty"`
-	ShortId      string   `json:"shortId,omitempty"`
-	SpiderX      string   `json:"spiderX,omitempty"`
+	ServerName    string `json:"serverName,omitempty"`
+	Fingerprint   string `json:"fingerprint,omitempty"`
+	ShortId       string `json:"shortId,omitempty"`
+	SpiderX       string `json:"spiderX,omitempty"`
+	MLDSA65Verify string `json:"mldsa65Verify,omitempty"`
 }
 
 type WSSettings struct {
@@ -129,10 +137,10 @@ type WSSettings struct {
 }
 
 type GRPCSettings struct {
-	ServiceName    string `json:"serviceName,omitempty"`
-	MultiMode      bool   `json:"multiMode,omitempty"`
-	IdleTimeout    int    `json:"idle_timeout,omitempty"`
-	HealthCheckTimeout int `json:"health_check_timeout,omitempty"`
+	ServiceName        string `json:"serviceName,omitempty"`
+	MultiMode          bool   `json:"multiMode,omitempty"`
+	IdleTimeout        int    `json:"idle_timeout,omitempty"`
+	HealthCheckTimeout int    `json:"health_check_timeout,omitempty"`
 }
 
 type TCPSettings struct {
@@ -179,11 +187,11 @@ type XHTTPSettings struct {
 
 // ClientConfig is the full xray client configuration returned in subscription
 type ClientConfig struct {
-	Log       *LogConfig   `json:"log"`
-	DNS       *DNSConfig   `json:"dns"`
-	Inbounds  []Inbound    `json:"inbounds"`
-	Outbounds []Outbound   `json:"outbounds"`
-	Routing   *Routing     `json:"routing"`
+	Log       *LogConfig `json:"log"`
+	DNS       *DNSConfig `json:"dns"`
+	Inbounds  []Inbound  `json:"inbounds"`
+	Outbounds []Outbound `json:"outbounds"`
+	Routing   *Routing   `json:"routing"`
 }
 
 type LogConfig struct {
@@ -229,9 +237,9 @@ type VMessOutboundSettings struct {
 }
 
 type VMessServer struct {
-	Address string        `json:"address"`
-	Port    int           `json:"port"`
-	Users   []VMessUser   `json:"users"`
+	Address string      `json:"address"`
+	Port    int         `json:"port"`
+	Users   []VMessUser `json:"users"`
 }
 
 type VMessUser struct {
@@ -255,6 +263,7 @@ type VLESSUser struct {
 	ID         string `json:"id"`
 	Flow       string `json:"flow,omitempty"`
 	Encryption string `json:"encryption"`
+	Email      string `json:"email,omitempty"`
 	Level      int    `json:"level,omitempty"`
 }
 
@@ -287,9 +296,9 @@ type SOCKSOutboundSettings struct {
 }
 
 type SOCKSServer struct {
-	Address string        `json:"address"`
-	Port    int           `json:"port"`
-	Users   []SOCKSUser   `json:"users,omitempty"`
+	Address string      `json:"address"`
+	Port    int         `json:"port"`
+	Users   []SOCKSUser `json:"users,omitempty"`
 }
 
 type SOCKSUser struct {
@@ -300,17 +309,25 @@ type SOCKSUser struct {
 // Routing
 type Routing struct {
 	DomainStrategy string        `json:"domainStrategy,omitempty"`
+	Balancers      []Balancer    `json:"balancers,omitempty"`
 	Rules          []RoutingRule `json:"rules"`
+}
+
+type Balancer struct {
+	Tag      string   `json:"tag"`
+	Selector []string `json:"selector"`
 }
 
 type RoutingRule struct {
 	Type        string   `json:"type"`
 	InboundTag  []string `json:"inboundTag,omitempty"`
-	OutboundTag string   `json:"outboundTag"`
+	OutboundTag string   `json:"outboundTag,omitempty"`
+	BalancerTag string   `json:"balancerTag,omitempty"`
 	Domain      []string `json:"domain,omitempty"`
 	IP          []string `json:"ip,omitempty"`
 	Network     string   `json:"network,omitempty"`
 	Port        string   `json:"port,omitempty"`
+	Protocol    []string `json:"protocol,omitempty"`
 }
 
 // StoredClientConfig holds per-user per-inbound credential data in DB
@@ -320,6 +337,9 @@ type StoredClientConfig struct {
 	ID      string `json:"id,omitempty"`
 	AlterId int    `json:"alter_id,omitempty"`
 	Flow    string `json:"flow,omitempty"`
+	Email   string `json:"email,omitempty"`
+	// VLESS
+	Encryption string `json:"encryption,omitempty"`
 	// Trojan/SS/SOCKS
 	Password string `json:"password,omitempty"`
 	Method   string `json:"method,omitempty"`
