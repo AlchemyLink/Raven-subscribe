@@ -12,7 +12,7 @@ import (
 )
 
 // GenerateClientConfig produces a complete xray client JSON config for a user
-func GenerateClientConfig(serverHost string, user models.User, clients []models.UserClientFull, globalRoutesJSON string) (*ClientConfig, error) {
+func GenerateClientConfig(serverHost string, user models.User, clients []models.UserClientFull, globalRoutesJSON string, balancerStrategy string, balancerProbeURL string, balancerProbeInterval string) (*ClientConfig, error) {
 	cfg := &ClientConfig{
 		Log: &LogConfig{LogLevel: "warning"},
 		DNS: defaultDNS(),
@@ -50,11 +50,25 @@ func GenerateClientConfig(serverHost string, user models.User, clients []models.
 
 	// Update routing: use balancer if multiple proxies, single proxy otherwise
 	if len(proxyTags) > 1 {
+		strategy := normalizeBalancerStrategy(balancerStrategy)
+		if strategy == "" {
+			strategy = "leastPing"
+		}
 		// Xray load balancing is configured in routing.balancers, not as an outbound protocol.
 		cfg.Routing.Balancers = append(cfg.Routing.Balancers, Balancer{
 			Tag:      "proxy-balance",
 			Selector: proxyTags,
+			Strategy: &BalancerStrategy{Type: strategy},
+			// If balancer cannot pick a healthy outbound yet, use first proxy as fallback.
+			FallbackTag: proxyTags[0],
 		})
+		if strategy == "leastPing" || strategy == "leastLoad" {
+			cfg.Observatory = &ObservatoryConfig{
+				SubjectSelector: proxyTags,
+				ProbeURL:        firstNonEmpty(strings.TrimSpace(balancerProbeURL), "https://www.gstatic.com/generate_204"),
+				ProbeInterval:   firstNonEmpty(strings.TrimSpace(balancerProbeInterval), "30s"),
+			}
+		}
 		resolveProxyRouteTargets(cfg.Routing, true, "proxy-balance")
 		cfg.Routing.Rules = append(cfg.Routing.Rules, RoutingRule{
 			Type:        "field",
@@ -72,6 +86,19 @@ func GenerateClientConfig(serverHost string, user models.User, clients []models.
 	}
 
 	return cfg, nil
+}
+
+func normalizeBalancerStrategy(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "random":
+		return "random"
+	case "leastping":
+		return "leastPing"
+	case "leastload":
+		return "leastLoad"
+	default:
+		return ""
+	}
 }
 
 func applyUserRoutes(cfg *ClientConfig, routesJSON string) {

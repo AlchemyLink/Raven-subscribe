@@ -44,9 +44,17 @@ cp config.json.example /etc/xray-subscription/config.json
   "db_path": "/var/lib/xray-subscription/db.sqlite",
   "sync_interval_seconds": 60,
   "base_url": "http://YOUR_DOMAIN_OR_IP:8080",
-  "admin_token": "CHANGE_ME"
+  "admin_token": "CHANGE_ME",
+  "balancer_strategy": "leastPing",
+  "balancer_probe_url": "https://www.gstatic.com/generate_204",
+  "balancer_probe_interval": "30s"
 }
 ```
+
+Параметры балансировки:
+
+- `balancer_strategy`: `random`, `leastPing`, `leastLoad` (по умолчанию `leastPing`)
+- `balancer_probe_url` и `balancer_probe_interval` используются для `leastPing/leastLoad`
 
 ### 3) Запуск
 
@@ -70,6 +78,8 @@ cp config.json.example /etc/xray-subscription/config.json
 - `?protocol=vless` (также `vmess`, `trojan`, `shadowsocks`, `socks`)
 - `?inbound_tag=vless-xhttp-in-1`
 - `?format=v2box` / `?format=links` / `?format=b64`
+- `?profile=mobile` (удаляет из роутинга селекторы `geosite:` / `geoip:`)
+- `?mobile=1` (то же, что `profile=mobile`)
 
 Примеры:
 
@@ -78,6 +88,7 @@ curl "http://HOST:8080/sub/<token>"
 curl "http://HOST:8080/sub/<token>/links.txt"
 curl "http://HOST:8080/sub/<token>/links.b64"
 curl "http://HOST:8080/sub/<token>?format=v2box"
+curl "http://HOST:8080/sub/<token>?profile=mobile"
 ```
 
 ---
@@ -113,6 +124,11 @@ curl "http://HOST:8080/sub/<token>?format=v2box"
 - `POST /api/routes/global`
 - `PUT /api/routes/global`
 - `DELETE /api/routes/global`
+
+### Балансировщик (runtime override)
+
+- `GET /api/config/balancer`
+- `PUT /api/config/balancer`
 
 ### Inbounds и sync
 
@@ -158,6 +174,22 @@ curl -X POST "http://HOST:8080/api/routes/global" \
     "outboundTag": "proxy",
     "domain": ["geosite:ru-blocked"]
   }'
+
+# Поменять стратегию балансировки без редактирования config.json
+curl -X PUT "http://HOST:8080/api/config/balancer" \
+  -H "X-Admin-Token: TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "strategy": "leastPing",
+    "probe_url": "https://www.gstatic.com/generate_204",
+    "probe_interval": "30s"
+  }'
+
+# Сбросить runtime override и вернуться к значениям из config.json
+curl -X PUT "http://HOST:8080/api/config/balancer" \
+  -H "X-Admin-Token: TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reset": true}'
 ```
 
 ---
