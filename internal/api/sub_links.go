@@ -15,77 +15,148 @@ import (
 	"xray-subscription/internal/xray"
 )
 
+type proxyLink struct {
+	Protocol string `json:"protocol"`
+	Tag      string `json:"tag"`
+	URL      string `json:"url"`
+}
+
 func (s *Server) handleSubscriptionLinksText(w http.ResponseWriter, r *http.Request) {
-	s.handleSubscriptionLinksByFormat(w, r, "txt")
+	s.handleSubscriptionLinksByFormatAndProtocol(w, r, "txt", "")
 }
 
 func (s *Server) handleSubscriptionLinksB64(w http.ResponseWriter, r *http.Request) {
-	s.handleSubscriptionLinksByFormat(w, r, "b64")
+	s.handleSubscriptionLinksByFormatAndProtocol(w, r, "b64", "")
 }
 
-func (s *Server) handleSubscriptionLinksByFormat(w http.ResponseWriter, r *http.Request, format string) {
-	token := mux.Vars(r)["token"]
-	if token == "" {
-		jsonError(w, "missing token", http.StatusBadRequest)
-		return
-	}
-	user, err := s.db.GetUserByToken(token)
-	if err != nil || user == nil {
-		jsonError(w, "invalid token", http.StatusNotFound)
-		return
-	}
-	if !user.Enabled {
-		jsonError(w, "user disabled", http.StatusForbidden)
-		return
-	}
+func (s *Server) handleVLESSLinksText(w http.ResponseWriter, r *http.Request) {
+	s.handleSubscriptionLinksByFormatAndProtocol(w, r, "txt", "vless")
+}
 
-	clients, err := s.db.GetUserClients(user.ID)
-	if err != nil {
-		log.Printf("ERROR get user clients for %s: %v", user.Username, err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	clients = applySubscriptionFilters(clients, r)
-	if len(clients) == 0 {
-		jsonError(w, "no enabled clients matched filters", http.StatusNotFound)
-		return
-	}
+func (s *Server) handleVLESSLinksB64(w http.ResponseWriter, r *http.Request) {
+	s.handleSubscriptionLinksByFormatAndProtocol(w, r, "b64", "vless")
+}
 
-	globalRoutesJSON, err := s.db.GetGlobalClientRoutes()
-	if err != nil {
-		jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	balancerStrategy, balancerProbeURL, balancerProbeInterval, err := s.getEffectiveBalancerConfig()
-	if err != nil {
-		jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
+func (s *Server) handleVMessLinksText(w http.ResponseWriter, r *http.Request) {
+	s.handleSubscriptionLinksByFormatAndProtocol(w, r, "txt", "vmess")
+}
 
-	cfg, err := xray.GenerateClientConfig(
-		s.cfg.ServerHost,
-		*user,
-		clients,
-		globalRoutesJSON,
-		balancerStrategy,
-		balancerProbeURL,
-		balancerProbeInterval,
-	)
+func (s *Server) handleVMessLinksB64(w http.ResponseWriter, r *http.Request) {
+	s.handleSubscriptionLinksByFormatAndProtocol(w, r, "b64", "vmess")
+}
+
+func (s *Server) handleTrojanLinksText(w http.ResponseWriter, r *http.Request) {
+	s.handleSubscriptionLinksByFormatAndProtocol(w, r, "txt", "trojan")
+}
+
+func (s *Server) handleTrojanLinksB64(w http.ResponseWriter, r *http.Request) {
+	s.handleSubscriptionLinksByFormatAndProtocol(w, r, "b64", "trojan")
+}
+
+func (s *Server) handleShadowsocksLinksText(w http.ResponseWriter, r *http.Request) {
+	s.handleSubscriptionLinksByFormatAndProtocol(w, r, "txt", "shadowsocks")
+}
+
+func (s *Server) handleShadowsocksLinksB64(w http.ResponseWriter, r *http.Request) {
+	s.handleSubscriptionLinksByFormatAndProtocol(w, r, "b64", "shadowsocks")
+}
+
+func (s *Server) handleVLESSList(w http.ResponseWriter, r *http.Request) {
+	cfg, username, err := s.generateConfigForSubscriptionRequest(r)
 	if err != nil {
-		jsonError(w, "could not generate config: "+err.Error(), http.StatusInternalServerError)
+		jsonError(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	entries := buildProxyLinkEntries(cfg)
+	list := make([]map[string]string, 0, len(entries))
+	for _, e := range entries {
+		if e.Protocol != "vless" {
+			continue
+		}
+		list = append(list, map[string]string{
+			"tag":      e.Tag,
+			"url":      e.URL,
+			"url_b64":  base64.StdEncoding.EncodeToString([]byte(e.URL)),
+			"by_tag":   fmt.Sprintf("%s/vless/%s", strings.TrimSuffix(extractSubBaseURL(r), "/"), url.PathEscape(e.Tag)),
+			"by_tag_b64": fmt.Sprintf("%s/vless/%s/b64", strings.TrimSuffix(extractSubBaseURL(r), "/"), url.PathEscape(e.Tag)),
+		})
+	}
+	jsonOK(w, map[string]interface{}{
+		"profile_title": username,
+		"count":         len(list),
+		"items":         list,
+	})
+}
+
+func (s *Server) handleVLESSLinkByTagText(w http.ResponseWriter, r *http.Request) {
+	s.handleVLESSLinkByTag(w, r, "txt")
+}
+
+func (s *Server) handleVLESSLinkByTagB64(w http.ResponseWriter, r *http.Request) {
+	s.handleVLESSLinkByTag(w, r, "b64")
+}
+
+func (s *Server) handleVLESSLinkByTag(w http.ResponseWriter, r *http.Request, format string) {
+	tag := strings.TrimSpace(mux.Vars(r)["vlessTag"])
+	if tag == "" {
+		jsonError(w, "missing vless tag", http.StatusBadRequest)
+		return
+	}
+	cfg, username, err := s.generateConfigForSubscriptionRequest(r)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	entries := buildProxyLinkEntries(cfg)
+	for _, e := range entries {
+		if e.Protocol != "vless" {
+			continue
+		}
+		if e.Tag != tag {
+			continue
+		}
+		if format == "b64" {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Header().Set("Content-Disposition", `attachment; filename="vless-single.b64.txt"`)
+			w.Header().Set("Profile-Title", username)
+			_, _ = w.Write([]byte(base64.StdEncoding.EncodeToString([]byte(e.URL))))
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="vless-single.txt"`)
+		w.Header().Set("Profile-Title", username)
+		_, _ = w.Write([]byte(e.URL))
+		return
+	}
+	jsonError(w, "vless link not found for tag: "+tag, http.StatusNotFound)
+}
+
+func (s *Server) handleSubscriptionLinksByFormatAndProtocol(w http.ResponseWriter, r *http.Request, format string, forcedProtocol string) {
+	cfg, username, err := s.generateConfigForSubscriptionRequestWithForcedProtocol(r, forcedProtocol)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
 	if format == "b64" {
-		writeProxyLinksB64(w, user.Username, cfg)
+		writeProxyLinksB64(w, username, cfg)
 		return
 	}
-	writeProxyLinksText(w, user.Username, cfg)
+	writeProxyLinksText(w, username, cfg)
 }
 
 func applySubscriptionFilters(clients []models.UserClientFull, r *http.Request) []models.UserClientFull {
 	result := clients
-	if p := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("protocol"))); p != "" {
+	return applySubscriptionFiltersWithProtocol(result, r, "")
+}
+
+func applySubscriptionFiltersWithProtocol(clients []models.UserClientFull, r *http.Request, forcedProtocol string) []models.UserClientFull {
+	result := clients
+	p := strings.ToLower(strings.TrimSpace(forcedProtocol))
+	if p == "" {
+		p = extractProtocolFilter(r)
+	}
+	if p != "" {
 		filtered := make([]models.UserClientFull, 0, len(result))
 		for _, c := range result {
 			if strings.EqualFold(c.InboundProtocol, p) {
@@ -94,16 +165,53 @@ func applySubscriptionFilters(clients []models.UserClientFull, r *http.Request) 
 		}
 		result = filtered
 	}
-	if t := strings.TrimSpace(r.URL.Query().Get("inbound_tag")); t != "" {
+	if t := extractInboundTagFilter(r); t != "" {
 		filtered := make([]models.UserClientFull, 0, len(result))
-		for _, c := range result {
-			if c.InboundTag == t {
+		for i, c := range result {
+			if matchesInboundTagFilter(c.InboundTag, t, i) {
 				filtered = append(filtered, c)
 			}
 		}
 		result = filtered
 	}
 	return result
+}
+
+func extractProtocolFilter(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if p := strings.ToLower(strings.TrimSpace(mux.Vars(r)["protocol"])); p != "" {
+		return p
+	}
+	return strings.ToLower(strings.TrimSpace(r.URL.Query().Get("protocol")))
+}
+
+func extractInboundTagFilter(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if t := strings.TrimSpace(mux.Vars(r)["inboundTag"]); t != "" {
+		return t
+	}
+	return strings.TrimSpace(r.URL.Query().Get("inbound_tag"))
+}
+
+func matchesInboundTagFilter(inboundTag, filter string, index int) bool {
+	filter = strings.TrimSpace(filter)
+	if filter == "" {
+		return true
+	}
+	if inboundTag == filter {
+		return true
+	}
+	sanitized := strings.NewReplacer(" ", "-", "/", "-", "\\", "-").Replace(inboundTag)
+	if sanitized == filter {
+		return true
+	}
+	// Also accept generated outbound-like tag (<sanitized inbound tag>-<index>),
+	// e.g. filter=vless-xhttp-in-1
+	return fmt.Sprintf("%s-%d", sanitized, index) == filter
 }
 
 func writeProxyLinksText(w http.ResponseWriter, username string, cfg *xray.ClientConfig) {
@@ -126,31 +234,101 @@ func writeProxyLinksB64(w http.ResponseWriter, username string, cfg *xray.Client
 }
 
 func buildProxyLinks(cfg *xray.ClientConfig) []string {
+	entries := buildProxyLinkEntries(cfg)
+	links := make([]string, 0, len(entries))
+	for _, e := range entries {
+		links = append(links, e.URL)
+	}
+	return links
+}
+
+func buildProxyLinkEntries(cfg *xray.ClientConfig) []proxyLink {
 	if cfg == nil {
 		return nil
 	}
-	links := make([]string, 0, len(cfg.Outbounds))
+	links := make([]proxyLink, 0, len(cfg.Outbounds))
 	for _, ob := range cfg.Outbounds {
 		switch ob.Protocol {
 		case "vless":
 			if l := buildVLESSLink(ob); l != "" {
-				links = append(links, l)
+				links = append(links, proxyLink{Protocol: "vless", Tag: ob.Tag, URL: l})
 			}
 		case "vmess":
 			if l := buildVMessLink(ob); l != "" {
-				links = append(links, l)
+				links = append(links, proxyLink{Protocol: "vmess", Tag: ob.Tag, URL: l})
 			}
 		case "trojan":
 			if l := buildTrojanLink(ob); l != "" {
-				links = append(links, l)
+				links = append(links, proxyLink{Protocol: "trojan", Tag: ob.Tag, URL: l})
 			}
 		case "shadowsocks":
 			if l := buildSSLink(ob); l != "" {
-				links = append(links, l)
+				links = append(links, proxyLink{Protocol: "shadowsocks", Tag: ob.Tag, URL: l})
 			}
 		}
 	}
 	return links
+}
+
+func (s *Server) generateConfigForSubscriptionRequest(r *http.Request) (*xray.ClientConfig, string, error) {
+	return s.generateConfigForSubscriptionRequestWithForcedProtocol(r, "")
+}
+
+func (s *Server) generateConfigForSubscriptionRequestWithForcedProtocol(r *http.Request, forcedProtocol string) (*xray.ClientConfig, string, error) {
+	token := mux.Vars(r)["token"]
+	if token == "" {
+		return nil, "", fmt.Errorf("missing token")
+	}
+	user, err := s.db.GetUserByToken(token)
+	if err != nil || user == nil {
+		return nil, "", fmt.Errorf("invalid token")
+	}
+	if !user.Enabled {
+		return nil, "", fmt.Errorf("user disabled")
+	}
+	clients, err := s.db.GetUserClients(user.ID)
+	if err != nil {
+		log.Printf("ERROR get user clients for %s: %v", user.Username, err)
+		return nil, "", fmt.Errorf("internal error")
+	}
+	clients = applySubscriptionFiltersWithProtocol(clients, r, forcedProtocol)
+	if len(clients) == 0 {
+		return nil, "", fmt.Errorf("no enabled clients matched filters")
+	}
+	globalRoutesJSON, err := s.db.GetGlobalClientRoutes()
+	if err != nil {
+		return nil, "", fmt.Errorf("internal error")
+	}
+	balancerStrategy, balancerProbeURL, balancerProbeInterval, err := s.getEffectiveBalancerConfig()
+	if err != nil {
+		return nil, "", fmt.Errorf("internal error")
+	}
+	cfg, err := xray.GenerateClientConfig(
+		s.cfg.ServerHost,
+		*user,
+		clients,
+		globalRoutesJSON,
+		balancerStrategy,
+		balancerProbeURL,
+		balancerProbeInterval,
+	)
+	if err != nil {
+		return nil, "", fmt.Errorf("could not generate config: %s", err.Error())
+	}
+	return cfg, user.Username, nil
+}
+
+func extractSubBaseURL(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	host := r.Host
+	token := mux.Vars(r)["token"]
+	return fmt.Sprintf("%s://%s/sub/%s", scheme, host, token)
 }
 
 func buildVLESSLink(ob xray.Outbound) string {
