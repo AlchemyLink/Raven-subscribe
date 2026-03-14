@@ -522,8 +522,6 @@ func defaultRouting() *Routing {
 	return &Routing{
 		DomainStrategy: "IPOnDemand",
 		Rules: []RoutingRule{
-			{Type: "field", OutboundTag: "proxy", Domain: []string{"geosite:ru-blocked"}},
-			{Type: "field", OutboundTag: "proxy", IP: []string{"geoip:ru-blocked"}},
 			{
 				Type:        "field",
 				OutboundTag: "direct",
@@ -547,6 +545,8 @@ func defaultRouting() *Routing {
 				},
 			},
 			{Type: "field", OutboundTag: "direct", Protocol: []string{"bittorrent"}},
+			{Type: "field", OutboundTag: "proxy", Domain: []string{"geosite:ru-blocked"}},
+			{Type: "field", OutboundTag: "proxy", IP: []string{"geoip:ru-blocked"}},
 			{
 				Type:        "field",
 				OutboundTag: "block",
