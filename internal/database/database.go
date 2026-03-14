@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"xray-subscription/internal/models"
@@ -72,11 +73,27 @@ func (db *DB) migrate() error {
 		UNIQUE(user_id, inbound_id)
 	);
 
+	CREATE TABLE IF NOT EXISTS app_settings (
+		key   TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_users_token ON users(token);
 	CREATE INDEX IF NOT EXISTS idx_user_clients_user ON user_clients(user_id);
 	`
 	_, err := db.conn.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Backward-compatible migration for older DBs.
+	if _, err := db.conn.Exec(`ALTER TABLE users ADD COLUMN client_routes TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		// Ignore duplicate column error if already migrated.
+		if !strings.Contains(err.Error(), "duplicate column name: client_routes") {
+			return err
+		}
+	}
+	return nil
 }
 
 // ─── Users ───────────────────────────────────────────────────────────────────
@@ -84,8 +101,8 @@ func (db *DB) migrate() error {
 func (db *DB) CreateUser(username, token string) (*models.User, error) {
 	now := time.Now().UTC()
 	res, err := db.conn.Exec(
-		`INSERT INTO users (username, token, enabled, created_at, updated_at)
-		 VALUES (?, ?, 1, ?, ?)`,
+		`INSERT INTO users (username, token, enabled, client_routes, created_at, updated_at)
+		 VALUES (?, ?, 1, '[]', ?, ?)`,
 		username, token, now, now,
 	)
 	if err != nil {
@@ -100,25 +117,25 @@ func (db *DB) CreateUser(username, token string) (*models.User, error) {
 
 func (db *DB) GetUserByToken(token string) (*models.User, error) {
 	return db.scanUser(db.conn.QueryRow(
-		`SELECT id, username, token, enabled, created_at, updated_at FROM users WHERE token = ?`, token,
+		`SELECT id, username, token, enabled, client_routes, created_at, updated_at FROM users WHERE token = ?`, token,
 	))
 }
 
 func (db *DB) GetUserByUsername(username string) (*models.User, error) {
 	return db.scanUser(db.conn.QueryRow(
-		`SELECT id, username, token, enabled, created_at, updated_at FROM users WHERE username = ?`, username,
+		`SELECT id, username, token, enabled, client_routes, created_at, updated_at FROM users WHERE username = ?`, username,
 	))
 }
 
 func (db *DB) GetUserByID(id int64) (*models.User, error) {
 	return db.scanUser(db.conn.QueryRow(
-		`SELECT id, username, token, enabled, created_at, updated_at FROM users WHERE id = ?`, id,
+		`SELECT id, username, token, enabled, client_routes, created_at, updated_at FROM users WHERE id = ?`, id,
 	))
 }
 
 func (db *DB) ListUsers() ([]models.User, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, username, token, enabled, created_at, updated_at FROM users ORDER BY created_at`,
+		`SELECT id, username, token, enabled, client_routes, created_at, updated_at FROM users ORDER BY created_at`,
 	)
 	if err != nil {
 		return nil, err
@@ -162,7 +179,7 @@ func (db *DB) scanUser(row interface {
 }) (*models.User, error) {
 	var u models.User
 	var enabled int
-	err := row.Scan(&u.ID, &u.Username, &u.Token, &enabled, &u.CreatedAt, &u.UpdatedAt)
+	err := row.Scan(&u.ID, &u.Username, &u.Token, &enabled, &u.ClientRoutes, &u.CreatedAt, &u.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -171,6 +188,39 @@ func (db *DB) scanUser(row interface {
 	}
 	u.Enabled = enabled == 1
 	return &u, nil
+}
+
+func (db *DB) UpdateUserClientRoutes(userID int64, routesJSON string) error {
+	_, err := db.conn.Exec(
+		`UPDATE users SET client_routes = ?, updated_at = ? WHERE id = ?`,
+		routesJSON, time.Now().UTC(), userID,
+	)
+	return err
+}
+
+func (db *DB) GetGlobalClientRoutes() (string, error) {
+	var routes string
+	err := db.conn.QueryRow(`SELECT value FROM app_settings WHERE key = 'global_client_routes'`).Scan(&routes)
+	if err == sql.ErrNoRows {
+		return "[]", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(routes) == "" {
+		return "[]", nil
+	}
+	return routes, nil
+}
+
+func (db *DB) UpdateGlobalClientRoutes(routesJSON string) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO app_settings (key, value)
+		 VALUES ('global_client_routes', ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		routesJSON,
+	)
+	return err
 }
 
 // ─── Inbounds ────────────────────────────────────────────────────────────────

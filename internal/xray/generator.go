@@ -12,7 +12,7 @@ import (
 )
 
 // GenerateClientConfig produces a complete xray client JSON config for a user
-func GenerateClientConfig(serverHost string, user models.User, clients []models.UserClientFull) (*ClientConfig, error) {
+func GenerateClientConfig(serverHost string, user models.User, clients []models.UserClientFull, globalRoutesJSON string) (*ClientConfig, error) {
 	cfg := &ClientConfig{
 		Log: &LogConfig{LogLevel: "warning"},
 		DNS: defaultDNS(),
@@ -22,6 +22,9 @@ func GenerateClientConfig(serverHost string, user models.User, clients []models.
 		},
 		Routing: defaultRouting(),
 	}
+	// Priority: user rules > global rules > defaults
+	applyUserRoutes(cfg, globalRoutesJSON)
+	applyUserRoutes(cfg, user.ClientRoutes)
 
 	// Build outbounds from each user client
 	var proxyTags []string
@@ -45,23 +48,97 @@ func GenerateClientConfig(serverHost string, user models.User, clients []models.
 		blackholeOutbound(),
 	)
 
-	// Update routing: route general traffic through first proxy (or load balance if multiple)
-	if len(proxyTags) == 1 {
-		cfg.Routing.Rules = append(cfg.Routing.Rules, RoutingRule{
-			Type:        "field",
-			OutboundTag: proxyTags[0],
-			Network:     "tcp,udp",
+	// Update routing: use balancer if multiple proxies, single proxy otherwise
+	if len(proxyTags) > 1 {
+		// Xray load balancing is configured in routing.balancers, not as an outbound protocol.
+		cfg.Routing.Balancers = append(cfg.Routing.Balancers, Balancer{
+			Tag:      "proxy-balance",
+			Selector: proxyTags,
 		})
-	} else if len(proxyTags) > 1 {
-		// Use first as default, user can adjust
+		resolveProxyRouteTargets(cfg.Routing, true, "proxy-balance")
+		cfg.Routing.Rules = append(cfg.Routing.Rules, RoutingRule{
+			Type:        "field",
+			BalancerTag: "proxy-balance",
+			Port:        "0-65535",
+		})
+	} else if len(proxyTags) == 1 {
+		resolveProxyRouteTargets(cfg.Routing, false, proxyTags[0])
+		// Single proxy: route directly
 		cfg.Routing.Rules = append(cfg.Routing.Rules, RoutingRule{
 			Type:        "field",
 			OutboundTag: proxyTags[0],
-			Network:     "tcp,udp",
+			Port:        "0-65535",
 		})
 	}
 
 	return cfg, nil
+}
+
+func applyUserRoutes(cfg *ClientConfig, routesJSON string) {
+	routesJSON = strings.TrimSpace(routesJSON)
+	if routesJSON == "" || routesJSON == "null" {
+		return
+	}
+	var userRules []models.UserRouteRule
+	if err := json.Unmarshal([]byte(routesJSON), &userRules); err != nil {
+		return
+	}
+	if len(userRules) == 0 {
+		return
+	}
+
+	custom := make([]RoutingRule, 0, len(userRules))
+	for _, r := range userRules {
+		if !isAllowedOutboundTag(r.OutboundTag) {
+			continue
+		}
+		rr := RoutingRule{
+			Type:        firstNonEmpty(strings.TrimSpace(r.Type), "field"),
+			OutboundTag: strings.TrimSpace(r.OutboundTag),
+			Domain:      r.Domain,
+			IP:          r.IP,
+			Network:     r.Network,
+			Port:        r.Port,
+			Protocol:    r.Protocol,
+			InboundTag:  r.InboundTag,
+		}
+		// Xray rejects rules with no effective fields.
+		if len(rr.Domain) == 0 && len(rr.IP) == 0 && rr.Network == "" && rr.Port == "" && len(rr.Protocol) == 0 && len(rr.InboundTag) == 0 {
+			continue
+		}
+		custom = append(custom, rr)
+	}
+	if len(custom) == 0 {
+		return
+	}
+	cfg.Routing.Rules = append(custom, cfg.Routing.Rules...)
+}
+
+func isAllowedOutboundTag(tag string) bool {
+	switch strings.ToLower(strings.TrimSpace(tag)) {
+	case "direct", "proxy", "block":
+		return true
+	default:
+		return false
+	}
+}
+
+func resolveProxyRouteTargets(r *Routing, useBalancer bool, target string) {
+	if r == nil || target == "" {
+		return
+	}
+	for i := range r.Rules {
+		if strings.ToLower(strings.TrimSpace(r.Rules[i].OutboundTag)) != "proxy" {
+			continue
+		}
+		if useBalancer {
+			r.Rules[i].OutboundTag = ""
+			r.Rules[i].BalancerTag = target
+		} else {
+			r.Rules[i].OutboundTag = target
+			r.Rules[i].BalancerTag = ""
+		}
+	}
 }
 
 func buildOutbound(serverHost string, uc models.UserClientFull, index int) (*Outbound, error) {
@@ -139,10 +216,15 @@ func buildVMessSettings(host string, port int, cred StoredClientConfig) (json.Ra
 }
 
 func buildVLESSSettings(host string, port int, cred StoredClientConfig) (json.RawMessage, error) {
+	encryption := strings.TrimSpace(cred.Encryption)
+	if encryption == "" {
+		// VLESS outbound requires explicit "none" when no encryption is used.
+		encryption = "none"
+	}
 	user := VLESSUser{
 		ID:         cred.ID,
 		Flow:       cred.Flow,
-		Encryption: "none",
+		Encryption: encryption,
 	}
 	if cred.Email != "" {
 		user.Email = cred.Email
@@ -279,11 +361,12 @@ func convertReality(rs *RealitySettings, serverHost string) (*RealitySettings, e
 	}
 
 	return &RealitySettings{
-		ServerName:  serverName,
-		Fingerprint: firstNonEmpty(rs.Fingerprint, "chrome"),
-		PublicKey:   publicKey,
-		ShortId:     shortId,
-		SpiderX:     rs.SpiderX,
+		ServerName:    serverName,
+		Fingerprint:   firstNonEmpty(rs.Fingerprint, "chrome"),
+		PublicKey:     publicKey,
+		ShortId:       shortId,
+		SpiderX:       rs.SpiderX,
+		MLDSA65Verify: firstNonEmpty(rs.MLDSA65Verify, rs.MLDSA65Seed),
 	}, nil
 }
 
@@ -299,8 +382,13 @@ func convertXHTTPSettings(raw json.RawMessage, rs *RealitySettings) (json.RawMes
 		return nil, fmt.Errorf("unmarshal xhttp settings: %w", err)
 	}
 
-	// Keep only client-side fields: path, host, mode, headers
+	// XHTTP client settings whitelist based on https://github.com/XTLS/Xray-core/discussions/4113
+	// Core fields: path, host, mode, headers
+	// Optional: extra (server-provided advanced settings), xPaddingBytes, scMaxEachPostBytes, scMinPostsIntervalMs
+	// Client-only (never from server): xmux, downloadSettings
 	clientSettings := make(map[string]interface{})
+	
+	// Core fields
 	if path, ok := serverSettings["path"]; ok {
 		clientSettings["path"] = path
 	}
@@ -315,6 +403,20 @@ func convertXHTTPSettings(raw json.RawMessage, rs *RealitySettings) (json.RawMes
 	}
 	if headers, ok := serverSettings["headers"]; ok {
 		clientSettings["headers"] = headers
+	}
+	
+	// Optional server-sharable fields
+	if extra, ok := serverSettings["extra"]; ok {
+		clientSettings["extra"] = extra
+	}
+	if xPaddingBytes, ok := serverSettings["xPaddingBytes"]; ok {
+		clientSettings["xPaddingBytes"] = xPaddingBytes
+	}
+	if scMaxEachPostBytes, ok := serverSettings["scMaxEachPostBytes"]; ok {
+		clientSettings["scMaxEachPostBytes"] = scMaxEachPostBytes
+	}
+	if scMinPostsIntervalMs, ok := serverSettings["scMinPostsIntervalMs"]; ok {
+		clientSettings["scMinPostsIntervalMs"] = scMinPostsIntervalMs
 	}
 
 	result, err := json.Marshal(clientSettings)
@@ -367,7 +469,7 @@ func localSOCKS() Inbound {
 	})
 	return Inbound{
 		Tag:      "socks",
-		Port:     1080,
+		Port:     2080,
 		Listen:   "127.0.0.1",
 		Protocol: "socks",
 		Settings: raw,
@@ -418,15 +520,45 @@ func defaultDNS() *DNSConfig {
 
 func defaultRouting() *Routing {
 	return &Routing{
-		DomainStrategy: "IPIfNonMatch",
+		DomainStrategy: "IPOnDemand",
 		Rules: []RoutingRule{
-			// Block ads / trackers
-			{Type: "field", OutboundTag: "block", Domain: []string{"geosite:category-ads-all"}},
-			// Direct for private networks
+			{Type: "field", OutboundTag: "proxy", Domain: []string{"geosite:ru-blocked"}},
+			{Type: "field", OutboundTag: "proxy", IP: []string{"geoip:ru-blocked"}},
+			{
+				Type:        "field",
+				OutboundTag: "direct",
+				Domain: []string{
+					".lamoda.ru:443",
+					"okko.sport",
+					"okko.tv",
+					"yandex.net",
+					"vk.com",
+					"yastatic.net",
+					"gencit.info",
+					"naydex.net",
+					"deepseek.com",
+					"yandex.cloud",
+					"yandexcloud.net",
+					"lizaalert.org",
+					"selcdn.ne",
+					"lk.dobroservice.com",
+					"dobroservice.com",
+					"okko.tv",
+				},
+			},
+			{Type: "field", OutboundTag: "direct", Protocol: []string{"bittorrent"}},
+			{
+				Type:        "field",
+				OutboundTag: "block",
+				Domain: []string{
+					"geosite:category-ads-all",
+					"geosite:category-ads",
+					"geosite:category-public-tracker",
+				},
+			},
 			{Type: "field", OutboundTag: "direct", IP: []string{"geoip:private"}},
-			// Direct for CN domains / IPs
-			{Type: "field", OutboundTag: "direct", Domain: []string{"geosite:cn"}},
-			{Type: "field", OutboundTag: "direct", IP: []string{"geoip:cn"}},
+			{Type: "field", OutboundTag: "direct", Domain: []string{"geosite:private"}},
+			{Type: "field", OutboundTag: "direct", IP: []string{"geoip:ru"}},
 		},
 	}
 }

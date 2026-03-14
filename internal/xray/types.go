@@ -116,16 +116,18 @@ type RealitySettings struct {
 	ServerNames  []string `json:"serverNames,omitempty"`
 	PrivateKey   string   `json:"privateKey,omitempty"`
 	ShortIds     []string `json:"shortIds,omitempty"`
+	MLDSA65Seed  string   `json:"mldsa65Seed,omitempty"`
 	MinClientVer string   `json:"minClientVer,omitempty"`
 	MaxClientVer string   `json:"maxClientVer,omitempty"`
 	MaxTimeDiff  int64    `json:"maxTimeDiff,omitempty"`
 	// Stored alongside for convenience (or derived)
 	PublicKey string `json:"publicKey,omitempty"`
 	// Client-side fields
-	ServerName  string `json:"serverName,omitempty"`
-	Fingerprint string `json:"fingerprint,omitempty"`
-	ShortId     string `json:"shortId,omitempty"`
-	SpiderX     string `json:"spiderX,omitempty"`
+	ServerName    string `json:"serverName,omitempty"`
+	Fingerprint   string `json:"fingerprint,omitempty"`
+	ShortId       string `json:"shortId,omitempty"`
+	SpiderX       string `json:"spiderX,omitempty"`
+	MLDSA65Verify string `json:"mldsa65Verify,omitempty"`
 }
 
 type WSSettings struct {
@@ -307,17 +309,25 @@ type SOCKSUser struct {
 // Routing
 type Routing struct {
 	DomainStrategy string        `json:"domainStrategy,omitempty"`
+	Balancers      []Balancer    `json:"balancers,omitempty"`
 	Rules          []RoutingRule `json:"rules"`
+}
+
+type Balancer struct {
+	Tag      string   `json:"tag"`
+	Selector []string `json:"selector"`
 }
 
 type RoutingRule struct {
 	Type        string   `json:"type"`
 	InboundTag  []string `json:"inboundTag,omitempty"`
-	OutboundTag string   `json:"outboundTag"`
+	OutboundTag string   `json:"outboundTag,omitempty"`
+	BalancerTag string   `json:"balancerTag,omitempty"`
 	Domain      []string `json:"domain,omitempty"`
 	IP          []string `json:"ip,omitempty"`
 	Network     string   `json:"network,omitempty"`
 	Port        string   `json:"port,omitempty"`
+	Protocol    []string `json:"protocol,omitempty"`
 }
 
 // StoredClientConfig holds per-user per-inbound credential data in DB
@@ -328,6 +338,8 @@ type StoredClientConfig struct {
 	AlterId int    `json:"alter_id,omitempty"`
 	Flow    string `json:"flow,omitempty"`
 	Email   string `json:"email,omitempty"`
+	// VLESS
+	Encryption string `json:"encryption,omitempty"`
 	// Trojan/SS/SOCKS
 	Password string `json:"password,omitempty"`
 	Method   string `json:"method,omitempty"`
