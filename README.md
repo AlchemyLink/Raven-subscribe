@@ -42,7 +42,10 @@ $EDITOR /etc/xray-subscription/config.json
   "db_path": "/var/lib/xray-subscription/db.sqlite",
   "sync_interval_seconds": 60,
   "base_url": "http://YOUR_SERVER_IP:8080",
-  "admin_token": "choose-a-strong-secret-token"
+  "admin_token": "choose-a-strong-secret-token",
+  "balancer_strategy": "leastPing",
+  "balancer_probe_url": "https://www.gstatic.com/generate_204",
+  "balancer_probe_interval": "30s"
 }
 ```
 
@@ -110,6 +113,8 @@ Create `/etc/xray-subscription/config.json`:
 Notes:
 - Use `:8080` or `0.0.0.0:8080` for `listen_addr` (do not use domain name there).
 - `config_dir` must contain your Xray inbound configs.
+- `balancer_strategy`: `random`, `leastPing`, or `leastLoad` (default: `leastPing`).
+- `balancer_probe_*` is used by `leastPing`/`leastLoad` observatory checks.
 
 ### 4) Manual start test
 
@@ -266,6 +271,8 @@ curl "http://HOST:8080/sub/<token>?profile=mobile"
 | `POST` | `/api/routes/global` | Add one global routing rule |
 | `PUT` | `/api/routes/global` | Replace all global routing rules |
 | `DELETE` | `/api/routes/global` | Clear all global routing rules |
+| `GET` | `/api/config/balancer` | Get effective balancer config |
+| `PUT` | `/api/config/balancer` | Set/reset runtime balancer override |
 | `POST` | `/api/sync` | Trigger manual sync from config.d |
 
 Routing rule constraints for both user/global routes:
@@ -309,6 +316,26 @@ curl -X POST "http://HOST:8080/api/routes/global" \
 
 - `raw_config` is returned as parsed JSON object/array when valid.
 - If stored raw config is malformed JSON, `raw_config` is returned as string (fallback).
+
+Balancer runtime override examples:
+
+```bash
+# Set runtime balancer strategy (takes effect immediately for new generated configs)
+curl -X PUT "http://HOST:8080/api/config/balancer" \
+  -H "X-Admin-Token: TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "strategy": "leastPing",
+    "probe_url": "https://www.gstatic.com/generate_204",
+    "probe_interval": "30s"
+  }'
+
+# Reset runtime override and return to config.json values
+curl -X PUT "http://HOST:8080/api/config/balancer" \
+  -H "X-Admin-Token: TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reset": true}'
+```
 
 ---
 

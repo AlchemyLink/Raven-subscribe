@@ -71,6 +71,8 @@ func (s *Server) Router() http.Handler {
 	api.HandleFunc("/routes/global", s.setGlobalRoutes).Methods(http.MethodPut)
 	api.HandleFunc("/routes/global", s.addGlobalRoute).Methods(http.MethodPost)
 	api.HandleFunc("/routes/global", s.deleteGlobalRoutes).Methods(http.MethodDelete)
+	api.HandleFunc("/config/balancer", s.getBalancerConfig).Methods(http.MethodGet)
+	api.HandleFunc("/config/balancer", s.setBalancerConfig).Methods(http.MethodPut)
 	api.HandleFunc("/sync", s.triggerSync).Methods(http.MethodPost)
 
 	// Health check
@@ -162,7 +164,22 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := xray.GenerateClientConfig(s.cfg.ServerHost, *user, clients, globalRoutesJSON)
+	balancerStrategy, balancerProbeURL, balancerProbeInterval, err := s.getEffectiveBalancerConfig()
+	if err != nil {
+		log.Printf("ERROR get balancer config: %v", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	cfg, err := xray.GenerateClientConfig(
+		s.cfg.ServerHost,
+		*user,
+		clients,
+		globalRoutesJSON,
+		balancerStrategy,
+		balancerProbeURL,
+		balancerProbeInterval,
+	)
 	if err != nil {
 		log.Printf("ERROR generate config for %s: %v", user.Username, err)
 		jsonError(w, "could not generate config: "+err.Error(), http.StatusInternalServerError)
@@ -808,6 +825,91 @@ func (s *Server) deleteGlobalRoutes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) getBalancerConfig(w http.ResponseWriter, r *http.Request) {
+	effectiveStrategy, effectiveProbeURL, effectiveProbeInterval, err := s.getEffectiveBalancerConfig()
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	override, err := s.db.GetBalancerRuntimeConfig()
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	source := "config"
+	if override != nil {
+		source = "runtime"
+	}
+	jsonOK(w, map[string]interface{}{
+		"source": source,
+		"effective": map[string]string{
+			"strategy":      effectiveStrategy,
+			"probe_url":     effectiveProbeURL,
+			"probe_interval": effectiveProbeInterval,
+		},
+		"config_file_defaults": map[string]string{
+			"strategy":      s.cfg.BalancerStrategy,
+			"probe_url":     s.cfg.BalancerProbeURL,
+			"probe_interval": s.cfg.BalancerProbeFreq,
+		},
+		"runtime_override": override,
+	})
+}
+
+func (s *Server) setBalancerConfig(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Strategy      string `json:"strategy"`
+		ProbeURL      string `json:"probe_url"`
+		ProbeInterval string `json:"probe_interval"`
+		Reset         bool   `json:"reset"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid json body", http.StatusBadRequest)
+		return
+	}
+	if req.Reset {
+		if err := s.db.DeleteBalancerRuntimeConfig(); err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonOK(w, map[string]interface{}{
+			"status": "reset_to_config_defaults",
+		})
+		return
+	}
+
+	strategy := normalizeBalancerStrategyInput(req.Strategy)
+	if strategy == "" {
+		jsonError(w, "strategy must be one of: random, leastPing, leastLoad", http.StatusBadRequest)
+		return
+	}
+	probeURL := strings.TrimSpace(req.ProbeURL)
+	if probeURL == "" {
+		probeURL = s.cfg.BalancerProbeURL
+	}
+	probeInterval := strings.TrimSpace(req.ProbeInterval)
+	if probeInterval == "" {
+		probeInterval = s.cfg.BalancerProbeFreq
+	}
+
+	if err := s.db.SetBalancerRuntimeConfig(database.BalancerRuntimeConfig{
+		Strategy:      strategy,
+		ProbeURL:      probeURL,
+		ProbeInterval: probeInterval,
+	}); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]interface{}{
+		"status": "ok",
+		"runtime_override": map[string]string{
+			"strategy":      strategy,
+			"probe_url":     probeURL,
+			"probe_interval": probeInterval,
+		},
+	})
+}
+
 func (s *Server) getUserClients(w http.ResponseWriter, r *http.Request) {
 	user, err := s.getByID(w, r)
 	if user == nil || err != nil {
@@ -1085,6 +1187,33 @@ func decodeUserRouteFromBody(body io.Reader) (models.UserRouteRule, error) {
 		return wrapped.Rule, nil
 	}
 	return models.UserRouteRule{}, fmt.Errorf("invalid json body")
+}
+
+func (s *Server) getEffectiveBalancerConfig() (strategy string, probeURL string, probeInterval string, err error) {
+	override, err := s.db.GetBalancerRuntimeConfig()
+	if err != nil {
+		return "", "", "", err
+	}
+	if override != nil {
+		return firstNonEmptyString(strings.TrimSpace(override.Strategy), s.cfg.BalancerStrategy),
+			firstNonEmptyString(strings.TrimSpace(override.ProbeURL), s.cfg.BalancerProbeURL),
+			firstNonEmptyString(strings.TrimSpace(override.ProbeInterval), s.cfg.BalancerProbeFreq),
+			nil
+	}
+	return s.cfg.BalancerStrategy, s.cfg.BalancerProbeURL, s.cfg.BalancerProbeFreq, nil
+}
+
+func normalizeBalancerStrategyInput(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "random":
+		return "random"
+	case "leastping":
+		return "leastPing"
+	case "leastload":
+		return "leastLoad"
+	default:
+		return ""
+	}
 }
 
 func assignRouteIDs(rules []models.UserRouteRule) bool {

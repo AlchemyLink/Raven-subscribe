@@ -172,6 +172,9 @@ func extractVLESS(si ServerInbound) ([]ParsedClient, error) {
 			ID:       c.ID,
 			Flow:     c.Flow,
 			Email:    c.Email,
+			// For VLESS outbound users this is expected to be "none".
+			// Read from inbound settings.decryption when present, fallback to "none".
+			Encryption: firstNonEmpty(s.Decryption, "none"),
 		}
 		b, _ := json.Marshal(cred)
 		identity := firstNonEmpty(c.Email, c.ID)
