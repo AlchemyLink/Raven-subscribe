@@ -96,19 +96,8 @@ sudo install -m 0755 /home/$USER/xray-subscription /usr/local/bin/xray-subscript
 
 ### 3) Config file
 
-Create `/etc/xray-subscription/config.json`:
-
-```json
-{
-  "listen_addr": ":8080",
-  "server_host": "YOUR_DOMAIN_OR_IP",
-  "config_dir": "/etc/xray/config.d",
-  "db_path": "/var/lib/xray-subscription/db.sqlite",
-  "sync_interval_seconds": 60,
-  "base_url": "http://YOUR_DOMAIN_OR_IP:8080",
-  "admin_token": "CHANGE_ME_TO_STRONG_TOKEN"
-}
-```
+Use the same config schema from **Quick Start → Configure** (or copy `config.json.example`)
+and save it as `/etc/xray-subscription/config.json`.
 
 Notes:
 - Use `:8080` or `0.0.0.0:8080` for `listen_addr` (do not use domain name there).
