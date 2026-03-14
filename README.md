@@ -69,6 +69,107 @@ Add this URL to your Xray/v2rayN/Nekoray/Sing-box client to auto-update.
 
 ---
 
+## Run on Server (systemd)
+
+This is a production-oriented setup checklist.
+
+### 1) Directories
+
+```bash
+sudo mkdir -p /etc/xray-subscription
+sudo mkdir -p /var/lib/xray-subscription
+sudo mkdir -p /etc/xray/config.d
+```
+
+### 2) Binary install
+
+Copy built binary to the server and install:
+
+```bash
+sudo install -m 0755 /home/$USER/xray-subscription /usr/local/bin/xray-subscription
+```
+
+### 3) Config file
+
+Create `/etc/xray-subscription/config.json`:
+
+```json
+{
+  "listen_addr": ":8080",
+  "server_host": "YOUR_DOMAIN_OR_IP",
+  "config_dir": "/etc/xray/config.d",
+  "db_path": "/var/lib/xray-subscription/db.sqlite",
+  "sync_interval_seconds": 60,
+  "base_url": "http://YOUR_DOMAIN_OR_IP:8080",
+  "admin_token": "CHANGE_ME_TO_STRONG_TOKEN"
+}
+```
+
+Notes:
+- Use `:8080` or `0.0.0.0:8080` for `listen_addr` (do not use domain name there).
+- `config_dir` must contain your Xray inbound configs.
+
+### 4) Manual start test
+
+```bash
+/usr/local/bin/xray-subscription -config /etc/xray-subscription/config.json
+```
+
+### 5) systemd unit
+
+Create `/etc/systemd/system/xray-subscription.service`:
+
+```ini
+[Unit]
+Description=Xray Subscription Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/xray-subscription -config /etc/xray-subscription/config.json
+Restart=always
+RestartSec=3
+User=root
+WorkingDirectory=/
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now xray-subscription
+sudo systemctl status xray-subscription
+```
+
+Logs:
+
+```bash
+journalctl -u xray-subscription -f
+```
+
+### 6) Health and API check
+
+```bash
+curl http://127.0.0.1:8080/health
+curl -H "X-Admin-Token: CHANGE_ME_TO_STRONG_TOKEN" http://127.0.0.1:8080/api/users
+```
+
+### 7) Binary update flow
+
+After uploading a new binary:
+
+```bash
+sudo systemctl restart xray-subscription
+curl -f http://127.0.0.1:8080/health
+```
+
+---
+
 ## How It Works
 
 ```
