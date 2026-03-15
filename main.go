@@ -11,10 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"xray-subscription/internal/api"
-	"xray-subscription/internal/config"
-	"xray-subscription/internal/database"
-	"xray-subscription/internal/syncer"
+	"github.com/alchemylink/raven-subscribe/internal/api"
+	"github.com/alchemylink/raven-subscribe/internal/config"
+	"github.com/alchemylink/raven-subscribe/internal/database"
+	"github.com/alchemylink/raven-subscribe/internal/syncer"
 )
 
 func main() {

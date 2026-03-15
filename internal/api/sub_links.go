@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
-	"xray-subscription/internal/models"
-	"xray-subscription/internal/xray"
+	"github.com/alchemylink/raven-subscribe/internal/models"
+	"github.com/alchemylink/raven-subscribe/internal/xray"
 )
 
 type proxyLink struct {

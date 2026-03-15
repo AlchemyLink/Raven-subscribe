@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"xray-subscription/internal/models"
+	"github.com/alchemylink/raven-subscribe/internal/models"
 	_ "modernc.org/sqlite" // register SQLite driver
 )
 
