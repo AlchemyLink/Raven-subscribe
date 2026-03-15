@@ -999,7 +999,7 @@ func (s *Server) listInbounds(w http.ResponseWriter, _ *http.Request) {
 
 // ─── Sync handler ─────────────────────────────────────────────────────────────
 
-func (s *Server) triggerSync(w http.ResponseWriter, r *http.Request) {
+func (s *Server) triggerSync(w http.ResponseWriter, _ *http.Request) {
 	go func() {
 		if err := s.syncer.Sync(); err != nil {
 			log.Printf("Manual sync error: %v", err)
