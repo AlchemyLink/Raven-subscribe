@@ -8,6 +8,7 @@ on:
 env:
   GO_VERSION: "1.21"
   IMAGE_NAME: ${{ github.repository }}
+  GOFLAGS: "-buildvcs=false"
 
 permissions:
   contents: write

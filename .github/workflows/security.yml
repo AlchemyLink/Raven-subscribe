@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GOFLAGS: "-buildvcs=false"
+
 jobs:
   gosec:
     name: GoSec Security Scanner
