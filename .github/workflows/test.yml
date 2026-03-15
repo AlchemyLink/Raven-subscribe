@@ -2,9 +2,9 @@ name: Test
 
 on:
   push:
-    branches: [ main, master, proj-check-* ]
+    branches: [main, master, proj-check-*]
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
 
 env:
   GO_VERSION: "1.21"
@@ -57,7 +57,7 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Run tests
-        run: go test ./... -cover
+        run: go test ./... -coverprofile=coverage.txt -covermode=atomic
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v4
