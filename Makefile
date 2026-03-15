@@ -3,7 +3,9 @@ BUILD_DIR=./build
 VERSION=$(shell git describe --tags --always 2>/dev/null || echo "dev")
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: all build install clean deps docker-test-up docker-test-down docker-test-logs docker-test-e2e
+.PHONY: all build install clean deps release \
+        build-linux-amd64 build-linux-arm64 build-linux-arm build-darwin-amd64 build-darwin-arm64 build-all \
+        docker-test-up docker-test-down docker-test-logs docker-test-e2e
 
 all: build
 
@@ -18,6 +20,34 @@ build: deps
 build-linux-amd64: deps
 	mkdir -p $(BUILD_DIR)
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY)-linux-amd64 .
+
+build-linux-arm64: deps
+	mkdir -p $(BUILD_DIR)
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY)-linux-arm64 .
+
+build-linux-arm: deps
+	mkdir -p $(BUILD_DIR)
+	GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY)-linux-arm .
+
+build-darwin-amd64: deps
+	mkdir -p $(BUILD_DIR)
+	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY)-darwin-amd64 .
+
+build-darwin-arm64: deps
+	mkdir -p $(BUILD_DIR)
+	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY)-darwin-arm64 .
+
+build-all: build-linux-amd64 build-linux-arm64 build-linux-arm build-darwin-amd64 build-darwin-arm64
+
+# release: tag, build all platforms, push tag → triggers CI release workflow
+# Usage: make release VERSION=v0.1.0
+release:
+	@if [ -z "$(VERSION)" ]; then echo "Usage: make release VERSION=v0.1.0"; exit 1; fi
+	@echo "Releasing $(VERSION)..."
+	go test ./... -race -timeout 2m -count=1
+	git tag $(VERSION)
+	git push origin $(VERSION)
+	@echo "Tag $(VERSION) pushed. GitHub Actions will build and publish the release."
 
 install: build
 	install -Dm755 $(BUILD_DIR)/$(BINARY) /usr/local/bin/$(BINARY)
