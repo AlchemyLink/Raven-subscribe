@@ -224,7 +224,9 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Subscription-Userinfo", "upload=0; download=0; total=0; expire=0")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	enc.Encode(cfg)
+	if err := enc.Encode(cfg); err != nil {
+		log.Printf("ERROR encode subscription response for %s: %v", user.Username, err)
+	}
 }
 
 // handleSubscriptionLinks returns helper URLs to subscribe by protocol or inbound tag.
@@ -1031,13 +1033,17 @@ func jsonOK(w http.ResponseWriter, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	enc.Encode(v)
+	if err := enc.Encode(v); err != nil {
+		log.Printf("ERROR encode JSON response: %v", err)
+	}
 }
 
 func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": msg}); err != nil {
+		log.Printf("ERROR encode JSON error response: %v", err)
+	}
 }
 
 func generateToken() string {

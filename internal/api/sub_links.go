@@ -145,11 +145,6 @@ func (s *Server) handleSubscriptionLinksByFormatAndProtocol(w http.ResponseWrite
 	writeProxyLinksText(w, username, cfg)
 }
 
-func applySubscriptionFilters(clients []models.UserClientFull, r *http.Request) []models.UserClientFull {
-	result := clients
-	return applySubscriptionFiltersWithProtocol(result, r, "")
-}
-
 func applySubscriptionFiltersWithProtocol(clients []models.UserClientFull, r *http.Request, forcedProtocol string) []models.UserClientFull {
 	result := clients
 	p := strings.ToLower(strings.TrimSpace(forcedProtocol))

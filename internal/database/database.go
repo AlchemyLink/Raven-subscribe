@@ -327,8 +327,13 @@ func (db *DB) GetInboundTagsNotInFile(configFile string, presentTags []string) (
 		var tags []string
 		for rows.Next() {
 			var t string
-			rows.Scan(&t)
+			if err := rows.Scan(&t); err != nil {
+				return nil, err
+			}
 			tags = append(tags, t)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
 		}
 		return tags, nil
 	}
@@ -351,8 +356,13 @@ func (db *DB) GetInboundTagsNotInFile(configFile string, presentTags []string) (
 	var tags []string
 	for rows.Next() {
 		var t string
-		rows.Scan(&t)
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
 		tags = append(tags, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return tags, nil
 }
