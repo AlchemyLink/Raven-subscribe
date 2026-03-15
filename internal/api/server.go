@@ -1,3 +1,4 @@
+// Package api implements the HTTP API server for xray-subscription management.
 package api
 
 import (
@@ -25,16 +26,19 @@ type Syncer interface {
 	Sync() error
 }
 
+// Server is the HTTP API server holding shared dependencies.
 type Server struct {
 	cfg    *config.Config
 	db     *database.DB
 	syncer Syncer
 }
 
+// NewServer creates a new Server with the given config, database, and syncer.
 func NewServer(cfg *config.Config, db *database.DB, syncer Syncer) *Server {
 	return &Server{cfg: cfg, db: db, syncer: syncer}
 }
 
+// Router builds and returns the configured HTTP router.
 func (s *Server) Router() http.Handler {
 	r := mux.NewRouter()
 

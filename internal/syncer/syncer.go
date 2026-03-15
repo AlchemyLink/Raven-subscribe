@@ -1,3 +1,4 @@
+// Package syncer keeps the database in sync with xray config files via file-watching and periodic polling.
 package syncer
 
 import (
@@ -18,6 +19,7 @@ type Syncer struct {
 	db  *database.DB
 }
 
+// New creates a Syncer that watches cfg.ConfigDir and updates db on changes.
 func New(cfg *config.Config, db *database.DB) *Syncer {
 	return &Syncer{cfg: cfg, db: db}
 }

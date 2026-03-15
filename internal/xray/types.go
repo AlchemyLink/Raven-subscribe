@@ -375,6 +375,7 @@ type BalancerStrategy struct {
 	Type string `json:"type"`
 }
 
+// RoutingRule defines a single routing rule matching inbound traffic to an outbound or balancer.
 type RoutingRule struct {
 	Type        string   `json:"type"`
 	InboundTag  []string `json:"inboundTag,omitempty"`

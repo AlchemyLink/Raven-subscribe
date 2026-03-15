@@ -274,7 +274,7 @@ func TestExtractClientsShadowsocksMulti(t *testing.T) {
 		Method:   "aes-256-gcm",
 		Email:    "ss1@test.com",
 	}
-	b, _ := json.Marshal(cred)
+	b, _ := json.Marshal(cred) //nolint:gosec // test-only: marshaling struct with no real credentials
 	if !strings.Contains(string(b), `"shadowsocks"`) {
 		t.Fatalf("ss credential missing protocol")
 	}
