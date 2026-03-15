@@ -1,11 +1,11 @@
 {
   "listen_addr": ":8080",
-  "server_host": "1.2.3.4",
+  "server_host": "YOUR_SERVER_IP_OR_DOMAIN",
   "config_dir": "/etc/xray/config.d",
   "db_path": "/var/lib/xray-subscription/db.sqlite",
   "sync_interval_seconds": 60,
-  "base_url": "http://1.2.3.4:8080",
-  "admin_token": "your-secret-admin-token-here",
+  "base_url": "http://YOUR_SERVER_IP:8080",
+  "admin_token": "CHANGE_ME_use_a_strong_random_secret",
   "balancer_strategy": "leastPing",
   "balancer_probe_url": "https://www.gstatic.com/generate_204",
   "balancer_probe_interval": "30s"

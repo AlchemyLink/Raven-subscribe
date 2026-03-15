@@ -1,0 +1,47 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement! Please describe it clearly.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What problem does this solve? What is the current limitation?
+      placeholder: I am trying to do X but currently...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like it to work?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you have tried?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Subscription / config generation
+        - Protocol support
+        - API
+        - Routing rules
+        - Sync / file watching
+        - Docker / deployment
+        - Documentation
+        - Other
+    validations:
+      required: true
