@@ -42,3 +42,4 @@ test_conf_xhttp.json
 .cursorignore
 .cursorindexingignore
 .cursor
+.ansible
