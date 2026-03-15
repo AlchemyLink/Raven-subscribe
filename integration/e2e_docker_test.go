@@ -41,7 +41,7 @@ func TestDockerE2ESubscriptionFlow(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	dbDir := filepath.Join(tmpDir, "db")
-	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+	if err := os.MkdirAll(dbDir, 0o750); err != nil {
 		t.Fatalf("create db dir: %v", err)
 	}
 	appBinPath := filepath.Join(tmpDir, "xray-subscription")
@@ -212,7 +212,7 @@ func reservePort(t *testing.T) int {
 	if err != nil {
 		t.Fatalf("reserve port: %v", err)
 	}
-	defer ln.Close()
+	defer ln.Close() //nolint:errcheck
 	addr, ok := ln.Addr().(*net.TCPAddr)
 	if !ok {
 		t.Fatal("failed to resolve reserved TCP address")
@@ -266,7 +266,7 @@ func doJSONRequest(t *testing.T, method, url, adminToken string) []byte {
 	if err != nil {
 		t.Fatalf("perform request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("%s %s failed with status %d: %s", method, url, resp.StatusCode, string(body))
@@ -287,7 +287,7 @@ func doRawRequest(t *testing.T, method, url, adminToken string) []byte {
 	if err != nil {
 		t.Fatalf("perform request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("%s %s failed with status %d: %s", method, url, resp.StatusCode, string(body))
@@ -296,7 +296,7 @@ func doRawRequest(t *testing.T, method, url, adminToken string) []byte {
 }
 
 func runCmd(ctx context.Context, dir string, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // name is always a controlled binary (docker/sh/go)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	return string(out), err

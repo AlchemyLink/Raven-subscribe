@@ -1,7 +1,9 @@
+// Package models defines the shared data structures used across the application.
 package models
 
 import "time"
 
+// User represents a subscription user stored in the database.
 type User struct {
 	ID        int64     `json:"id"`
 	Username  string    `json:"username"`
@@ -46,6 +48,7 @@ type CreateUserRequest struct {
 	Username string `json:"username"`
 }
 
+// UserResponse is the API response body returned when a user is created or fetched.
 type UserResponse struct {
 	User   User   `json:"user"`
 	SubURL string `json:"sub_url"`
