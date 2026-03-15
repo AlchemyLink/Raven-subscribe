@@ -1,7 +1,12 @@
 # xray-subscription (Русский)
 
-[English version](README.md)
-[Руководство по вкладу](CONTRIBUTING.md)
+[English version](README.md) | [Руководство по вкладу](CONTRIBUTING.md)
+
+[![Built for Xray-core](https://img.shields.io/badge/Built%20for-Xray--core-blue?logo=github)](https://github.com/XTLS/Xray-core)
+[![Test](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/test.yml/badge.svg)](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/test.yml)
+[![Security Scan](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml/badge.svg)](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/AlchemyLink/Raven-subscribe)](https://goreportcard.com/report/github.com/AlchemyLink/Raven-subscribe)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Перед PR
 
@@ -10,6 +15,8 @@ go test ./...
 E2E_DOCKER=1 go test ./integration/... -count=1
 golangci-lint run --timeout=5m -E gosec -E misspell -E revive
 ```
+
+> Сервер подписок для **[XTLS/Xray-core](https://github.com/XTLS/Xray-core)** — open-source прокси-платформы, на которой работают VLESS, REALITY, XHTTP и другие протоколы.
 
 Сервер подписок для [Xray-core](https://github.com/XTLS/Xray-core), который:
 
