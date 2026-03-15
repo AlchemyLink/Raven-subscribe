@@ -1,6 +1,6 @@
 module xray-subscription
 
-go 1.24
+go 1.25
 
 require (
 	github.com/fsnotify/fsnotify v1.7.0
