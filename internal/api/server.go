@@ -835,7 +835,7 @@ func (s *Server) addGlobalRoute(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) deleteGlobalRoutes(w http.ResponseWriter, r *http.Request) {
+func (s *Server) deleteGlobalRoutes(w http.ResponseWriter, _ *http.Request) {
 	if err := s.db.UpdateGlobalClientRoutes("[]"); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -846,7 +846,7 @@ func (s *Server) deleteGlobalRoutes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) getBalancerConfig(w http.ResponseWriter, r *http.Request) {
+func (s *Server) getBalancerConfig(w http.ResponseWriter, _ *http.Request) {
 	effectiveStrategy, effectiveProbeURL, effectiveProbeInterval, err := s.getEffectiveBalancerConfig()
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
@@ -969,7 +969,7 @@ func (s *Server) setClientEnabled(w http.ResponseWriter, r *http.Request, enable
 
 // ─── Inbound handlers ─────────────────────────────────────────────────────────
 
-func (s *Server) listInbounds(w http.ResponseWriter, r *http.Request) {
+func (s *Server) listInbounds(w http.ResponseWriter, _ *http.Request) {
 	inbounds, err := s.db.ListInbounds()
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
