@@ -95,7 +95,7 @@ func (s *Server) Router() http.Handler {
 	api.HandleFunc("/sync", s.triggerSync).Methods(http.MethodPost)
 
 	// Health check
-	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		jsonOK(w, map[string]string{"status": "ok"})
 	}).Methods(http.MethodGet)
 
@@ -144,7 +144,8 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 
 	clients, err := s.db.GetUserClients(user.ID)
 	if err != nil {
-		log.Printf("ERROR get user clients for %s: %v", user.Username, err)
+		// #nosec G706 -- username is sanitized before logging.
+		log.Printf("ERROR get user clients for %s: %v", sanitizeLogField(user.Username), err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -200,7 +201,8 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		balancerProbeInterval,
 	)
 	if err != nil {
-		log.Printf("ERROR generate config for %s: %v", user.Username, err)
+		// #nosec G706 -- username is sanitized before logging.
+		log.Printf("ERROR generate config for %s: %v", sanitizeLogField(user.Username), err)
 		jsonError(w, "could not generate config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -224,7 +226,10 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Subscription-Userinfo", "upload=0; download=0; total=0; expire=0")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	enc.Encode(cfg)
+	if err := enc.Encode(cfg); err != nil {
+		// #nosec G706 -- username is sanitized before logging.
+		log.Printf("ERROR encode subscription response for %s: %v", sanitizeLogField(user.Username), err)
+	}
 }
 
 // handleSubscriptionLinks returns helper URLs to subscribe by protocol or inbound tag.
@@ -247,7 +252,8 @@ func (s *Server) handleSubscriptionLinks(w http.ResponseWriter, r *http.Request)
 
 	clients, err := s.db.GetUserClients(user.ID)
 	if err != nil {
-		log.Printf("ERROR get user clients for %s: %v", user.Username, err)
+		// #nosec G706 -- username is sanitized before logging.
+		log.Printf("ERROR get user clients for %s: %v", sanitizeLogField(user.Username), err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -326,7 +332,7 @@ func withSubQuery(base, key, value string) string {
 
 // ─── User handlers ────────────────────────────────────────────────────────────
 
-func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
+func (s *Server) listUsers(w http.ResponseWriter, _ *http.Request) {
 	users, err := s.db.ListUsers()
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
@@ -711,7 +717,7 @@ func (s *Server) deleteUserRouteByID(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) getGlobalRoutes(w http.ResponseWriter, r *http.Request) {
+func (s *Server) getGlobalRoutes(w http.ResponseWriter, _ *http.Request) {
 	raw, err := s.db.GetGlobalClientRoutes()
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
@@ -833,7 +839,7 @@ func (s *Server) addGlobalRoute(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) deleteGlobalRoutes(w http.ResponseWriter, r *http.Request) {
+func (s *Server) deleteGlobalRoutes(w http.ResponseWriter, _ *http.Request) {
 	if err := s.db.UpdateGlobalClientRoutes("[]"); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -844,7 +850,7 @@ func (s *Server) deleteGlobalRoutes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) getBalancerConfig(w http.ResponseWriter, r *http.Request) {
+func (s *Server) getBalancerConfig(w http.ResponseWriter, _ *http.Request) {
 	effectiveStrategy, effectiveProbeURL, effectiveProbeInterval, err := s.getEffectiveBalancerConfig()
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
@@ -967,7 +973,7 @@ func (s *Server) setClientEnabled(w http.ResponseWriter, r *http.Request, enable
 
 // ─── Inbound handlers ─────────────────────────────────────────────────────────
 
-func (s *Server) listInbounds(w http.ResponseWriter, r *http.Request) {
+func (s *Server) listInbounds(w http.ResponseWriter, _ *http.Request) {
 	inbounds, err := s.db.ListInbounds()
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
@@ -997,7 +1003,7 @@ func (s *Server) listInbounds(w http.ResponseWriter, r *http.Request) {
 
 // ─── Sync handler ─────────────────────────────────────────────────────────────
 
-func (s *Server) triggerSync(w http.ResponseWriter, r *http.Request) {
+func (s *Server) triggerSync(w http.ResponseWriter, _ *http.Request) {
 	go func() {
 		if err := s.syncer.Sync(); err != nil {
 			log.Printf("Manual sync error: %v", err)
@@ -1031,13 +1037,17 @@ func jsonOK(w http.ResponseWriter, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	enc.Encode(v)
+	if err := enc.Encode(v); err != nil {
+		log.Printf("ERROR encode JSON response: %v", err)
+	}
 }
 
 func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": msg}); err != nil {
+		log.Printf("ERROR encode JSON error response: %v", err)
+	}
 }
 
 func generateToken() string {
@@ -1047,6 +1057,11 @@ func generateToken() string {
 		panic(err)
 	}
 	return hex.EncodeToString(b)
+}
+
+func sanitizeLogField(v string) string {
+	// Prevent control characters from forging multiline log entries.
+	return strings.NewReplacer("\r", "", "\n", "", "\t", " ").Replace(v)
 }
 
 func isMobileProfileRequest(r *http.Request) bool {

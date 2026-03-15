@@ -319,11 +319,11 @@ func convertStreamSettings(ss *StreamSettings, serverHost string) (*StreamSettin
 	client.HTTPUpgradeSettings = ss.HTTPUpgradeSettings
 	// For xhttp, filter out server-only fields and ensure host is present
 	if ss.XHTTPSettings != nil {
-		xHttpSettings, err := convertXHTTPSettings(ss.XHTTPSettings, ss.RealitySettings)
+		xHTTPSettings, err := convertXHTTPSettings(ss.XHTTPSettings, ss.RealitySettings)
 		if err != nil {
 			return nil, fmt.Errorf("convert xhttp settings: %w", err)
 		}
-		client.XHTTPSettings = xHttpSettings
+		client.XHTTPSettings = xHTTPSettings
 	}
 	client.KCPSettings = ss.KCPSettings
 	client.QUICSettings = ss.QUICSettings
@@ -363,7 +363,7 @@ func convertTLS(tls *TLSSettings, serverHost string) *TLSSettings {
 	}
 }
 
-func convertReality(rs *RealitySettings, serverHost string) (*RealitySettings, error) {
+func convertReality(rs *RealitySettings, _ string) (*RealitySettings, error) {
 	if rs == nil {
 		return nil, fmt.Errorf("REALITY stream settings missing")
 	}
@@ -382,16 +382,16 @@ func convertReality(rs *RealitySettings, serverHost string) (*RealitySettings, e
 		serverName = rs.ServerNames[0]
 	}
 
-	shortId := rs.ShortId
-	if shortId == "" && len(rs.ShortIds) > 0 {
-		shortId = rs.ShortIds[0]
+	shortID := rs.ShortId
+	if shortID == "" && len(rs.ShortIds) > 0 {
+		shortID = rs.ShortIds[0]
 	}
 
 	return &RealitySettings{
 		ServerName:    serverName,
 		Fingerprint:   firstNonEmpty(rs.Fingerprint, "chrome"),
 		PublicKey:     publicKey,
-		ShortId:       shortId,
+		ShortId:       shortID,
 		SpiderX:       rs.SpiderX,
 		MLDSA65Verify: firstNonEmpty(rs.MLDSA65Verify, rs.MLDSA65Seed),
 	}, nil

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"xray-subscription/internal/models"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // register SQLite driver
 )
 
 type DB struct {
@@ -37,7 +37,9 @@ func New(path string) (*DB, error) {
 
 	db := &DB{conn: conn}
 	if err := db.migrate(); err != nil {
-		conn.Close()
+		if closeErr := conn.Close(); closeErr != nil {
+			return nil, fmt.Errorf("migrate: %w; close db: %v", err, closeErr)
+		}
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return db, nil
@@ -327,8 +329,13 @@ func (db *DB) GetInboundTagsNotInFile(configFile string, presentTags []string) (
 		var tags []string
 		for rows.Next() {
 			var t string
-			rows.Scan(&t)
+			if err := rows.Scan(&t); err != nil {
+				return nil, err
+			}
 			tags = append(tags, t)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
 		}
 		return tags, nil
 	}
@@ -351,8 +358,13 @@ func (db *DB) GetInboundTagsNotInFile(configFile string, presentTags []string) (
 	var tags []string
 	for rows.Next() {
 		var t string
-		rows.Scan(&t)
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
 		tags = append(tags, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return tags, nil
 }

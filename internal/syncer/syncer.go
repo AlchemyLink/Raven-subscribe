@@ -109,7 +109,9 @@ func (s *Syncer) Sync() error {
 		}
 		for _, tag := range removedTags {
 			log.Printf("Removing stale inbound: %s", tag)
-			s.db.DeleteInboundByTag(tag)
+			if err := s.db.DeleteInboundByTag(tag); err != nil {
+				log.Printf("WARN: delete stale inbound %s: %v", tag, err)
+			}
 		}
 
 		for _, ib := range inbounds {
