@@ -48,7 +48,11 @@ func (s *Syncer) watch() {
 		log.Printf("fsnotify init error: %v", err)
 		return
 	}
-	defer watcher.Close()
+	defer func() {
+		if err := watcher.Close(); err != nil {
+			log.Printf("watcher close error: %v", err)
+		}
+	}()
 
 	if err := watcher.Add(s.cfg.ConfigDir); err != nil {
 		log.Printf("Watch %s error: %v", s.cfg.ConfigDir, err)

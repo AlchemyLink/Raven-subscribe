@@ -149,7 +149,7 @@ func (db *DB) ListUsers() ([]models.User, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var users []models.User
 	for rows.Next() {
@@ -301,7 +301,7 @@ func (db *DB) ListInbounds() ([]models.Inbound, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var inbounds []models.Inbound
 	for rows.Next() {
@@ -325,7 +325,7 @@ func (db *DB) GetInboundTagsNotInFile(configFile string, presentTags []string) (
 		if err != nil {
 			return nil, err
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		var tags []string
 		for rows.Next() {
 			var t string
@@ -354,7 +354,7 @@ func (db *DB) GetInboundTagsNotInFile(configFile string, presentTags []string) (
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var tags []string
 	for rows.Next() {
 		var t string
@@ -399,7 +399,7 @@ func (db *DB) GetUserClients(userID int64) ([]models.UserClientFull, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var result []models.UserClientFull
 	for rows.Next() {
@@ -438,7 +438,7 @@ func (db *DB) ListUserClients() ([]models.UserClientFull, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var result []models.UserClientFull
 	for rows.Next() {

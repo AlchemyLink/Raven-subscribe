@@ -212,7 +212,7 @@ func reservePort(t *testing.T) int {
 	if err != nil {
 		t.Fatalf("reserve port: %v", err)
 	}
-	defer ln.Close()
+	defer ln.Close() //nolint:errcheck
 	addr, ok := ln.Addr().(*net.TCPAddr)
 	if !ok {
 		t.Fatal("failed to resolve reserved TCP address")
@@ -266,7 +266,7 @@ func doJSONRequest(t *testing.T, method, url, adminToken string) []byte {
 	if err != nil {
 		t.Fatalf("perform request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("%s %s failed with status %d: %s", method, url, resp.StatusCode, string(body))
@@ -287,7 +287,7 @@ func doRawRequest(t *testing.T, method, url, adminToken string) []byte {
 	if err != nil {
 		t.Fatalf("perform request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("%s %s failed with status %d: %s", method, url, resp.StatusCode, string(body))

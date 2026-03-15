@@ -363,7 +363,7 @@ func (e *composeTestEnv) requestStatus(t *testing.T, method, path, token string,
 	if err != nil {
 		t.Fatalf("do request %s %s: %v", method, url, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != status {
 		t.Fatalf("%s %s expected %d got %d body=%s", method, url, status, resp.StatusCode, string(respBody))
