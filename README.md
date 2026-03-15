@@ -2,6 +2,12 @@
 
 Languages: **English** | [Русский](README.ru.md)
 
+[![Built for Xray-core](https://img.shields.io/badge/Built%20for-Xray--core-blue?logo=github)](https://github.com/XTLS/Xray-core)
+[![Test](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/test.yml/badge.svg)](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/test.yml)
+[![Security Scan](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml/badge.svg)](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/AlchemyLink/Raven-subscribe)](https://goreportcard.com/report/github.com/AlchemyLink/Raven-subscribe)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Before PR
@@ -11,6 +17,8 @@ go test ./...
 E2E_DOCKER=1 go test ./integration/... -count=1
 golangci-lint run --timeout=5m -E gosec -E misspell -E revive
 ```
+
+> Subscription server for **[XTLS/Xray-core](https://github.com/XTLS/Xray-core)** — the open-source proxy platform behind VLESS, REALITY, XHTTP and more.
 
 A subscription server for [Xray-core](https://github.com/XTLS/Xray-core) that:
 
