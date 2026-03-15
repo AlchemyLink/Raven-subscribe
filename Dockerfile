@@ -1,15 +1,23 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+
+# Download dependencies using host cache mount (BuildKit)
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/xray-subscription .
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -ldflags="-s -w" -o /out/xray-subscription .
 
-FROM alpine:3.20
+FROM scratch
 
-COPY --from=builder /out/xray-subscription /usr/local/bin/xray-subscription
+COPY --from=builder /out/xray-subscription /xray-subscription
 
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/xray-subscription"]
+ENTRYPOINT ["/xray-subscription"]
