@@ -78,7 +78,7 @@ jobs:
     timeout-minutes: 15
     needs: [tests, e2e]
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -115,7 +115,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: build/xray-subscription-*
-          generate_release_notes: true
           body: |
             ## Installation
 
