@@ -144,7 +144,8 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 
 	clients, err := s.db.GetUserClients(user.ID)
 	if err != nil {
-		log.Printf("ERROR get user clients for %s: %v", user.Username, err)
+		// #nosec G706 -- username is sanitized before logging.
+		log.Printf("ERROR get user clients for %s: %v", sanitizeLogField(user.Username), err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -200,7 +201,8 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		balancerProbeInterval,
 	)
 	if err != nil {
-		log.Printf("ERROR generate config for %s: %v", user.Username, err)
+		// #nosec G706 -- username is sanitized before logging.
+		log.Printf("ERROR generate config for %s: %v", sanitizeLogField(user.Username), err)
 		jsonError(w, "could not generate config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -225,7 +227,8 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(cfg); err != nil {
-		log.Printf("ERROR encode subscription response for %s: %v", user.Username, err)
+		// #nosec G706 -- username is sanitized before logging.
+		log.Printf("ERROR encode subscription response for %s: %v", sanitizeLogField(user.Username), err)
 	}
 }
 
@@ -249,7 +252,8 @@ func (s *Server) handleSubscriptionLinks(w http.ResponseWriter, r *http.Request)
 
 	clients, err := s.db.GetUserClients(user.ID)
 	if err != nil {
-		log.Printf("ERROR get user clients for %s: %v", user.Username, err)
+		// #nosec G706 -- username is sanitized before logging.
+		log.Printf("ERROR get user clients for %s: %v", sanitizeLogField(user.Username), err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -1053,6 +1057,11 @@ func generateToken() string {
 		panic(err)
 	}
 	return hex.EncodeToString(b)
+}
+
+func sanitizeLogField(v string) string {
+	// Prevent control characters from forging multiline log entries.
+	return strings.NewReplacer("\r", "", "\n", "", "\t", " ").Replace(v)
 }
 
 func isMobileProfileRequest(r *http.Request) bool {

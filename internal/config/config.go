@@ -37,6 +37,7 @@ func Load(path string) (*Config, error) {
 		return cfg, nil
 	}
 
+	// #nosec G304 -- path is explicitly provided by CLI/runtime configuration.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

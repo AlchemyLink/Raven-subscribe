@@ -37,7 +37,9 @@ func New(path string) (*DB, error) {
 
 	db := &DB{conn: conn}
 	if err := db.migrate(); err != nil {
-		conn.Close()
+		if closeErr := conn.Close(); closeErr != nil {
+			return nil, fmt.Errorf("migrate: %w; close db: %v", err, closeErr)
+		}
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return db, nil
