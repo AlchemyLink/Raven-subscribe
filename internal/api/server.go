@@ -15,10 +15,10 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
-	"xray-subscription/internal/config"
-	"xray-subscription/internal/database"
-	"xray-subscription/internal/models"
-	"xray-subscription/internal/xray"
+	"github.com/alchemylink/raven-subscribe/internal/config"
+	"github.com/alchemylink/raven-subscribe/internal/database"
+	"github.com/alchemylink/raven-subscribe/internal/models"
+	"github.com/alchemylink/raven-subscribe/internal/xray"
 )
 
 // Syncer interface so we don't import the syncer package (avoid circular deps)

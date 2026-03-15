@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"xray-subscription/internal/config"
-	"xray-subscription/internal/database"
-	"xray-subscription/internal/xray"
+	"github.com/alchemylink/raven-subscribe/internal/config"
+	"github.com/alchemylink/raven-subscribe/internal/database"
+	"github.com/alchemylink/raven-subscribe/internal/xray"
 )
 
 // Syncer watches /etc/xray/config.d and keeps the DB up-to-date

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"xray-subscription/internal/models"
+	"github.com/alchemylink/raven-subscribe/internal/models"
 )
 
 func TestGenerateClientConfig(t *testing.T) {

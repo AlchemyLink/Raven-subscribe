@@ -1,4 +1,4 @@
-module xray-subscription
+module github.com/alchemylink/raven-subscribe
 
 go 1.26
 

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"xray-subscription/internal/models"
+	"github.com/alchemylink/raven-subscribe/internal/models"
 
 	"golang.org/x/crypto/curve25519"
 )
