@@ -80,6 +80,8 @@ func TestDockerE2ESubscriptionFlow(t *testing.T) {
 
 	xrayContainerName := fmt.Sprintf("xray-e2e-%d", time.Now().UnixNano())
 	appContainerName := fmt.Sprintf("raven-subscribe-e2e-%d", time.Now().UnixNano())
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", hostPort)
+	state := &e2eFlowState{baseURL: baseURL}
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
@@ -87,102 +89,112 @@ func TestDockerE2ESubscriptionFlow(t *testing.T) {
 		_, _ = runCmd(cleanupCtx, repoRoot, "docker", "rm", "-f", xrayContainerName)
 	})
 
-	if out, err := runCmd(
-		ctx,
-		repoRoot,
-		"docker", "run", "-d", "--name", xrayContainerName,
-		"-p", fmt.Sprintf("%d:%d", xrayInboundPort, xrayInboundPort),
-		"-v", fmt.Sprintf("%s:/etc/xray/config.d:ro", configDir),
-		xrayImage,
-		"run", "-confdir", "/etc/xray/config.d",
-	); err != nil {
-		t.Fatalf("start xray container failed: %v\n%s", err, out)
-	}
-
-	if err := waitForContainerRunning(ctx, repoRoot, xrayContainerName, 30*time.Second); err != nil {
-		t.Fatalf("xray container did not become running: %v", err)
-	}
-	if err := waitForTCP(fmt.Sprintf("127.0.0.1:%d", xrayInboundPort), 30*time.Second); err != nil {
-		t.Fatalf("xray TCP port not ready: %v", err)
-	}
-
-	if out, err := runCmd(
-		ctx,
-		repoRoot,
-		"docker", "run", "-d", "--name", appContainerName,
-		"-p", fmt.Sprintf("%d:8080", hostPort),
-		"-v", fmt.Sprintf("%s:/etc/xray/config.d:ro", configDir),
-		"-v", fmt.Sprintf("%s:/etc/xray-subscription/config.json:ro", appConfigPath),
-		"-v", fmt.Sprintf("%s:/var/lib/xray-subscription", dbDir),
-		"-v", fmt.Sprintf("%s:/usr/local/bin/xray-subscription:ro", appBinPath),
-		"alpine:3.20",
-		"/usr/local/bin/xray-subscription",
-		"-config", "/etc/xray-subscription/config.json",
-	); err != nil {
-		t.Fatalf("start app container failed: %v\n%s", err, out)
-	}
-
-	baseURL := fmt.Sprintf("http://127.0.0.1:%d", hostPort)
-	waitForHealth(t, baseURL+"/health", 60*time.Second)
-
-	usersResp := struct {
-		Users []struct {
-			User struct {
-				Username string `json:"username"`
-				Token    string `json:"token"`
-			} `json:"user"`
-			SubURL string `json:"sub_url"`
+	t.Run("start-containers", func(t *testing.T) {
+		if out, err := runCmd(
+			ctx,
+			repoRoot,
+			"docker", "run", "-d", "--name", xrayContainerName,
+			"-v", fmt.Sprintf("%s:/etc/xray/config.d:ro", configDir),
+			xrayImage,
+			"run", "-confdir", "/etc/xray/config.d",
+		); err != nil {
+			t.Fatalf("start xray container failed: %v\n%s", err, out)
 		}
-	}{}
-	body := doJSONRequest(t, "GET", baseURL+"/api/users", adminToken)
-	if err := json.Unmarshal(body, &usersResp.Users); err != nil {
-		t.Fatalf("decode users response: %v; body=%s", err, string(body))
-	}
-	if len(usersResp.Users) < 2 {
-		t.Fatalf("expected at least two users from xray config, got %d", len(usersResp.Users))
-	}
 
-	containsUser := func(name string) bool {
+		if err := waitForContainerRunning(ctx, repoRoot, xrayContainerName, 30*time.Second); err != nil {
+			t.Fatalf("xray container did not become running: %v", err)
+		}
+
+		if out, err := runCmd(
+			ctx,
+			repoRoot,
+			"docker", "run", "-d", "--name", appContainerName,
+			"-p", fmt.Sprintf("%d:8080", hostPort),
+			"-v", fmt.Sprintf("%s:/etc/xray/config.d:ro", configDir),
+			"-v", fmt.Sprintf("%s:/etc/xray-subscription/config.json:ro", appConfigPath),
+			"-v", fmt.Sprintf("%s:/var/lib/xray-subscription", dbDir),
+			"-v", fmt.Sprintf("%s:/usr/local/bin/xray-subscription:ro", appBinPath),
+			"alpine:3.20",
+			"/usr/local/bin/xray-subscription",
+			"-config", "/etc/xray-subscription/config.json",
+		); err != nil {
+			t.Fatalf("start app container failed: %v\n%s", err, out)
+		}
+	})
+
+	t.Run("health", func(t *testing.T) {
+		waitForHealth(t, state.baseURL+"/health", 60*time.Second)
+	})
+
+	t.Run("users", func(t *testing.T) {
+		usersResp := struct {
+			Users []struct {
+				User struct {
+					Username string `json:"username"`
+					Token    string `json:"token"`
+				} `json:"user"`
+				SubURL string `json:"sub_url"`
+			}
+		}{}
+		body := doJSONRequest(t, "GET", state.baseURL+"/api/users", adminToken)
+		if err := json.Unmarshal(body, &usersResp.Users); err != nil {
+			t.Fatalf("decode users response: %v; body=%s", err, string(body))
+		}
+		if len(usersResp.Users) < 2 {
+			t.Fatalf("expected at least two users from xray config, got %d", len(usersResp.Users))
+		}
+
+		containsUser := func(name string) bool {
+			for _, u := range usersResp.Users {
+				if u.User.Username == name {
+					return true
+				}
+			}
+			return false
+		}
+		if !containsUser("alice@example.com") || !containsUser("bob@example.com") {
+			t.Fatalf("expected users alice@example.com and bob@example.com, got %+v", usersResp.Users)
+		}
+
 		for _, u := range usersResp.Users {
-			if u.User.Username == name {
-				return true
+			if u.User.Username == "alice@example.com" {
+				state.aliceToken = u.User.Token
+				break
 			}
 		}
-		return false
-	}
-	if !containsUser("alice@example.com") || !containsUser("bob@example.com") {
-		t.Fatalf("expected users alice@example.com and bob@example.com, got %+v", usersResp.Users)
-	}
-
-	var aliceToken string
-	for _, u := range usersResp.Users {
-		if u.User.Username == "alice@example.com" {
-			aliceToken = u.User.Token
-			break
+		if strings.TrimSpace(state.aliceToken) == "" {
+			t.Fatal("alice token not found in /api/users response")
 		}
-	}
-	if strings.TrimSpace(aliceToken) == "" {
-		t.Fatal("alice token not found in /api/users response")
-	}
+	})
 
-	linksTxtURL := fmt.Sprintf("%s/sub/%s/links.txt", baseURL, aliceToken)
-	linksTxt := string(doRawRequest(t, "GET", linksTxtURL, ""))
-	if !strings.Contains(linksTxt, "vless://") {
-		t.Fatalf("expected vless link in links.txt, got: %s", linksTxt)
-	}
-	if !strings.Contains(linksTxt, fmt.Sprintf(":%d?", xrayInboundPort)) {
-		t.Fatalf("expected links.txt to include test xray port %d, got: %s", xrayInboundPort, linksTxt)
-	}
+	t.Run("subscription-links", func(t *testing.T) {
+		if strings.TrimSpace(state.aliceToken) == "" {
+			t.Fatal("missing alice token from previous subtest")
+		}
+		linksTxtURL := fmt.Sprintf("%s/sub/%s/links.txt", state.baseURL, state.aliceToken)
+		linksTxt := string(doRawRequest(t, "GET", linksTxtURL, ""))
+		if !strings.Contains(linksTxt, "vless://") {
+			t.Fatalf("expected vless link in links.txt, got: %s", linksTxt)
+		}
+		if !strings.Contains(linksTxt, fmt.Sprintf(":%d?", xrayInboundPort)) {
+			t.Fatalf("expected links.txt to include test xray port %d, got: %s", xrayInboundPort, linksTxt)
+		}
 
-	linksB64URL := fmt.Sprintf("%s/sub/%s/links.b64", baseURL, aliceToken)
-	linksB64 := strings.TrimSpace(string(doRawRequest(t, "GET", linksB64URL, "")))
-	decoded, err := base64.StdEncoding.DecodeString(linksB64)
-	if err != nil {
-		t.Fatalf("decode links.b64: %v; value=%s", err, linksB64)
-	}
-	if !strings.Contains(string(decoded), "vless://") {
-		t.Fatalf("decoded links.b64 must contain vless://, got: %s", string(decoded))
-	}
+		linksB64URL := fmt.Sprintf("%s/sub/%s/links.b64", state.baseURL, state.aliceToken)
+		linksB64 := strings.TrimSpace(string(doRawRequest(t, "GET", linksB64URL, "")))
+		decoded, err := base64.StdEncoding.DecodeString(linksB64)
+		if err != nil {
+			t.Fatalf("decode links.b64: %v; value=%s", err, linksB64)
+		}
+		if !strings.Contains(string(decoded), "vless://") {
+			t.Fatalf("decoded links.b64 must contain vless://, got: %s", string(decoded))
+		}
+	})
+}
+
+type e2eFlowState struct {
+	baseURL    string
+	aliceToken string
 }
 
 func mustRepoRoot(t *testing.T) string {
@@ -240,18 +252,6 @@ func waitForContainerRunning(ctx context.Context, repoRoot string, containerName
 	return fmt.Errorf("container %s is not running after %s", containerName, timeout)
 }
 
-func waitForTCP(addr string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", addr, 1*time.Second)
-		if err == nil {
-			_ = conn.Close()
-			return nil
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-	return fmt.Errorf("tcp endpoint %s is not reachable after %s", addr, timeout)
-}
 
 func doJSONRequest(t *testing.T, method, url, adminToken string) []byte {
 	t.Helper()
