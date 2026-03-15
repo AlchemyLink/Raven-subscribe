@@ -2,6 +2,16 @@
 
 Languages: **English** | [Русский](README.ru.md)
 
+Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+
+## Before PR
+
+```bash
+go test ./...
+E2E_DOCKER=1 go test ./integration/... -count=1
+golangci-lint run --timeout=5m -E gosec -E misspell -E revive
+```
+
 A subscription server for [Xray-core](https://github.com/XTLS/Xray-core) that:
 
 - Generates **per-user xray client JSON configs** from server-side inbound configs

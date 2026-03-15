@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	adminToken      = "e2e-admin-token"
+	testAdminHeaderValue = "e2e-admin-value"
 	defaultXrayImage = "ghcr.io/xtls/xray-core:latest"
 	xrayInboundPort  = 18443
 )
@@ -64,8 +64,8 @@ func TestDockerE2ESubscriptionFlow(t *testing.T) {
   "balancer_probe_url": "https://www.gstatic.com/generate_204",
   "balancer_probe_interval": "30s"
 }
-`, hostPort, adminToken)
-	if err := os.WriteFile(appConfigPath, []byte(appConfig), 0o644); err != nil {
+`, hostPort, testAdminHeaderValue)
+	if err := os.WriteFile(appConfigPath, []byte(appConfig), 0o600); err != nil {
 		t.Fatalf("write app config: %v", err)
 	}
 
@@ -136,7 +136,7 @@ func TestDockerE2ESubscriptionFlow(t *testing.T) {
 				SubURL string `json:"sub_url"`
 			}
 		}{}
-		body := doJSONRequest(t, "GET", state.baseURL+"/api/users", adminToken)
+		body := doJSONRequest(t, "GET", state.baseURL+"/api/users", testAdminHeaderValue)
 		if err := json.Unmarshal(body, &usersResp.Users); err != nil {
 			t.Fatalf("decode users response: %v; body=%s", err, string(body))
 		}

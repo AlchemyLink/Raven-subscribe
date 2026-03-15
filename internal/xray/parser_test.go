@@ -41,7 +41,7 @@ func TestParseConfigFile(t *testing.T) {
 	}`
 
 	configPath := filepath.Join(tmpDir, "test.json")
-	if err := os.WriteFile(configPath, []byte(testConfig), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte(testConfig), 0o600); err != nil {
 		t.Fatalf("write test config: %v", err)
 	}
 
@@ -95,7 +95,7 @@ func TestParseConfigFileNoWrapper(t *testing.T) {
 	]`
 
 	configPath := filepath.Join(tmpDir, "array.json")
-	if err := os.WriteFile(configPath, []byte(testConfig), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte(testConfig), 0o600); err != nil {
 		t.Fatalf("write test config: %v", err)
 	}
 

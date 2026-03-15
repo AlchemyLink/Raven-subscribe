@@ -26,6 +26,7 @@ type VMessInboundSettings struct {
 
 type VMessClient struct {
 	ID      string `json:"id"`
+	//nolint:revive // Keep Xray-compatible JSON field naming.
 	AlterId int    `json:"alterId,omitempty"`
 	Email   string `json:"email,omitempty"`
 	Level   int    `json:"level,omitempty"`
@@ -115,6 +116,7 @@ type RealitySettings struct {
 	XVer         int      `json:"xver,omitempty"`
 	ServerNames  []string `json:"serverNames,omitempty"`
 	PrivateKey   string   `json:"privateKey,omitempty"`
+	//nolint:revive // Keep Xray-compatible JSON field naming.
 	ShortIds     []string `json:"shortIds,omitempty"`
 	MLDSA65Seed  string   `json:"mldsa65Seed,omitempty"`
 	MinClientVer string   `json:"minClientVer,omitempty"`
@@ -125,6 +127,7 @@ type RealitySettings struct {
 	// Client-side fields
 	ServerName    string `json:"serverName,omitempty"`
 	Fingerprint   string `json:"fingerprint,omitempty"`
+	//nolint:revive // Keep Xray-compatible JSON field naming.
 	ShortId       string `json:"shortId,omitempty"`
 	SpiderX       string `json:"spiderX,omitempty"`
 	MLDSA65Verify string `json:"mldsa65Verify,omitempty"`
@@ -252,6 +255,7 @@ type VMessServer struct {
 
 type VMessUser struct {
 	ID       string `json:"id"`
+	//nolint:revive // Keep Xray-compatible JSON field naming.
 	AlterId  int    `json:"alterId"`
 	Security string `json:"security,omitempty"`
 	Level    int    `json:"level,omitempty"`
@@ -349,6 +353,7 @@ type StoredClientConfig struct {
 	Protocol string `json:"protocol"`
 	// VMess/VLESS
 	ID      string `json:"id,omitempty"`
+	//nolint:revive // Keep backward-compatible stored field naming.
 	AlterId int    `json:"alter_id,omitempty"`
 	Flow    string `json:"flow,omitempty"`
 	Email   string `json:"email,omitempty"`

@@ -1,6 +1,15 @@
 # xray-subscription (Русский)
 
 [English version](README.md)
+[Руководство по вкладу](CONTRIBUTING.md)
+
+## Перед PR
+
+```bash
+go test ./...
+E2E_DOCKER=1 go test ./integration/... -count=1
+golangci-lint run --timeout=5m -E gosec -E misspell -E revive
+```
 
 Сервер подписок для [Xray-core](https://github.com/XTLS/Xray-core), который:
 

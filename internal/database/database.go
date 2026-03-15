@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"xray-subscription/internal/models"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // register SQLite driver
 )
 
 type DB struct {

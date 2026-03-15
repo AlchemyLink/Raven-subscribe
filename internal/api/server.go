@@ -95,7 +95,7 @@ func (s *Server) Router() http.Handler {
 	api.HandleFunc("/sync", s.triggerSync).Methods(http.MethodPost)
 
 	// Health check
-	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		jsonOK(w, map[string]string{"status": "ok"})
 	}).Methods(http.MethodGet)
 
@@ -328,7 +328,7 @@ func withSubQuery(base, key, value string) string {
 
 // ─── User handlers ────────────────────────────────────────────────────────────
 
-func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
+func (s *Server) listUsers(w http.ResponseWriter, _ *http.Request) {
 	users, err := s.db.ListUsers()
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
@@ -713,7 +713,7 @@ func (s *Server) deleteUserRouteByID(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) getGlobalRoutes(w http.ResponseWriter, r *http.Request) {
+func (s *Server) getGlobalRoutes(w http.ResponseWriter, _ *http.Request) {
 	raw, err := s.db.GetGlobalClientRoutes()
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
