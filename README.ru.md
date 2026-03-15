@@ -118,11 +118,30 @@ make docker-test-e2e
 - admin API (`/api/users`)
 - ссылки подписки (`/sub/{token}/links.txt` и `/sub/{token}/links.b64`)
 
+Также есть расширенное покрытие в `integration/docker_compose_api_test.go`,
+где через `docker compose` проверяются сценарии admin/user/routes/balancer/subscriptions.
+Оба Docker-теста разбиты на subtests, чтобы упростить отладку падений.
+
 Опционально можно переопределить образ Xray:
 
 ```bash
 XRAY_IMAGE=ghcr.io/xtls/xray-core:latest E2E_DOCKER=1 go test ./integration -v
 ```
+
+Опционально можно переопределить порты compose:
+
+```bash
+APP_HOST_PORT=28080 XRAY_HOST_PORT=28443 make docker-test-up
+```
+
+Поддерживаемые переменные в `docker-compose.test.yml`:
+
+- `XRAY_IMAGE`
+- `XRAY_CONFIG_DIR`
+- `APP_CONFIG_PATH`
+- `APP_BIN_PATH`
+- `APP_HOST_PORT`
+- `XRAY_HOST_PORT`
 
 ### Логи и остановка
 
