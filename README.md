@@ -128,11 +128,30 @@ and verifies:
 - admin API (`/api/users`)
 - subscription links (`/sub/{token}/links.txt` and `/sub/{token}/links.b64`)
 
+Integration coverage is also extended by `integration/docker_compose_api_test.go`,
+which validates admin/user/route/balancer/subscription flows using `docker compose`.
+Both Docker tests are split into subtests to simplify debugging.
+
 Optional image override (if you want another Xray tag):
 
 ```bash
 XRAY_IMAGE=ghcr.io/xtls/xray-core:latest E2E_DOCKER=1 go test ./integration -v
 ```
+
+Optional compose overrides:
+
+```bash
+APP_HOST_PORT=28080 XRAY_HOST_PORT=28443 make docker-test-up
+```
+
+Supported override variables in `docker-compose.test.yml`:
+
+- `XRAY_IMAGE`
+- `XRAY_CONFIG_DIR`
+- `APP_CONFIG_PATH`
+- `APP_BIN_PATH`
+- `APP_HOST_PORT`
+- `XRAY_HOST_PORT`
 
 ### Logs and teardown
 
