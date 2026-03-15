@@ -455,7 +455,7 @@ func intFromAny(t *testing.T, v interface{}) int {
 }
 
 func runCmdEnv(ctx context.Context, dir string, extraEnv []string, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // name is always a controlled binary (docker/docker-compose)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), extraEnv...)
 	out, err := cmd.CombinedOutput()

@@ -19,11 +19,12 @@ type ServerInbound struct {
 	StreamSettings *StreamSettings `json:"streamSettings,omitempty"`
 }
 
-// Protocol-specific inbound settings
+// VMessInboundSettings holds VMess inbound configuration from server config.
 type VMessInboundSettings struct {
 	Clients []VMessClient `json:"clients"`
 }
 
+// VMessClient represents a single VMess client credential entry.
 type VMessClient struct {
 	ID      string `json:"id"`
 	//nolint:revive // Keep Xray-compatible JSON field naming.
@@ -32,11 +33,13 @@ type VMessClient struct {
 	Level   int    `json:"level,omitempty"`
 }
 
+// VLESSInboundSettings holds VLESS inbound configuration from server config.
 type VLESSInboundSettings struct {
 	Clients    []VLESSClient `json:"clients"`
 	Decryption string        `json:"decryption,omitempty"`
 }
 
+// VLESSClient represents a single VLESS client credential entry.
 type VLESSClient struct {
 	ID    string `json:"id"`
 	Flow  string `json:"flow,omitempty"`
@@ -44,16 +47,19 @@ type VLESSClient struct {
 	Level int    `json:"level,omitempty"`
 }
 
+// TrojanInboundSettings holds Trojan inbound configuration from server config.
 type TrojanInboundSettings struct {
 	Clients []TrojanClient `json:"clients"`
 }
 
+// TrojanClient represents a single Trojan client credential entry.
 type TrojanClient struct {
 	Password string `json:"password"`
 	Email    string `json:"email,omitempty"`
 	Level    int    `json:"level,omitempty"`
 }
 
+// ShadowsocksInboundSettings holds Shadowsocks inbound configuration from server config.
 type ShadowsocksInboundSettings struct {
 	Method   string              `json:"method,omitempty"`
 	Password string              `json:"password,omitempty"`
@@ -61,18 +67,21 @@ type ShadowsocksInboundSettings struct {
 	Network  string              `json:"network,omitempty"`
 }
 
+// ShadowsocksClient represents a single Shadowsocks client credential entry.
 type ShadowsocksClient struct {
 	Password string `json:"password"`
 	Email    string `json:"email,omitempty"`
 	Method   string `json:"method,omitempty"`
 }
 
+// SOCKSInboundSettings holds SOCKS inbound configuration from server config.
 type SOCKSInboundSettings struct {
 	Auth     string         `json:"auth,omitempty"`
 	Accounts []SOCKSAccount `json:"accounts,omitempty"`
 	UDP      bool           `json:"udp,omitempty"`
 }
 
+// SOCKSAccount represents a single SOCKS user/password credential entry.
 type SOCKSAccount struct {
 	User string `json:"user"`
 	Pass string `json:"pass"`
@@ -80,6 +89,7 @@ type SOCKSAccount struct {
 
 // ─── Stream Settings (shared server+client) ────────────────────────────────
 
+// StreamSettings describes the transport layer configuration for an inbound or outbound.
 type StreamSettings struct {
 	Network         string           `json:"network,omitempty"`
 	Security        string           `json:"security,omitempty"`
@@ -101,6 +111,7 @@ type StreamSettings struct {
 	XHTTPSettings       json.RawMessage `json:"xhttpSettings,omitempty"`
 }
 
+// TLSSettings holds TLS security configuration for stream settings.
 type TLSSettings struct {
 	ServerName    string      `json:"serverName,omitempty"`
 	Fingerprint   string      `json:"fingerprint,omitempty"`
@@ -109,6 +120,7 @@ type TLSSettings struct {
 	Certificates  interface{} `json:"certificates,omitempty"` // server-side only
 }
 
+// RealitySettings holds REALITY security configuration (server and client fields).
 type RealitySettings struct {
 	// Server-side fields
 	Show         bool     `json:"show,omitempty"`
@@ -133,12 +145,14 @@ type RealitySettings struct {
 	MLDSA65Verify string `json:"mldsa65Verify,omitempty"`
 }
 
+// WSSettings holds WebSocket transport configuration.
 type WSSettings struct {
 	Path    string            `json:"path,omitempty"`
 	Host    string            `json:"host,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
+// GRPCSettings holds gRPC transport configuration.
 type GRPCSettings struct {
 	ServiceName        string `json:"serviceName,omitempty"`
 	MultiMode          bool   `json:"multiMode,omitempty"`
@@ -146,15 +160,18 @@ type GRPCSettings struct {
 	HealthCheckTimeout int    `json:"health_check_timeout,omitempty"`
 }
 
+// TCPSettings holds TCP transport header configuration.
 type TCPSettings struct {
 	Header interface{} `json:"header,omitempty"`
 }
 
+// HTTPSettings holds HTTP/2 transport host and path configuration.
 type HTTPSettings struct {
 	Host []string `json:"host,omitempty"`
 	Path string   `json:"path,omitempty"`
 }
 
+// KCPSettings holds mKCP transport configuration.
 type KCPSettings struct {
 	MTU              int         `json:"mtu,omitempty"`
 	TTI              int         `json:"tti,omitempty"`
@@ -167,18 +184,21 @@ type KCPSettings struct {
 	Seed             string      `json:"seed,omitempty"`
 }
 
+// QUICSettings holds QUIC transport configuration.
 type QUICSettings struct {
 	Security string      `json:"security,omitempty"`
 	Key      string      `json:"key,omitempty"`
 	Header   interface{} `json:"header,omitempty"`
 }
 
+// HTTPUpgradeSettings holds HTTP Upgrade transport configuration.
 type HTTPUpgradeSettings struct {
 	Path    string            `json:"path,omitempty"`
 	Host    string            `json:"host,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
+// XHTTPSettings holds XHTTP (SplitHTTP) transport configuration.
 type XHTTPSettings struct {
 	Path    string            `json:"path,omitempty"`
 	Host    string            `json:"host,omitempty"`
@@ -198,6 +218,7 @@ type ClientConfig struct {
 	Routing   *Routing   `json:"routing"`
 }
 
+// ObservatoryConfig configures the xray observatory for latency-based routing.
 type ObservatoryConfig struct {
 	SubjectSelector   []string `json:"subjectSelector,omitempty"`
 	ProbeURL          string   `json:"probeURL,omitempty"`
@@ -205,10 +226,12 @@ type ObservatoryConfig struct {
 	EnableConcurrency bool     `json:"enableConcurrency,omitempty"`
 }
 
+// LogConfig sets the xray client log level.
 type LogConfig struct {
 	LogLevel string `json:"loglevel"`
 }
 
+// DNSConfig holds the DNS server list for the xray client.
 type DNSConfig struct {
 	Servers []interface{} `json:"servers"`
 }
@@ -223,6 +246,7 @@ type Inbound struct {
 	Sniffing *Sniffing       `json:"sniffing,omitempty"`
 }
 
+// Sniffing enables protocol detection on client local inbounds.
 type Sniffing struct {
 	Enabled      bool     `json:"enabled"`
 	DestOverride []string `json:"destOverride"`
@@ -237,22 +261,25 @@ type Outbound struct {
 	Mux            *MuxConfig      `json:"mux,omitempty"`
 }
 
+// MuxConfig controls multiplexing on outbound connections.
 type MuxConfig struct {
 	Enabled     bool `json:"enabled"`
 	Concurrency int  `json:"concurrency,omitempty"`
 }
 
-// Protocol-specific outbound settings
+// VMessOutboundSettings holds VMess outbound server list for the client config.
 type VMessOutboundSettings struct {
 	Vnext []VMessServer `json:"vnext"`
 }
 
+// VMessServer is a VMess outbound server entry.
 type VMessServer struct {
 	Address string      `json:"address"`
 	Port    int         `json:"port"`
 	Users   []VMessUser `json:"users"`
 }
 
+// VMessUser holds user credentials for a VMess outbound server.
 type VMessUser struct {
 	ID       string `json:"id"`
 	//nolint:revive // Keep Xray-compatible JSON field naming.
@@ -261,16 +288,19 @@ type VMessUser struct {
 	Level    int    `json:"level,omitempty"`
 }
 
+// VLESSOutboundSettings holds VLESS outbound server list for the client config.
 type VLESSOutboundSettings struct {
 	Vnext []VLESSServer `json:"vnext"`
 }
 
+// VLESSServer is a VLESS outbound server entry.
 type VLESSServer struct {
 	Address string      `json:"address"`
 	Port    int         `json:"port"`
 	Users   []VLESSUser `json:"users"`
 }
 
+// VLESSUser holds user credentials for a VLESS outbound server.
 type VLESSUser struct {
 	ID         string `json:"id"`
 	Flow       string `json:"flow,omitempty"`
@@ -279,10 +309,12 @@ type VLESSUser struct {
 	Level      int    `json:"level,omitempty"`
 }
 
+// TrojanOutboundSettings holds Trojan outbound server list for the client config.
 type TrojanOutboundSettings struct {
 	Servers []TrojanServer `json:"servers"`
 }
 
+// TrojanServer is a Trojan outbound server entry.
 type TrojanServer struct {
 	Address  string `json:"address"`
 	Port     int    `json:"port"`
@@ -290,10 +322,12 @@ type TrojanServer struct {
 	Level    int    `json:"level,omitempty"`
 }
 
+// ShadowsocksOutboundSettings holds Shadowsocks outbound server list for the client config.
 type ShadowsocksOutboundSettings struct {
 	Servers []ShadowsocksServer `json:"servers"`
 }
 
+// ShadowsocksServer is a Shadowsocks outbound server entry.
 type ShadowsocksServer struct {
 	Address  string `json:"address"`
 	Port     int    `json:"port"`
@@ -303,28 +337,32 @@ type ShadowsocksServer struct {
 	UoT      bool   `json:"uot,omitempty"`
 }
 
+// SOCKSOutboundSettings holds SOCKS outbound server list for the client config.
 type SOCKSOutboundSettings struct {
 	Servers []SOCKSServer `json:"servers"`
 }
 
+// SOCKSServer is a SOCKS outbound server entry.
 type SOCKSServer struct {
 	Address string      `json:"address"`
 	Port    int         `json:"port"`
 	Users   []SOCKSUser `json:"users,omitempty"`
 }
 
+// SOCKSUser holds user credentials for a SOCKS outbound server.
 type SOCKSUser struct {
 	User string `json:"user"`
 	Pass string `json:"pass"`
 }
 
-// Routing
+// Routing defines the xray routing configuration including rules and balancers.
 type Routing struct {
 	DomainStrategy string        `json:"domainStrategy,omitempty"`
 	Balancers      []Balancer    `json:"balancers,omitempty"`
 	Rules          []RoutingRule `json:"rules"`
 }
 
+// Balancer describes a named group of outbounds with a selection strategy.
 type Balancer struct {
 	Tag         string            `json:"tag"`
 	Selector    []string          `json:"selector"`
@@ -332,6 +370,7 @@ type Balancer struct {
 	FallbackTag string            `json:"fallbackTag,omitempty"`
 }
 
+// BalancerStrategy specifies the strategy type for a balancer (e.g. leastPing, random).
 type BalancerStrategy struct {
 	Type string `json:"type"`
 }

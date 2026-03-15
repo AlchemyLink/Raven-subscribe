@@ -195,7 +195,7 @@ func TestExtractClientsVMess(t *testing.T) {
 		ID:       "aaa",
 		AlterId:  0,
 	}
-	_, _ = json.Marshal(cred)
+	_, _ = json.Marshal(cred) //nolint:gosec // test-only: marshaling struct with no real credentials
 
 	// Verify identity extraction
 	id := firstNonEmpty("u1@test.com", "aaa")
@@ -222,7 +222,7 @@ func TestExtractClientsVLESS(t *testing.T) {
 		Flow:         "xtls-rprx-vision",
 		Encryption:   "none",
 	}
-	b, _ := json.Marshal(cred)
+	b, _ := json.Marshal(cred) //nolint:gosec // test-only: marshaling struct with no real credentials
 	if !strings.Contains(string(b), `"vless"`) {
 		t.Fatalf("vless credential missing protocol")
 	}
@@ -244,7 +244,7 @@ func TestExtractClientsTrojan(t *testing.T) {
 		Password: "t-pass-1",
 		Email:    "t1@test.com",
 	}
-	b, _ := json.Marshal(cred)
+	b, _ := json.Marshal(cred) //nolint:gosec // test-only: marshaling struct with no real credentials
 	if !strings.Contains(string(b), `"trojan"`) {
 		t.Fatalf("trojan credential missing protocol")
 	}

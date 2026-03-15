@@ -41,7 +41,7 @@ func TestDockerE2ESubscriptionFlow(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	dbDir := filepath.Join(tmpDir, "db")
-	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+	if err := os.MkdirAll(dbDir, 0o750); err != nil {
 		t.Fatalf("create db dir: %v", err)
 	}
 	appBinPath := filepath.Join(tmpDir, "xray-subscription")
@@ -296,7 +296,7 @@ func doRawRequest(t *testing.T, method, url, adminToken string) []byte {
 }
 
 func runCmd(ctx context.Context, dir string, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // name is always a controlled binary (docker/sh/go)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	return string(out), err
