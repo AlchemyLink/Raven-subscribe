@@ -1,3 +1,4 @@
+// Package main is the entry point for the xray-subscription service.
 package main
 
 import (
@@ -35,7 +36,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Database error: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("DB close error: %v", err)
+		}
+	}()
 	log.Printf("Database: %s", cfg.DBPath)
 
 	// ── Syncer ──────────────────────────────────────────────────────────────

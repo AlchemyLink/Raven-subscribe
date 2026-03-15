@@ -1,3 +1,4 @@
+// Package config loads and validates the application configuration from a JSON file.
 package config
 
 import (
@@ -7,6 +8,7 @@ import (
 	"strings"
 )
 
+// Config holds all runtime configuration for the xray-subscription service.
 type Config struct {
 	ListenAddr        string `json:"listen_addr"`
 	ServerHost        string `json:"server_host"`
@@ -20,6 +22,7 @@ type Config struct {
 	BalancerProbeFreq string `json:"balancer_probe_interval"`
 }
 
+// Load reads and parses a JSON config file from path. An empty path returns defaults.
 func Load(path string) (*Config, error) {
 	cfg := &Config{
 		ListenAddr:   ":8080",
@@ -60,6 +63,7 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// SubURL returns the full subscription URL for the given user token.
 func (c *Config) SubURL(token string) string {
 	return fmt.Sprintf("%s/sub/%s", c.BaseURL, token)
 }

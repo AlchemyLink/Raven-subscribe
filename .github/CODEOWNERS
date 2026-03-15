@@ -1,0 +1,9 @@
+# Global: all files require review from a maintainer
+* @AlchemyLink
+
+# CI/CD and security-sensitive paths require explicit approval
+.github/                     @AlchemyLink
+Dockerfile                   @AlchemyLink
+docker-compose*.yml          @AlchemyLink
+internal/api/server.go       @AlchemyLink
+internal/database/           @AlchemyLink

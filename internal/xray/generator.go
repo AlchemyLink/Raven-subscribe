@@ -1,3 +1,4 @@
+// Package xray provides parsing and client config generation for xray-core configurations.
 package xray
 
 import (
