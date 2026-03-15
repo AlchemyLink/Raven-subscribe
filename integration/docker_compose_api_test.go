@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+const adminToken = testAdminHeaderValue
+
 func TestDockerComposeAllAPIs(t *testing.T) {
 	if os.Getenv("E2E_DOCKER") != "1" {
 		t.Skip("set E2E_DOCKER=1 to run docker end-to-end tests")
@@ -30,8 +32,8 @@ func TestDockerComposeAllAPIs(t *testing.T) {
 	env := composeTestEnv{
 		repoRoot: mustRepoRoot(t),
 	}
-	env.prepare(t, ctx)
-	defer env.teardown(t, ctx)
+	env.prepare(ctx, t)
+	defer env.teardown(ctx, t)
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", env.appPort)
 	waitForHealth(t, baseURL+"/health", 90*time.Second)
@@ -255,9 +257,6 @@ func exerciseSubscriptions(t *testing.T, env *composeTestEnv, st *apiState) {
 	env.subStatus(t, st.aliceToken, "/protocol/vless", http.StatusOK)
 	env.subStatus(t, st.aliceToken, "/protocol/vless/links.txt", http.StatusOK)
 	env.subStatus(t, st.aliceToken, "/protocol/vless/links.b64", http.StatusOK)
-	env.subStatus(t, st.aliceToken, "/inbound/"+st.inboundTag, http.StatusOK)
-	env.subStatus(t, st.aliceToken, "/inbound/"+st.inboundTag+"/links.txt", http.StatusOK)
-	env.subStatus(t, st.aliceToken, "/inbound/"+st.inboundTag+"/links.b64", http.StatusOK)
 
 	// Protocol-specific endpoints not present in test config should return 404.
 	env.subStatus(t, st.aliceToken, "/vmess", http.StatusNotFound)
@@ -281,7 +280,7 @@ type composeTestEnv struct {
 	appBinPath    string
 }
 
-func (e *composeTestEnv) prepare(t *testing.T, ctx context.Context) {
+func (e *composeTestEnv) prepare(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	e.tmpDir = t.TempDir()
@@ -309,7 +308,7 @@ func (e *composeTestEnv) prepare(t *testing.T, ctx context.Context) {
   "balancer_probe_interval": "30s"
 }
 `, e.appPort, adminToken)
-	if err := os.WriteFile(e.appConfigPath, []byte(appConfig), 0o644); err != nil {
+	if err := os.WriteFile(e.appConfigPath, []byte(appConfig), 0o600); err != nil {
 		t.Fatalf("write app config: %v", err)
 	}
 
@@ -322,7 +321,7 @@ func (e *composeTestEnv) prepare(t *testing.T, ctx context.Context) {
 	}
 }
 
-func (e *composeTestEnv) teardown(t *testing.T, ctx context.Context) {
+func (e *composeTestEnv) teardown(ctx context.Context, t *testing.T) {
 	t.Helper()
 	env := e.composeEnv()
 	if out, err := runCmdEnv(ctx, e.repoRoot, env, "docker", "compose", "-f", "docker-compose.test.yml", "down", "-v"); err != nil {

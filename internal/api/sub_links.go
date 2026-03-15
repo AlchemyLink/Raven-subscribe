@@ -145,11 +145,6 @@ func (s *Server) handleSubscriptionLinksByFormatAndProtocol(w http.ResponseWrite
 	writeProxyLinksText(w, username, cfg)
 }
 
-func applySubscriptionFilters(clients []models.UserClientFull, r *http.Request) []models.UserClientFull {
-	result := clients
-	return applySubscriptionFiltersWithProtocol(result, r, "")
-}
-
 func applySubscriptionFiltersWithProtocol(clients []models.UserClientFull, r *http.Request, forcedProtocol string) []models.UserClientFull {
 	result := clients
 	p := strings.ToLower(strings.TrimSpace(forcedProtocol))
@@ -288,7 +283,8 @@ func (s *Server) generateConfigForSubscriptionRequestWithForcedProtocol(r *http.
 	}
 	clients, err := s.db.GetUserClients(user.ID)
 	if err != nil {
-		log.Printf("ERROR get user clients for %s: %v", user.Username, err)
+		// #nosec G706 -- username is sanitized before logging.
+		log.Printf("ERROR get user clients for %s: %v", sanitizeLogField(user.Username), err)
 		return nil, "", fmt.Errorf("internal error")
 	}
 	clients = applySubscriptionFiltersWithProtocol(clients, r, forcedProtocol)

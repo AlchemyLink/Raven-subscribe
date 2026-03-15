@@ -56,6 +56,7 @@ func ParseConfigDir(dir string) (map[string][]ParsedInbound, error) {
 
 // ParseConfigFile parses a single xray server config JSON file
 func ParseConfigFile(path string) ([]ParsedInbound, error) {
+	// #nosec G304 -- path comes from configured xray config directory traversal.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
@@ -153,6 +154,7 @@ func extractVMess(si ServerInbound) ([]ParsedClient, error) {
 			ID:       c.ID,
 			AlterId:  c.AlterId,
 		}
+		// #nosec G117 -- credentials are marshaled for internal DB storage.
 		b, _ := json.Marshal(cred)
 		identity := firstNonEmpty(c.Email, c.ID)
 		clients = append(clients, ParsedClient{Identity: identity, ConfigJSON: string(b)})
@@ -176,6 +178,7 @@ func extractVLESS(si ServerInbound) ([]ParsedClient, error) {
 			// Read from inbound settings.decryption when present, fallback to "none".
 			Encryption: firstNonEmpty(s.Decryption, "none"),
 		}
+		// #nosec G117 -- credentials are marshaled for internal DB storage.
 		b, _ := json.Marshal(cred)
 		identity := firstNonEmpty(c.Email, c.ID)
 		clients = append(clients, ParsedClient{Identity: identity, ConfigJSON: string(b)})
@@ -195,6 +198,7 @@ func extractTrojan(si ServerInbound) ([]ParsedClient, error) {
 			Password: c.Password,
 			Email:    c.Email,
 		}
+		// #nosec G117 -- credentials are marshaled for internal DB storage.
 		b, _ := json.Marshal(cred)
 		identity := firstNonEmpty(c.Email, c.Password)
 		clients = append(clients, ParsedClient{Identity: identity, ConfigJSON: string(b)})
@@ -219,6 +223,7 @@ func extractShadowsocks(si ServerInbound) ([]ParsedClient, error) {
 				Method:   method,
 				Email:    c.Email,
 			}
+			// #nosec G117 -- credentials are marshaled for internal DB storage.
 			b, _ := json.Marshal(cred)
 			identity := firstNonEmpty(c.Email, c.Password)
 			clients = append(clients, ParsedClient{Identity: identity, ConfigJSON: string(b)})
@@ -227,6 +232,7 @@ func extractShadowsocks(si ServerInbound) ([]ParsedClient, error) {
 		// Single-user shadowsocks
 		method := firstNonEmpty(s.Method, "aes-256-gcm")
 		cred := StoredClientConfig{Protocol: "shadowsocks", Password: s.Password, Method: method}
+		// #nosec G117 -- credentials are marshaled for internal DB storage.
 		b, _ := json.Marshal(cred)
 		clients = append(clients, ParsedClient{Identity: s.Password, ConfigJSON: string(b)})
 	}
@@ -241,6 +247,7 @@ func extractSOCKS(si ServerInbound) ([]ParsedClient, error) {
 	var clients []ParsedClient
 	for _, acc := range s.Accounts {
 		cred := StoredClientConfig{Protocol: "socks", User: acc.User, Password: acc.Pass}
+		// #nosec G117 -- credentials are marshaled for internal DB storage.
 		b, _ := json.Marshal(cred)
 		clients = append(clients, ParsedClient{Identity: acc.User, ConfigJSON: string(b)})
 	}
