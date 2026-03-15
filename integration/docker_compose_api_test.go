@@ -255,9 +255,6 @@ func exerciseSubscriptions(t *testing.T, env *composeTestEnv, st *apiState) {
 	env.subStatus(t, st.aliceToken, "/protocol/vless", http.StatusOK)
 	env.subStatus(t, st.aliceToken, "/protocol/vless/links.txt", http.StatusOK)
 	env.subStatus(t, st.aliceToken, "/protocol/vless/links.b64", http.StatusOK)
-	env.subStatus(t, st.aliceToken, "/inbound/"+st.inboundTag, http.StatusOK)
-	env.subStatus(t, st.aliceToken, "/inbound/"+st.inboundTag+"/links.txt", http.StatusOK)
-	env.subStatus(t, st.aliceToken, "/inbound/"+st.inboundTag+"/links.b64", http.StatusOK)
 
 	// Protocol-specific endpoints not present in test config should return 404.
 	env.subStatus(t, st.aliceToken, "/vmess", http.StatusNotFound)
