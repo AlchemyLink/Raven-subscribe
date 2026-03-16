@@ -47,6 +47,14 @@ func (s *Server) Router() http.Handler {
 	r.HandleFunc("/sub/{token}/links", s.handleSubscriptionLinks).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/links.txt", s.handleSubscriptionLinksText).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/links.b64", s.handleSubscriptionLinksB64).Methods(http.MethodGet)
+
+	// ── Compact subscription endpoint — always serves lightweight config ──────
+	// /c/{token}        → full Xray JSON, geo-selectors stripped
+	// /c/{token}/links.txt → plain share links, geo-selectors stripped
+	// /c/{token}/links.b64 → base64 share links, geo-selectors stripped
+	r.HandleFunc("/c/{token}", s.handleCompactSubscription).Methods(http.MethodGet)
+	r.HandleFunc("/c/{token}/links.txt", s.handleCompactSubscriptionLinksText).Methods(http.MethodGet)
+	r.HandleFunc("/c/{token}/links.b64", s.handleCompactSubscriptionLinksB64).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/vless", s.handleVLESSLinksText).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/vless.b64", s.handleVLESSLinksB64).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/vless/list", s.handleVLESSList).Methods(http.MethodGet)
@@ -234,6 +242,35 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		// #nosec G706 -- username is sanitized before logging.
 		log.Printf("ERROR encode subscription response for %s: %v", sanitizeLogField(user.Username), err)
 	}
+}
+
+// handleCompactSubscription serves /c/{token} — same as /sub/{token} but always applies
+// the lightweight routing profile (geo-selectors stripped). Intended as the primary
+// subscription URL for all clients.
+func (s *Server) handleCompactSubscription(w http.ResponseWriter, r *http.Request) {
+	r2 := r.WithContext(r.Context())
+	q := r2.URL.Query()
+	q.Set("profile", "mobile")
+	r2.URL.RawQuery = q.Encode()
+	s.handleSubscription(w, r2)
+}
+
+// handleCompactSubscriptionLinksText serves /c/{token}/links.txt — lightweight plain-text links.
+func (s *Server) handleCompactSubscriptionLinksText(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	q.Set("profile", "mobile")
+	r2 := r.WithContext(r.Context())
+	r2.URL.RawQuery = q.Encode()
+	s.handleSubscriptionLinksText(w, r2)
+}
+
+// handleCompactSubscriptionLinksB64 serves /c/{token}/links.b64 — lightweight base64 links.
+func (s *Server) handleCompactSubscriptionLinksB64(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	q.Set("profile", "mobile")
+	r2 := r.WithContext(r.Context())
+	r2.URL.RawQuery = q.Encode()
+	s.handleSubscriptionLinksB64(w, r2)
 }
 
 // handleSubscriptionLinks returns helper URLs to subscribe by protocol or inbound tag.
