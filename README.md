@@ -208,17 +208,28 @@ Full `config.json` reference:
 
 ## Subscription URLs
 
-Each user has a unique token. Their base subscription URL is:
+Each user has two subscription endpoints:
 
-```
-GET /sub/{token}
-```
+| Endpoint | Description |
+|---|---|
+| `/c/{token}` | **Primary.** Lightweight config — `geosite:`/`geoip:` selectors stripped. Works great on all devices. |
+| `/sub/{token}` | Full config with all routing rules including geo databases. |
 
-This returns a complete Xray client JSON config, ready to import.
+### `/c/{token}` — primary endpoint (recommended)
 
-### Format options
+The compact endpoint is the recommended URL to give to users. It returns a complete Xray client config with routing rules optimized for lower memory usage — `geosite:` and `geoip:` selectors are stripped, keeping only explicit domain and IP rules.
 
-Append these query parameters or use shortcut paths:
+Works on all clients: V2RayNG, NekoBox, V2Box, Hiddify, and desktop clients.
+
+| What you want | URL |
+|---|---|
+| Full Xray JSON config | `/c/{token}` |
+| All share links (plain text) | `/c/{token}/links.txt` |
+| All share links (Base64) | `/c/{token}/links.b64` |
+
+### `/sub/{token}` — full endpoint
+
+Returns the complete config including `geosite:` and `geoip:` routing rules. Use this if your client supports geo databases and you want full routing control.
 
 | What you want | URL |
 |---|---|
@@ -230,22 +241,22 @@ Append these query parameters or use shortcut paths:
 | Trojan links only | `/sub/{token}/trojan` |
 | Shadowsocks links only | `/sub/{token}/ss` |
 | Specific inbound only | `/sub/{token}/inbound/{tag}` |
-| Mobile-optimized config | `/sub/{token}?profile=mobile` |
+| Lightweight config (explicit) | `/sub/{token}?profile=mobile` |
 
 ### Example: import into V2RayNG
 
 1. Open V2RayNG → tap **+** → **Import config from URL**
-2. Paste: `http://your-server:8080/sub/YOUR_TOKEN`
+2. Paste: `http://your-server:8080/c/YOUR_TOKEN`
 3. Tap **OK** — done. The app fetches and imports all your connections.
 
 ### Example: import into NekoBox / Hiddify
 
-Use the same URL. These clients support Xray JSON format natively.
+Use the same `/c/{token}` URL. These clients support Xray JSON format natively.
 
 ### Example: get plain share links
 
 ```bash
-curl http://your-server:8080/sub/YOUR_TOKEN/links.txt
+curl http://your-server:8080/c/YOUR_TOKEN/links.txt
 ```
 
 Output:
@@ -255,11 +266,9 @@ vmess://eyJ2IjoiMiIsInBzIjoidm1lc3MtdGNwIiwiYWRkIjoieW91ci1zZXJ2ZXIiLCJwb3J0Ijoi
 trojan://password@your-server:443?security=tls&...#trojan-tls
 ```
 
-### Mobile detection
+### Auto-detection
 
-When a mobile client fetches the subscription, Raven Subscribe automatically detects it from the `User-Agent` header (Android, iPhone, iPad, V2RayNG, NekoBox, V2Box) and strips heavy `geosite:`/`geoip:` selectors from routing rules to reduce memory usage.
-
-You can also force it: `/sub/{token}?profile=mobile`
+When a mobile client fetches `/sub/{token}`, Raven Subscribe automatically detects it from the `User-Agent` header (Android, iPhone, iPad, V2RayNG, NekoBox, V2Box) and applies the lightweight profile automatically. The `/c/{token}` endpoint always uses the lightweight profile regardless of User-Agent.
 
 ---
 

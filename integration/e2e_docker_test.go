@@ -190,6 +190,40 @@ func TestDockerE2ESubscriptionFlow(t *testing.T) {
 			t.Fatalf("decoded links.b64 must contain vless://, got: %s", string(decoded))
 		}
 	})
+
+	t.Run("compact-subscription", func(t *testing.T) {
+		if strings.TrimSpace(state.aliceToken) == "" {
+			t.Fatal("missing alice token from previous subtest")
+		}
+
+		// /c/{token} — full Xray JSON, geo-selectors stripped.
+		compactURL := fmt.Sprintf("%s/c/%s", state.baseURL, state.aliceToken)
+		compactBody := string(doRawRequest(t, "GET", compactURL, ""))
+		if !strings.Contains(compactBody, "outbounds") {
+			t.Fatalf("/c/{token}: expected xray config JSON, got: %s", compactBody)
+		}
+
+		// /c/{token}/links.txt — plain share links, geo-selectors stripped.
+		compactTxtURL := fmt.Sprintf("%s/c/%s/links.txt", state.baseURL, state.aliceToken)
+		compactTxt := string(doRawRequest(t, "GET", compactTxtURL, ""))
+		if !strings.Contains(compactTxt, "vless://") {
+			t.Fatalf("/c/{token}/links.txt: expected vless://, got: %s", compactTxt)
+		}
+		if !strings.Contains(compactTxt, fmt.Sprintf(":%d?", xrayInboundPort)) {
+			t.Fatalf("/c/{token}/links.txt: expected port %d, got: %s", xrayInboundPort, compactTxt)
+		}
+
+		// /c/{token}/links.b64 — base64 share links, geo-selectors stripped.
+		compactB64URL := fmt.Sprintf("%s/c/%s/links.b64", state.baseURL, state.aliceToken)
+		compactB64 := strings.TrimSpace(string(doRawRequest(t, "GET", compactB64URL, "")))
+		compactDecoded, err := base64.StdEncoding.DecodeString(compactB64)
+		if err != nil {
+			t.Fatalf("/c/{token}/links.b64: decode error: %v; value=%s", err, compactB64)
+		}
+		if !strings.Contains(string(compactDecoded), "vless://") {
+			t.Fatalf("/c/{token}/links.b64: decoded must contain vless://, got: %s", string(compactDecoded))
+		}
+	})
 }
 
 type e2eFlowState struct {
