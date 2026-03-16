@@ -268,6 +268,28 @@ func exerciseSubscriptions(t *testing.T, env *composeTestEnv, st *apiState) {
 	env.subStatus(t, st.aliceToken, "/shadowsocks", http.StatusNotFound)
 	env.subStatus(t, st.aliceToken, "/shadowsocks.b64", http.StatusNotFound)
 	env.subStatus(t, "invalid-token", "", http.StatusNotFound)
+
+	// /c/{token} — compact endpoint (geo-selectors stripped, no query params needed).
+	compactBody := env.compactSubStatus(t, st.aliceToken, "", http.StatusOK)
+	if !strings.Contains(string(compactBody), "outbounds") {
+		t.Fatalf("/c/{token} response does not look like xray config: %s", string(compactBody))
+	}
+
+	compactLinksTxt := string(env.compactSubStatus(t, st.aliceToken, "/links.txt", http.StatusOK))
+	if !strings.Contains(compactLinksTxt, "vless://") {
+		t.Fatalf("/c/{token}/links.txt does not contain vless://: %s", compactLinksTxt)
+	}
+
+	compactLinksB64Raw := strings.TrimSpace(string(env.compactSubStatus(t, st.aliceToken, "/links.b64", http.StatusOK)))
+	compactDecoded, err := base64.StdEncoding.DecodeString(compactLinksB64Raw)
+	if err != nil {
+		t.Fatalf("decode /c/{token}/links.b64: %v value=%s", err, compactLinksB64Raw)
+	}
+	if !strings.Contains(string(compactDecoded), "vless://") {
+		t.Fatalf("/c/{token}/links.b64 decoded does not contain vless://: %s", string(compactDecoded))
+	}
+
+	env.compactSubStatus(t, "invalid-token", "", http.StatusNotFound)
 }
 
 type composeTestEnv struct {
@@ -374,6 +396,12 @@ func (e *composeTestEnv) requestStatus(t *testing.T, method, path, token string,
 func (e *composeTestEnv) subStatus(t *testing.T, token, suffix string, status int) []byte {
 	t.Helper()
 	path := fmt.Sprintf("/sub/%s%s", token, suffix)
+	return e.requestStatus(t, http.MethodGet, path, "", nil, status)
+}
+
+func (e *composeTestEnv) compactSubStatus(t *testing.T, token, suffix string, status int) []byte {
+	t.Helper()
+	path := fmt.Sprintf("/c/%s%s", token, suffix)
 	return e.requestStatus(t, http.MethodGet, path, "", nil, status)
 }
 
