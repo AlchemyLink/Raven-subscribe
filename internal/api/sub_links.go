@@ -117,13 +117,11 @@ func (s *Server) handleVLESSLinkByTag(w http.ResponseWriter, r *http.Request, fo
 		}
 		if format == "b64" {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.Header().Set("Content-Disposition", `attachment; filename="vless-single.b64.txt"`)
 			w.Header().Set("Profile-Title", username)
 			_, _ = w.Write([]byte(base64.StdEncoding.EncodeToString([]byte(e.URL))))
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="vless-single.txt"`)
 		w.Header().Set("Profile-Title", username)
 		_, _ = w.Write([]byte(e.URL))
 		return
@@ -213,8 +211,8 @@ func writeProxyLinksText(w http.ResponseWriter, username string, cfg *xray.Clien
 	links := buildProxyLinks(cfg)
 	payload := strings.Join(links, "\n")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="subscription.txt"`)
 	w.Header().Set("Profile-Title", username)
+	w.Header().Set("Subscription-Userinfo", "upload=0; download=0; total=0; expire=0")
 	_, _ = w.Write([]byte(payload))
 }
 
@@ -223,8 +221,8 @@ func writeProxyLinksB64(w http.ResponseWriter, username string, cfg *xray.Client
 	plain := strings.Join(links, "\n")
 	payload := base64.StdEncoding.EncodeToString([]byte(plain))
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="subscription.b64.txt"`)
 	w.Header().Set("Profile-Title", username)
+	w.Header().Set("Subscription-Userinfo", "upload=0; download=0; total=0; expire=0")
 	_, _ = w.Write([]byte(payload))
 }
 
