@@ -361,6 +361,9 @@ func buildVLESSLink(ob xray.Outbound) string {
 			if rs.SpiderX != "" {
 				params.Set("spx", rs.SpiderX)
 			}
+			if rs.MLDSA65Verify != "" {
+				params.Set("pqv", rs.MLDSA65Verify)
+			}
 		}
 		applyTransportParams(params, ob.StreamSettings)
 	}

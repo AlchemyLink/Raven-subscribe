@@ -153,9 +153,22 @@ func (db *DB) GetUserByID(id int64) (*models.User, error) {
 
 // ListUsers returns all users ordered by creation time.
 func (db *DB) ListUsers() ([]models.User, error) {
-	rows, err := db.conn.Query(
-		`SELECT id, username, token, enabled, client_routes, created_at, updated_at FROM users ORDER BY created_at`,
-	)
+	return db.ListUsersPaginated(0, 0)
+}
+
+// ListUsersPaginated returns users with pagination. limit/offset 0 = no limit.
+func (db *DB) ListUsersPaginated(limit, offset int) ([]models.User, error) {
+	query := `SELECT id, username, token, enabled, client_routes, created_at, updated_at FROM users ORDER BY created_at`
+	var args []interface{}
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	if offset > 0 {
+		query += ` OFFSET ?`
+		args = append(args, offset)
+	}
+	rows, err := db.conn.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +183,13 @@ func (db *DB) ListUsers() ([]models.User, error) {
 		users = append(users, *u)
 	}
 	return users, rows.Err()
+}
+
+// CountUsers returns the total number of users.
+func (db *DB) CountUsers() (int, error) {
+	var n int
+	err := db.conn.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
+	return n, err
 }
 
 // UpdateUserToken replaces the subscription token for the specified user.
@@ -314,11 +334,24 @@ func (db *DB) UpsertInbound(tag, protocol string, port int, configFile, rawConfi
 	return id, nil
 }
 
-// ListInbounds returns all inbound records ordered by tag.
+// ListInbounds returns all inbounds ordered by tag.
 func (db *DB) ListInbounds() ([]models.Inbound, error) {
-	rows, err := db.conn.Query(
-		`SELECT id, tag, protocol, port, config_file, raw_config, updated_at FROM inbounds ORDER BY tag`,
-	)
+	return db.ListInboundsPaginated(0, 0)
+}
+
+// ListInboundsPaginated returns inbounds with pagination. limit/offset 0 = no limit.
+func (db *DB) ListInboundsPaginated(limit, offset int) ([]models.Inbound, error) {
+	query := `SELECT id, tag, protocol, port, config_file, raw_config, updated_at FROM inbounds ORDER BY tag`
+	var args []interface{}
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	if offset > 0 {
+		query += ` OFFSET ?`
+		args = append(args, offset)
+	}
+	rows, err := db.conn.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -333,6 +366,13 @@ func (db *DB) ListInbounds() ([]models.Inbound, error) {
 		inbounds = append(inbounds, ib)
 	}
 	return inbounds, rows.Err()
+}
+
+// CountInbounds returns the total number of inbounds.
+func (db *DB) CountInbounds() (int, error) {
+	var n int
+	err := db.conn.QueryRow(`SELECT COUNT(*) FROM inbounds`).Scan(&n)
+	return n, err
 }
 
 // DeleteInboundsByFile removes all inbound records originating from the given config file.
@@ -489,6 +529,40 @@ func (db *DB) ListUserClients() ([]models.UserClientFull, error) {
 func (db *DB) DeleteUserClientsByInbound(inboundID int64) error {
 	_, err := db.conn.Exec(`DELETE FROM user_clients WHERE inbound_id = ?`, inboundID)
 	return err
+}
+
+// UserClientForInbound holds username and client config for a user enrolled in an inbound.
+type UserClientForInbound struct {
+	Username     string
+	ClientConfig string
+	Protocol     string
+}
+
+// ListUserClientsByInboundTag returns all users with their stored config for the given inbound tag.
+// Used for restoring users to Xray API and syncing DB to config files.
+func (db *DB) ListUserClientsByInboundTag(tag string) ([]UserClientForInbound, error) {
+	rows, err := db.conn.Query(`
+		SELECT u.username, uc.client_config, ib.protocol
+		FROM user_clients uc
+		JOIN users u ON u.id = uc.user_id
+		JOIN inbounds ib ON ib.id = uc.inbound_id
+		WHERE ib.tag = ? AND uc.enabled = 1
+		ORDER BY u.username
+	`, tag)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var result []UserClientForInbound
+	for rows.Next() {
+		var r UserClientForInbound
+		if err := rows.Scan(&r.Username, &r.ClientConfig, &r.Protocol); err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, rows.Err()
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
