@@ -2,6 +2,7 @@
 package syncer
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -24,10 +25,10 @@ func New(cfg *config.Config, db *database.DB) *Syncer {
 	return &Syncer{cfg: cfg, db: db}
 }
 
-// Start begins periodic sync + file-watch based sync
-func (s *Syncer) Start() {
+// Start begins periodic sync + file-watch based sync until ctx is done.
+func (s *Syncer) Start(ctx context.Context) {
 	// File watcher
-	go s.watch()
+	go s.watch(ctx)
 
 	// Periodic sync as fallback
 	interval := time.Duration(s.cfg.SyncInterval) * time.Second
@@ -37,14 +38,19 @@ func (s *Syncer) Start() {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		if err := s.Sync(); err != nil {
-			log.Printf("Periodic sync error: %v", err)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.Sync(); err != nil {
+				log.Printf("Periodic sync error: %v", err)
+			}
 		}
 	}
 }
 
-func (s *Syncer) watch() {
+func (s *Syncer) watch(ctx context.Context) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Printf("fsnotify init error: %v", err)
@@ -64,9 +70,12 @@ func (s *Syncer) watch() {
 	log.Printf("Watching %s for changes", s.cfg.ConfigDir)
 	debounce := time.NewTimer(0)
 	<-debounce.C // drain initial fire
+	defer debounce.Stop()
 
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return

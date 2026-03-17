@@ -161,11 +161,13 @@ func (db *DB) ListUsersPaginated(limit, offset int) ([]models.User, error) {
 	query := `SELECT id, username, token, enabled, client_routes, created_at, updated_at FROM users ORDER BY created_at`
 	var args []interface{}
 	if limit > 0 {
-		query += ` LIMIT ?`
-		args = append(args, limit)
-	}
-	if offset > 0 {
-		query += ` OFFSET ?`
+		query += ` LIMIT ? OFFSET ?`
+		if offset < 0 {
+			offset = 0
+		}
+		args = append(args, limit, offset)
+	} else if offset > 0 {
+		query += ` LIMIT -1 OFFSET ?`
 		args = append(args, offset)
 	}
 	rows, err := db.conn.Query(query, args...)
@@ -344,11 +346,13 @@ func (db *DB) ListInboundsPaginated(limit, offset int) ([]models.Inbound, error)
 	query := `SELECT id, tag, protocol, port, config_file, raw_config, updated_at FROM inbounds ORDER BY tag`
 	var args []interface{}
 	if limit > 0 {
-		query += ` LIMIT ?`
-		args = append(args, limit)
-	}
-	if offset > 0 {
-		query += ` OFFSET ?`
+		query += ` LIMIT ? OFFSET ?`
+		if offset < 0 {
+			offset = 0
+		}
+		args = append(args, limit, offset)
+	} else if offset > 0 {
+		query += ` LIMIT -1 OFFSET ?`
 		args = append(args, offset)
 	}
 	rows, err := db.conn.Query(query, args...)
