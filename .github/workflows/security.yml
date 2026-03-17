@@ -71,9 +71,7 @@ jobs:
         run: go mod download
 
       - name: Prime module graph
-        run: |
-          go mod download modernc.org/sqlite
-          go list -deps ./... > /dev/null
+        run: go list -deps ./... > /dev/null
 
       - name: Run golangci-lint with security rules
         uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0

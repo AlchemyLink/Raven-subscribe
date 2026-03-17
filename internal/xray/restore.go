@@ -1,5 +1,4 @@
 // Package xray provides restore and DB-to-config sync for API-created users.
-
 package xray
 
 import (
