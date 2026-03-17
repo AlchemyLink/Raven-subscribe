@@ -332,3 +332,27 @@ func TestFirstNonEmpty(t *testing.T) {
 		})
 	}
 }
+
+func TestStoredClientConfigUnmarshalAlterIDBackwardCompat(t *testing.T) {
+	t.Run("camelCase alterId", func(t *testing.T) {
+		var c StoredClientConfig
+		err := json.Unmarshal([]byte(`{"protocol":"vmess","id":"abc","alterId":7}`), &c)
+		if err != nil {
+			t.Fatalf("unmarshal camelCase alterId: %v", err)
+		}
+		if c.AlterId != 7 {
+			t.Fatalf("expected AlterId=7, got %d", c.AlterId)
+		}
+	})
+
+	t.Run("snake_case alter_id", func(t *testing.T) {
+		var c StoredClientConfig
+		err := json.Unmarshal([]byte(`{"protocol":"vmess","id":"abc","alter_id":9}`), &c)
+		if err != nil {
+			t.Fatalf("unmarshal snake_case alter_id: %v", err)
+		}
+		if c.AlterId != 9 {
+			t.Fatalf("expected AlterId=9, got %d", c.AlterId)
+		}
+	})
+}

@@ -405,3 +405,29 @@ type StoredClientConfig struct {
 	// SOCKS
 	User string `json:"user,omitempty"`
 }
+
+// UnmarshalJSON keeps backward compatibility for VMess alterId naming.
+// Some stored records may contain "alterId" while newer records use "alter_id".
+func (s *StoredClientConfig) UnmarshalJSON(data []byte) error {
+	type alias StoredClientConfig
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*s = StoredClientConfig(a)
+
+	// Backward compatibility: accept camelCase key if snake_case is absent.
+	if s.AlterId == 0 {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return nil
+		}
+		if v, ok := raw["alterId"]; ok {
+			var alterID int
+			if err := json.Unmarshal(v, &alterID); err == nil {
+				s.AlterId = alterID
+			}
+		}
+	}
+	return nil
+}
