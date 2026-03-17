@@ -155,8 +155,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - name: Build binary
-        run: make build
+      - name: Build and verify binary
+        run: make test-build
 
       - name: Upload build artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

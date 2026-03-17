@@ -5,6 +5,7 @@ LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
 .PHONY: all build install clean deps release \
         build-linux-amd64 build-linux-arm64 build-linux-arm build-darwin-amd64 build-darwin-arm64 build-all \
+        test-build test-build-all \
         docker-test-up docker-test-down docker-test-logs docker-test-e2e
 
 all: build
@@ -38,6 +39,20 @@ build-darwin-arm64: deps
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY)-darwin-arm64 .
 
 build-all: build-linux-amd64 build-linux-arm64 build-linux-arm build-darwin-amd64 build-darwin-arm64
+
+# Verify build produces a working binary
+test-build: build
+	@test -f $(BUILD_DIR)/$(BINARY) || (echo "ERROR: binary not found"; exit 1)
+	@test -x $(BUILD_DIR)/$(BINARY) || (echo "ERROR: binary not executable"; exit 1)
+	@echo "test-build: OK"
+
+# Verify build-all produces all platform binaries
+test-build-all: build-all
+	@for f in $(BUILD_DIR)/$(BINARY)-linux-amd64 $(BUILD_DIR)/$(BINARY)-linux-arm64 $(BUILD_DIR)/$(BINARY)-linux-arm $(BUILD_DIR)/$(BINARY)-darwin-amd64 $(BUILD_DIR)/$(BINARY)-darwin-arm64; do \
+		test -f "$$f" || (echo "ERROR: missing $$f"; exit 1); \
+		test -x "$$f" || (echo "ERROR: not executable $$f"; exit 1); \
+	done
+	@echo "test-build-all: OK"
 
 # release: tag, build all platforms, push tag → triggers CI release workflow
 # Usage: make release VERSION=v0.1.0

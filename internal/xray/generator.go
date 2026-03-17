@@ -100,6 +100,8 @@ func normalizeBalancerStrategy(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "random":
 		return "random"
+	case "roundrobin":
+		return "roundRobin"
 	case "leastping":
 		return "leastPing"
 	case "leastload":
@@ -395,13 +397,18 @@ func convertReality(rs *RealitySettings, _ string) (*RealitySettings, error) {
 		shortID = rs.ShortIds[0]
 	}
 
+	// MLDSA65Verify: client needs the public verification key only. Never pass MLDSA65Seed
+	// (server secret) to the client. mldsa65Verify cannot be derived from mldsa65Seed without
+	// ML-DSA-65 crypto; server config must include mldsa65Verify explicitly for sharing.
+	mldsa65Verify := strings.TrimSpace(rs.MLDSA65Verify)
+
 	return &RealitySettings{
 		ServerName:    serverName,
 		Fingerprint:   firstNonEmpty(rs.Fingerprint, "chrome"),
 		PublicKey:     publicKey,
 		ShortId:       shortID,
 		SpiderX:       rs.SpiderX,
-		MLDSA65Verify: firstNonEmpty(rs.MLDSA65Verify, rs.MLDSA65Seed),
+		MLDSA65Verify: mldsa65Verify,
 	}, nil
 }
 

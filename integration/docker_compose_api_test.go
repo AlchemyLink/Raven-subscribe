@@ -43,6 +43,12 @@ func TestDockerComposeAllAPIs(t *testing.T) {
 	t.Run("auth", func(t *testing.T) {
 		env.requestStatus(t, http.MethodGet, "/api/users", "", nil, http.StatusUnauthorized)
 	})
+	t.Run("api-validation", func(t *testing.T) {
+		exerciseAPIValidation(t, &env)
+	})
+	t.Run("api-pagination", func(t *testing.T) {
+		exerciseAPIPagination(t, &env)
+	})
 	t.Run("users-clients-and-inbounds", func(t *testing.T) {
 		exerciseUsersClientsAndInbounds(t, &env, state)
 	})
@@ -73,6 +79,50 @@ type apiState struct {
 	inboundTag string
 }
 
+func exerciseAPIValidation(t *testing.T, env *composeTestEnv) {
+	env.requestStatus(t, http.MethodPost, "/api/users", adminToken, []byte(`{"username":"invalid user"}`), http.StatusBadRequest)
+	env.requestStatus(t, http.MethodPost, "/api/users", adminToken, []byte(`{"username":"a b"}`), http.StatusBadRequest)
+	env.requestStatus(t, http.MethodPost, "/api/users", adminToken, []byte(`{}`), http.StatusBadRequest)
+	env.requestStatus(t, http.MethodPost, "/api/users", adminToken, []byte(`{"username":""}`), http.StatusBadRequest)
+	env.requestStatus(t, http.MethodPost, "/api/users", adminToken, nil, http.StatusBadRequest)
+}
+
+func exerciseAPIPagination(t *testing.T, env *composeTestEnv) {
+	usersPagBody := env.requestStatus(t, http.MethodGet, "/api/users?limit=2&offset=0", adminToken, nil, http.StatusOK)
+	var usersPag struct {
+		Items  []interface{} `json:"items"`
+		Total  int           `json:"total"`
+		Limit  int           `json:"limit"`
+		Offset int           `json:"offset"`
+	}
+	if err := json.Unmarshal(usersPagBody, &usersPag); err != nil {
+		t.Fatalf("decode paginated users: %v body=%s", err, string(usersPagBody))
+	}
+	if usersPag.Limit != 2 || usersPag.Offset != 0 {
+		t.Fatalf("expected limit=2 offset=0, got limit=%d offset=%d", usersPag.Limit, usersPag.Offset)
+	}
+	if len(usersPag.Items) > 2 {
+		t.Fatalf("expected at most 2 items with limit=2, got %d", len(usersPag.Items))
+	}
+
+	inboundsPagBody := env.requestStatus(t, http.MethodGet, "/api/inbounds?limit=1", adminToken, nil, http.StatusOK)
+	var inboundsPag struct {
+		Items  []interface{} `json:"items"`
+		Total  int           `json:"total"`
+		Limit  int           `json:"limit"`
+		Offset int           `json:"offset"`
+	}
+	if err := json.Unmarshal(inboundsPagBody, &inboundsPag); err != nil {
+		t.Fatalf("decode paginated inbounds: %v body=%s", err, string(inboundsPagBody))
+	}
+	if inboundsPag.Limit != 1 || inboundsPag.Offset != 0 {
+		t.Fatalf("expected limit=1 offset=0, got limit=%d offset=%d", inboundsPag.Limit, inboundsPag.Offset)
+	}
+	if len(inboundsPag.Items) > 1 {
+		t.Fatalf("expected at most 1 item with limit=1, got %d", len(inboundsPag.Items))
+	}
+}
+
 func exerciseUsersClientsAndInbounds(t *testing.T, env *composeTestEnv, st *apiState) {
 	usersBody := env.requestStatus(t, http.MethodGet, "/api/users", adminToken, nil, http.StatusOK)
 	users := decodeUsers(t, usersBody)
@@ -97,6 +147,10 @@ func exerciseUsersClientsAndInbounds(t *testing.T, env *composeTestEnv, st *apiS
 		t.Fatal("expected at least one client for alice")
 	}
 	st.inboundID = int64FromAny(t, clients[0]["inbound_id"])
+	st.inboundTag, _ = clients[0]["inbound_tag"].(string)
+	if strings.TrimSpace(st.inboundTag) == "" {
+		t.Fatalf("invalid inbound tag in user clients response: %+v", clients[0])
+	}
 
 	inboundsBody := env.requestStatus(t, http.MethodGet, "/api/inbounds", adminToken, nil, http.StatusOK)
 	var inbounds []map[string]interface{}
@@ -106,9 +160,22 @@ func exerciseUsersClientsAndInbounds(t *testing.T, env *composeTestEnv, st *apiS
 	if len(inbounds) == 0 {
 		t.Fatal("expected at least one inbound")
 	}
-	st.inboundTag, _ = inbounds[0]["tag"].(string)
-	if strings.TrimSpace(st.inboundTag) == "" {
-		t.Fatalf("invalid inbound tag in response: %+v", inbounds[0])
+
+	// Validate idempotent behavior of POST /api/users/{id}/clients for existing mapping.
+	addExistingBody := env.requestStatus(
+		t,
+		http.MethodPost,
+		fmt.Sprintf("/api/users/%d/clients", st.aliceID),
+		adminToken,
+		[]byte(fmt.Sprintf(`{"tag":"%s"}`, st.inboundTag)),
+		http.StatusOK,
+	)
+	var addExistingResp map[string]interface{}
+	if err := json.Unmarshal(addExistingBody, &addExistingResp); err != nil {
+		t.Fatalf("decode add existing client response: %v body=%s", err, string(addExistingBody))
+	}
+	if gotTag, _ := addExistingResp["inbound_tag"].(string); gotTag != st.inboundTag {
+		t.Fatalf("expected inbound_tag=%q in add-existing response, got=%q body=%s", st.inboundTag, gotTag, string(addExistingBody))
 	}
 
 	env.requestStatus(t, http.MethodPut, fmt.Sprintf("/api/users/%d/clients/%d/disable", st.aliceID, st.inboundID), adminToken, nil, http.StatusOK)
@@ -118,6 +185,9 @@ func exerciseUsersClientsAndInbounds(t *testing.T, env *composeTestEnv, st *apiS
 func exerciseUserLifecycleAndToken(t *testing.T, env *composeTestEnv, st *apiState) {
 	if st.aliceID == 0 {
 		t.Fatal("missing alice id from previous setup")
+	}
+	if strings.TrimSpace(st.inboundTag) == "" {
+		t.Fatal("missing inbound tag from previous setup")
 	}
 	createBody := env.requestStatus(t, http.MethodPost, "/api/users", adminToken, []byte(`{"username":"charlie-e2e"}`), http.StatusOK)
 	var created struct {
@@ -131,6 +201,15 @@ func exerciseUserLifecycleAndToken(t *testing.T, env *composeTestEnv, st *apiSta
 	if created.User.ID <= 0 {
 		t.Fatalf("invalid created user id: %+v", created)
 	}
+	env.requestStatus(
+		t,
+		http.MethodPost,
+		fmt.Sprintf("/api/users/%d/clients", created.User.ID),
+		adminToken,
+		[]byte(`{"protocol":"vless"}`),
+		http.StatusBadRequest,
+	)
+
 	env.requestStatus(t, http.MethodDelete, fmt.Sprintf("/api/users/%d", created.User.ID), adminToken, nil, http.StatusOK)
 
 	env.requestStatus(t, http.MethodPut, fmt.Sprintf("/api/users/%d/disable", st.aliceID), adminToken, nil, http.StatusOK)

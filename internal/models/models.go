@@ -43,9 +43,16 @@ type UserClientFull struct {
 	InboundRaw      string `json:"inbound_raw"`
 }
 
+// InboundSpec specifies an inbound to add the user to. Protocol is optional — derived from tag via DB/config when omitted.
+type InboundSpec struct {
+	Tag      string `json:"tag"`
+	Protocol string `json:"protocol,omitempty"`
+}
+
 // CreateUserRequest is the API request body for creating a user
 type CreateUserRequest struct {
-	Username string `json:"username"`
+	Username string         `json:"username"`
+	Inbounds []InboundSpec  `json:"inbounds,omitempty"` // Optional: inbounds to add user to. If empty, uses api_user_inbound_tag from config.
 }
 
 // UserResponse is the API response body returned when a user is created or fetched.

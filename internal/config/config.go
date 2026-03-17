@@ -23,6 +23,19 @@ type Config struct {
 	// Ports for client inbounds in generated subscription configs. Zero = use default.
 	SocksInboundPort int `json:"socks_inbound_port"` // default 2080
 	HTTPInboundPort  int `json:"http_inbound_port"`  // default 1081
+	// Rate limiting: requests per minute per IP. Zero = disabled.
+	RateLimitSubPerMin   int `json:"rate_limit_sub_per_min"`   // default 60
+	RateLimitAdminPerMin int `json:"rate_limit_admin_per_min"` // default 30
+	// When set, API-created users are added to this Xray inbound (tag). Enables write-back to config_dir or Xray API.
+	APIUserInboundTag string `json:"api_user_inbound_tag,omitempty"`
+	// When set, users are added via Xray gRPC API instead of writing to config files. E.g. "127.0.0.1:8080".
+	// Requires api_user_inbound_tag. Xray must have API enabled with HandlerService in services.
+	XrayAPIAddr string `json:"xray_api_addr,omitempty"`
+	// Fallback when inbound is not in config_dir: protocol (vless, vmess, trojan, shadowsocks) for creating inbound in DB.
+	// Use when config_dir is empty or Xray configs are elsewhere.
+	APIUserInboundProtocol string `json:"api_user_inbound_protocol,omitempty"`
+	// Fallback port for the inbound when creating from api_user_inbound_protocol. Default 443.
+	APIUserInboundPort int `json:"api_user_inbound_port,omitempty"`
 }
 
 // Load reads and parses a JSON config file from path. An empty path returns defaults.
@@ -33,7 +46,7 @@ func Load(path string) (*Config, error) {
 		DBPath:       "/var/lib/xray-subscription/db.sqlite",
 		SyncInterval: 60,
 		BaseURL:      "http://localhost:8080",
-		// Supported values: random, leastPing, leastLoad
+		// Supported values: random, roundRobin, leastPing, leastLoad
 		BalancerStrategy:  "leastPing",
 		BalancerProbeURL:  "https://www.gstatic.com/generate_204",
 		BalancerProbeFreq: "30s",
@@ -61,7 +74,7 @@ func Load(path string) (*Config, error) {
 	}
 	cfg.BalancerStrategy = normalizeBalancerStrategy(cfg.BalancerStrategy)
 	if cfg.BalancerStrategy == "" {
-		return nil, fmt.Errorf("invalid balancer_strategy: must be one of random, leastPing, leastLoad")
+		return nil, fmt.Errorf("invalid balancer_strategy: must be one of random, roundRobin, leastPing, leastLoad")
 	}
 	return cfg, nil
 }
@@ -78,6 +91,8 @@ func normalizeBalancerStrategy(v string) string {
 		return "leastPing"
 	case "random":
 		return "random"
+	case "roundrobin":
+		return "roundRobin"
 	case "leastload":
 		return "leastLoad"
 	default:
