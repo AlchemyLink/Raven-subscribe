@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -336,6 +337,10 @@ func exerciseSubscriptions(t *testing.T, env *composeTestEnv, st *apiState) {
 	env.subStatus(t, st.aliceToken, "/protocol/vless", http.StatusOK)
 	env.subStatus(t, st.aliceToken, "/protocol/vless/links.txt", http.StatusOK)
 	env.subStatus(t, st.aliceToken, "/protocol/vless/links.b64", http.StatusOK)
+	escapedInboundTag := url.PathEscape(st.inboundTag)
+	env.subStatus(t, st.aliceToken, "/inbound/"+escapedInboundTag, http.StatusOK)
+	env.subStatus(t, st.aliceToken, "/inbound/"+escapedInboundTag+"/links.txt", http.StatusOK)
+	env.subStatus(t, st.aliceToken, "/inbound/"+escapedInboundTag+"/links.b64", http.StatusOK)
 
 	// Protocol-specific endpoints not present in test config should return 404.
 	env.subStatus(t, st.aliceToken, "/vmess", http.StatusNotFound)

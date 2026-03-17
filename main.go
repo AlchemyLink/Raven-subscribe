@@ -57,7 +57,9 @@ func main() {
 	srv := api.NewServer(cfg, db, sync)
 
 	// Start background sync
-	go sync.Start()
+	syncCtx, syncCancel := context.WithCancel(context.Background())
+	defer syncCancel()
+	go sync.Start(syncCtx)
 
 	// ── HTTP Server ─────────────────────────────────────────────────────────
 	httpServer := &http.Server{
@@ -81,6 +83,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("Shutting down...")
+	syncCancel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
