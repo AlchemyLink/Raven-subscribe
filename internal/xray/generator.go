@@ -12,14 +12,21 @@ import (
 	"golang.org/x/crypto/curve25519"
 )
 
-// GenerateClientConfig produces a complete xray client JSON config for a user
-func GenerateClientConfig(serverHost string, user models.User, clients []models.UserClientFull, globalRoutesJSON string, balancerStrategy string, balancerProbeURL string, balancerProbeInterval string) (*ClientConfig, error) {
+// GenerateClientConfig produces a complete xray client JSON config for a user.
+// socksPort and httpPort are the local proxy ports in the generated config; 0 = use default (2080, 1081).
+func GenerateClientConfig(serverHost string, user models.User, clients []models.UserClientFull, globalRoutesJSON string, balancerStrategy string, balancerProbeURL string, balancerProbeInterval string, socksPort, httpPort int) (*ClientConfig, error) {
+	if socksPort <= 0 {
+		socksPort = 2080
+	}
+	if httpPort <= 0 {
+		httpPort = 1081
+	}
 	cfg := &ClientConfig{
 		Log: &LogConfig{LogLevel: "warning"},
 		DNS: defaultDNS(),
 		Inbounds: []Inbound{
-			localSOCKS(),
-			localHTTP(),
+			localSOCKS(socksPort),
+			localHTTP(httpPort),
 		},
 		Routing: defaultRouting(),
 	}
@@ -93,6 +100,8 @@ func normalizeBalancerStrategy(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "random":
 		return "random"
+	case "roundrobin":
+		return "roundRobin"
 	case "leastping":
 		return "leastPing"
 	case "leastload":
@@ -388,13 +397,18 @@ func convertReality(rs *RealitySettings, _ string) (*RealitySettings, error) {
 		shortID = rs.ShortIds[0]
 	}
 
+	// MLDSA65Verify: client needs the public verification key only. Never pass MLDSA65Seed
+	// (server secret) to the client. mldsa65Verify cannot be derived from mldsa65Seed without
+	// ML-DSA-65 crypto; server config must include mldsa65Verify explicitly for sharing.
+	mldsa65Verify := strings.TrimSpace(rs.MLDSA65Verify)
+
 	return &RealitySettings{
 		ServerName:    serverName,
 		Fingerprint:   firstNonEmpty(rs.Fingerprint, "chrome"),
 		PublicKey:     publicKey,
 		ShortId:       shortID,
 		SpiderX:       rs.SpiderX,
-		MLDSA65Verify: firstNonEmpty(rs.MLDSA65Verify, rs.MLDSA65Seed),
+		MLDSA65Verify: mldsa65Verify,
 	}, nil
 }
 
@@ -490,14 +504,14 @@ func shouldUseMux(proto string, ss *StreamSettings) bool {
 
 // ─── Default client-side config pieces ───────────────────────────────────────
 
-func localSOCKS() Inbound {
+func localSOCKS(port int) Inbound {
 	raw, _ := json.Marshal(map[string]interface{}{
 		"auth": "noauth",
 		"udp":  true,
 	})
 	return Inbound{
 		Tag:      "socks",
-		Port:     2080,
+		Port:     port,
 		Listen:   "127.0.0.1",
 		Protocol: "socks",
 		Settings: raw,
@@ -508,11 +522,11 @@ func localSOCKS() Inbound {
 	}
 }
 
-func localHTTP() Inbound {
+func localHTTP(port int) Inbound {
 	raw, _ := json.Marshal(map[string]interface{}{})
 	return Inbound{
 		Tag:      "http",
-		Port:     1081,
+		Port:     port,
 		Listen:   "127.0.0.1",
 		Protocol: "http",
 		Settings: raw,
