@@ -1,7 +1,6 @@
 // Package xray provides Xray gRPC API client for adding users to inbounds.
 // When xray_api_addr is configured, users are added via HandlerService.AlterInbound
 // instead of writing to config files.
-
 package xray
 
 import (
@@ -25,6 +24,14 @@ import (
 
 const apiDialTimeout = 10 * time.Second
 
+func dialXrayAPI(apiAddr string) (*grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(apiAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("dial xray api %s: %w", apiAddr, err)
+	}
+	return conn, nil
+}
+
 // AddExistingClientToInboundViaAPI adds a client with existing credentials (from DB) to Xray via gRPC API.
 // Used when restoring users after Xray restart. Protocol is derived from storedConfigJSON.
 func AddExistingClientToInboundViaAPI(apiAddr, inboundTag, username, storedConfigJSON string) error {
@@ -44,13 +51,11 @@ func AddExistingClientToInboundViaAPI(apiAddr, inboundTag, username, storedConfi
 	ctx, cancel := context.WithTimeout(context.Background(), apiDialTimeout)
 	defer cancel()
 
-	conn, err := grpc.DialContext(ctx, apiAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock())
+	conn, err := dialXrayAPI(apiAddr)
 	if err != nil {
-		return fmt.Errorf("dial xray api %s: %w", apiAddr, err)
+		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	client := command.NewHandlerServiceClient(conn)
 	_, err = client.AlterInbound(ctx, &command.AlterInboundRequest{
@@ -143,13 +148,11 @@ func RemoveUserFromInboundViaAPI(apiAddr, inboundTag, email string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), apiDialTimeout)
 	defer cancel()
 
-	conn, err := grpc.DialContext(ctx, apiAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock())
+	conn, err := dialXrayAPI(apiAddr)
 	if err != nil {
-		return fmt.Errorf("dial xray api %s: %w", apiAddr, err)
+		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	client := command.NewHandlerServiceClient(conn)
 	_, err = client.AlterInbound(ctx, &command.AlterInboundRequest{
@@ -221,13 +224,11 @@ func AddClientToInboundViaAPI(apiAddr, configDir, inboundTag, username, protocol
 	ctx, cancel := context.WithTimeout(context.Background(), apiDialTimeout)
 	defer cancel()
 
-	conn, err := grpc.DialContext(ctx, apiAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock())
+	conn, err := dialXrayAPI(apiAddr)
 	if err != nil {
-		return "", fmt.Errorf("dial xray api %s: %w", apiAddr, err)
+		return "", err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	client := command.NewHandlerServiceClient(conn)
 	_, err = client.AlterInbound(ctx, &command.AlterInboundRequest{

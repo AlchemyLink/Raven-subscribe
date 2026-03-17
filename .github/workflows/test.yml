@@ -69,6 +69,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
+      - name: Download Go modules
+        run: go mod download
+
       - name: Run tests
         run: go test ./... -race -timeout 2m -coverprofile=coverage.txt -covermode=atomic
 
@@ -98,6 +101,12 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Prime module graph
+        run: go list -deps ./... > /dev/null
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest

@@ -1,6 +1,5 @@
 // Package xray provides config parsing and client config generation.
 // This file adds API-created users to Xray inbound config files.
-
 package xray
 
 import (
@@ -103,6 +102,7 @@ func RemoveUserFromInbound(configDir, inboundTag, email string) error {
 }
 
 func removeClientFromFile(filePath, inboundTag, email string) error {
+	// #nosec G304 -- filePath comes from controlled config discovery within configDir.
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("read file: %w", err)
@@ -174,7 +174,7 @@ func removeClientFromFile(filePath, inboundTag, email string) error {
 	}
 
 	tmpPath := filePath + ".raven.tmp"
-	if err := os.WriteFile(tmpPath, out, 0o644); err != nil {
+	if err := os.WriteFile(tmpPath, out, 0o600); err != nil {
 		return fmt.Errorf("write temp: %w", err)
 	}
 	if err := os.Rename(tmpPath, filePath); err != nil {
@@ -232,6 +232,7 @@ func findInboundSettings(configDir, tag string) (filePath, protocol string, sett
 			continue
 		}
 		fullPath := filepath.Join(configDir, e.Name())
+		// #nosec G304 -- fullPath is built from files listed by os.ReadDir(configDir).
 		data, err := os.ReadFile(fullPath)
 		if err != nil {
 			continue
@@ -285,19 +286,19 @@ func buildVLESSClient(username string, settingsRaw json.RawMessage) map[string]i
 }
 
 func buildVMessClient(username string, settingsRaw json.RawMessage) map[string]interface{} {
-	alterId := 0
+	alterID := 0
 	if len(settingsRaw) > 0 {
 		var s struct {
-			Clients []struct { AlterId int `json:"alterId"` } `json:"clients"`
+			Clients []struct { AlterID int `json:"alterId"` } `json:"clients"`
 		}
 		_ = json.Unmarshal(settingsRaw, &s)
 		if len(s.Clients) > 0 {
-			alterId = s.Clients[0].AlterId
+			alterID = s.Clients[0].AlterID
 		}
 	}
 	return map[string]interface{}{
 		"id":       generateUUID(),
-		"alterId":  alterId,
+		"alterId":  alterID,
 		"email":    username,
 	}
 }
@@ -350,6 +351,7 @@ func clientToStoredConfig(protocol string, client map[string]interface{}) (strin
 		if ok && dec != "" {
 			enc = dec
 		}
+		// #nosec G117 -- password-like fields are expected in stored protocol credentials.
 		b, _ := json.Marshal(StoredClientConfig{
 			Protocol:   "vless",
 			ID:         id,
@@ -363,6 +365,7 @@ func clientToStoredConfig(protocol string, client map[string]interface{}) (strin
 		if a, ok := client["alterId"].(float64); ok {
 			aid = int(a)
 		}
+		// #nosec G117 -- password-like fields are expected in stored protocol credentials.
 		b, _ := json.Marshal(StoredClientConfig{
 			Protocol: "vmess",
 			ID:       id,
@@ -371,6 +374,7 @@ func clientToStoredConfig(protocol string, client map[string]interface{}) (strin
 		return string(b), nil
 	case "trojan":
 		pwd, _ := client["password"].(string)
+		// #nosec G117 -- password-like fields are expected in stored protocol credentials.
 		b, _ := json.Marshal(StoredClientConfig{
 			Protocol:   "trojan",
 			Password:   pwd,
@@ -379,6 +383,7 @@ func clientToStoredConfig(protocol string, client map[string]interface{}) (strin
 	case "shadowsocks":
 		pwd, _ := client["password"].(string)
 		method, _ := client["method"].(string)
+		// #nosec G117 -- password-like fields are expected in stored protocol credentials.
 		b, _ := json.Marshal(StoredClientConfig{
 			Protocol: "shadowsocks",
 			Password: pwd,
@@ -391,6 +396,7 @@ func clientToStoredConfig(protocol string, client map[string]interface{}) (strin
 }
 
 func addClientToFile(filePath, inboundTag string, newClient map[string]interface{}) error {
+	// #nosec G304 -- filePath comes from controlled config discovery within configDir.
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("read file: %w", err)
@@ -446,7 +452,7 @@ func addClientToFile(filePath, inboundTag string, newClient map[string]interface
 	}
 
 	tmpPath := filePath + ".raven.tmp"
-	if err := os.WriteFile(tmpPath, out, 0o644); err != nil {
+	if err := os.WriteFile(tmpPath, out, 0o600); err != nil {
 		return fmt.Errorf("write temp: %w", err)
 	}
 	if err := os.Rename(tmpPath, filePath); err != nil {
