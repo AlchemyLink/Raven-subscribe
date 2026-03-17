@@ -90,9 +90,67 @@ func (s *Syncer) watch() {
 	}
 }
 
+// RestoreOnStartup restores API-created users to Xray via gRPC after a restart.
+// Restores all users to all inbounds they are enrolled in.
+func (s *Syncer) RestoreOnStartup() {
+	apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr)
+	if apiAddr == "" {
+		return
+	}
+
+	inbounds, err := s.db.ListInbounds()
+	if err != nil {
+		return
+	}
+	for _, ib := range inbounds {
+		users, err := s.db.ListUserClientsByInboundTag(ib.Tag)
+		if err != nil || len(users) == 0 {
+			continue
+		}
+		ucs := make([]struct {
+			Username     string
+			ClientConfig string
+			Protocol     string
+		}, len(users))
+		for i, u := range users {
+			ucs[i] = struct {
+				Username     string
+				ClientConfig string
+				Protocol     string
+			}{u.Username, u.ClientConfig, u.Protocol}
+		}
+		xray.RestoreUsersToXray(apiAddr, ib.Tag, ucs)
+	}
+}
+
 // Sync reads config.d and updates the database with inbounds and clients
 func (s *Syncer) Sync() error {
 	log.Printf("Syncing from %s", s.cfg.ConfigDir)
+
+	// Ensure api_user_inbound_tag exists in DB when config_dir has no inbounds (api_user_inbound_protocol fallback)
+	if tag := strings.TrimSpace(s.cfg.APIUserInboundTag); tag != "" && strings.TrimSpace(s.cfg.APIUserInboundProtocol) != "" {
+		inbounds, _ := s.db.ListInbounds()
+		var exists bool
+		for _, ib := range inbounds {
+			if ib.Tag == tag {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			protocol := strings.ToLower(strings.TrimSpace(s.cfg.APIUserInboundProtocol))
+			port := s.cfg.APIUserInboundPort
+			if port <= 0 {
+				port = 443
+			}
+			if protocol == "vless" || protocol == "vmess" || protocol == "trojan" || protocol == "shadowsocks" {
+				rawJSON := fmt.Sprintf(`{"tag":"%s","protocol":"%s","port":%d}`, tag, protocol, port)
+				if _, err := s.db.UpsertInbound(tag, protocol, port, "api-managed", rawJSON); err == nil {
+					log.Printf("Created inbound %s in DB (api_user_inbound_protocol fallback)", tag)
+				}
+			}
+		}
+	}
 
 	parsed, err := xray.ParseConfigDir(s.cfg.ConfigDir)
 	if err != nil {
@@ -136,6 +194,34 @@ func (s *Syncer) Sync() error {
 				}
 				totalClients++
 			}
+		}
+	}
+
+	// Sync DB users to config when using Xray API (persist API-created users to disk)
+	if strings.TrimSpace(s.cfg.XrayAPIAddr) != "" {
+		allInbounds, _ := s.db.ListInbounds()
+		for _, ib := range allInbounds {
+			users, _ := s.db.ListUserClientsByInboundTag(ib.Tag)
+			if len(users) == 0 {
+				continue
+			}
+			idents, err := xray.GetExistingIdentitiesInInbound(s.cfg.ConfigDir, ib.Tag)
+			if err != nil {
+				continue
+			}
+			ucs := make([]struct {
+				Username     string
+				ClientConfig string
+				Protocol     string
+			}, len(users))
+			for i, u := range users {
+				ucs[i] = struct {
+					Username     string
+					ClientConfig string
+					Protocol     string
+				}{u.Username, u.ClientConfig, u.Protocol}
+			}
+			_ = xray.SyncDBToConfig(s.cfg.ConfigDir, ib.Tag, ucs, idents)
 		}
 	}
 

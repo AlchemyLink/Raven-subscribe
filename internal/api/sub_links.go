@@ -305,6 +305,8 @@ func (s *Server) generateConfigForSubscriptionRequestWithForcedProtocol(r *http.
 		balancerStrategy,
 		balancerProbeURL,
 		balancerProbeInterval,
+		s.cfg.SocksInboundPort,
+		s.cfg.HTTPInboundPort,
 	)
 	if err != nil {
 		return nil, "", fmt.Errorf("could not generate config: %s", err.Error())
@@ -358,6 +360,9 @@ func buildVLESSLink(ob xray.Outbound) string {
 			}
 			if rs.SpiderX != "" {
 				params.Set("spx", rs.SpiderX)
+			}
+			if rs.MLDSA65Verify != "" {
+				params.Set("pqv", rs.MLDSA65Verify)
 			}
 		}
 		applyTransportParams(params, ob.StreamSettings)

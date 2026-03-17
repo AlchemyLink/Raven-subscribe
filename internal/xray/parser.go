@@ -26,6 +26,24 @@ type ParsedClient struct {
 	ConfigJSON string
 }
 
+// GetInboundByTag finds the first inbound with the given tag in config_dir.
+// Returns nil if not found. Used to ensure inbound exists in DB when creating users.
+func GetInboundByTag(dir, tag string) (*ParsedInbound, string, error) {
+	parsed, err := ParseConfigDir(dir)
+	if err != nil {
+		return nil, "", err
+	}
+	tag = strings.TrimSpace(tag)
+	for file, inbounds := range parsed {
+		for i := range inbounds {
+			if strings.TrimSpace(inbounds[i].Tag) == tag {
+				return &inbounds[i], file, nil
+			}
+		}
+	}
+	return nil, "", nil
+}
+
 // ParseConfigDir reads all JSON files from dir and returns parsed inbounds per file
 func ParseConfigDir(dir string) (map[string][]ParsedInbound, error) {
 	entries, err := os.ReadDir(dir)

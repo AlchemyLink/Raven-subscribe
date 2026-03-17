@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -94,6 +95,7 @@ func (s *Server) Router() http.Handler {
 	api.HandleFunc("/users/{id}/routes/id/{routeId}", s.updateUserRouteByID).Methods(http.MethodPut)
 	api.HandleFunc("/users/{id}/routes/id/{routeId}", s.deleteUserRouteByID).Methods(http.MethodDelete)
 	api.HandleFunc("/users/{id}/clients", s.getUserClients).Methods(http.MethodGet)
+	api.HandleFunc("/users/{id}/clients", s.addUserClient).Methods(http.MethodPost)
 	api.HandleFunc("/users/{userId}/clients/{inboundId}/enable", s.enableUserClient).Methods(http.MethodPut)
 	api.HandleFunc("/users/{userId}/clients/{inboundId}/disable", s.disableUserClient).Methods(http.MethodPut)
 
@@ -111,7 +113,28 @@ func (s *Server) Router() http.Handler {
 		jsonOK(w, map[string]string{"status": "ok"})
 	}).Methods(http.MethodGet)
 
-	return r
+	return s.rateLimitWrap(r)
+}
+
+func (s *Server) rateLimitWrap(next http.Handler) http.Handler {
+	subRL := rateLimitMiddleware(s.cfg.RateLimitSubPerMin)
+	adminRL := rateLimitMiddleware(s.cfg.RateLimitAdminPerMin)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path == "/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(path, "/api") {
+			adminRL(next).ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(path, "/sub") || strings.HasPrefix(path, "/c") {
+			subRL(next).ServeHTTP(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -211,6 +234,8 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		balancerStrategy,
 		balancerProbeURL,
 		balancerProbeInterval,
+		s.cfg.SocksInboundPort,
+		s.cfg.HTTPInboundPort,
 	)
 	if err != nil {
 		// #nosec G706 -- username is sanitized before logging.
@@ -373,12 +398,21 @@ func withSubQuery(base, key, value string) string {
 
 // ─── User handlers ────────────────────────────────────────────────────────────
 
-func (s *Server) listUsers(w http.ResponseWriter, _ *http.Request) {
-	users, err := s.db.ListUsers()
+func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
+	limit, offset, usePagination := parsePagination(r)
+
+	var users []models.User
+	var err error
+	if usePagination {
+		users, err = s.db.ListUsersPaginated(limit, offset)
+	} else {
+		users, err = s.db.ListUsers()
+	}
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	var resp []models.UserResponse
 	for _, u := range users {
 		resp = append(resp, models.UserResponse{
@@ -386,31 +420,205 @@ func (s *Server) listUsers(w http.ResponseWriter, _ *http.Request) {
 			SubURL: s.cfg.SubURL(u.Token),
 		})
 	}
-	jsonOK(w, resp)
+
+	if usePagination {
+		total, err := s.db.CountUsers()
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonOK(w, map[string]interface{}{
+			"items":  resp,
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+		})
+	} else {
+		jsonOK(w, resp)
+	}
 }
 
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 	var req models.CreateUserRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" {
-		jsonError(w, "username required", http.StatusBadRequest)
+	if err := json.NewDecoder(limitRequestBody(r)).Decode(&req); err != nil {
+		jsonError(w, "invalid json body", http.StatusBadRequest)
 		return
 	}
+	if err := validateUsername(req.Username); err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	username := strings.TrimSpace(req.Username)
 
 	// Check duplicate
-	existing, _ := s.db.GetUserByUsername(req.Username)
+	existing, _ := s.db.GetUserByUsername(username)
 	if existing != nil {
 		jsonError(w, "username already exists", http.StatusConflict)
 		return
 	}
 
 	token := generateToken()
-	user, err := s.db.CreateUser(req.Username, token)
+	user, err := s.db.CreateUser(username, token)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	// Build list of inbounds to add user to
+	var inboundsToAdd []models.InboundSpec
+	if len(req.Inbounds) > 0 {
+		inboundsToAdd = req.Inbounds
+	} else if tag := strings.TrimSpace(s.cfg.APIUserInboundTag); tag != "" {
+		protocol := strings.TrimSpace(s.cfg.APIUserInboundProtocol)
+		inboundsToAdd = []models.InboundSpec{{Tag: tag, Protocol: protocol}}
+	}
+
+	inbounds, _ := s.db.ListInbounds()
+	for _, spec := range inboundsToAdd {
+		tag := strings.TrimSpace(spec.Tag)
+		if tag == "" {
+			continue
+		}
+		protocol := strings.TrimSpace(spec.Protocol)
+		if protocol == "" {
+			for _, ib := range inbounds {
+				if ib.Tag == tag {
+					protocol = ib.Protocol
+					break
+				}
+			}
+		}
+		if protocol == "" {
+			protocol = strings.TrimSpace(s.cfg.APIUserInboundProtocol)
+		}
+		s.addUserToInbound(user, username, tag, protocol)
+	}
+
+	if len(inboundsToAdd) > 0 && s.cfg.XrayAPIAddr == "" {
+		go func() { _ = s.syncer.Sync() }()
+	}
+
 	jsonOK(w, models.UserResponse{User: *user, SubURL: s.cfg.SubURL(user.Token)})
+}
+
+// addUserToInbound adds a user to one inbound (Xray + DB). Used when creating users.
+func (s *Server) addUserToInbound(user *models.User, username, tag, protocolFallback string) {
+	var clientConfig string
+	var err error
+	if apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr); apiAddr != "" {
+		clientConfig, err = xray.AddClientToInboundViaAPI(apiAddr, s.cfg.ConfigDir, tag, username, protocolFallback)
+	} else {
+		clientConfig, err = xray.AddClientToInbound(s.cfg.ConfigDir, tag, username)
+	}
+	if err != nil {
+		log.Printf("WARN: add user %s to Xray inbound %s: %v", username, tag, err)
+		return
+	}
+
+	inbounds, _ := s.db.ListInbounds()
+	var found bool
+	for _, ib := range inbounds {
+		if ib.Tag == tag {
+			_ = s.db.UpsertUserClient(user.ID, ib.ID, clientConfig)
+			found = true
+			break
+		}
+	}
+	if !found {
+		_ = s.syncer.Sync()
+		inbounds, _ = s.db.ListInbounds()
+		for _, ib := range inbounds {
+			if ib.Tag == tag {
+				_ = s.db.UpsertUserClient(user.ID, ib.ID, clientConfig)
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		if parsed, configFile, err := xray.GetInboundByTag(s.cfg.ConfigDir, tag); err == nil && parsed != nil {
+			ibID, err := s.db.UpsertInbound(parsed.Tag, parsed.Protocol, parsed.Port, configFile, parsed.RawJSON)
+			if err == nil {
+				_ = s.db.UpsertUserClient(user.ID, ibID, clientConfig)
+				found = true
+			}
+		}
+	}
+	if !found && protocolFallback != "" {
+		protocol := strings.ToLower(strings.TrimSpace(protocolFallback))
+		port := s.cfg.APIUserInboundPort
+		if port <= 0 {
+			port = 443
+		}
+		if protocol == "vless" || protocol == "vmess" || protocol == "trojan" || protocol == "shadowsocks" {
+			rawJSON := fmt.Sprintf(`{"tag":"%s","protocol":"%s","port":%d}`, tag, protocol, port)
+			ibID, err := s.db.UpsertInbound(tag, protocol, port, "api-managed", rawJSON)
+			if err == nil {
+				_ = s.db.UpsertUserClient(user.ID, ibID, clientConfig)
+				found = true
+				log.Printf("Created inbound %s in DB (api_user_inbound_protocol fallback)", tag)
+			}
+		}
+	}
+	if !found {
+		log.Printf("WARN: inbound %s not found in DB; user %s has no subscription for this inbound", tag, username)
+	}
+}
+
+// removeUserFromXray removes the user from all inbounds they are enrolled in (file or API).
+func (s *Server) removeUserFromXray(userID int64, username string) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return
+	}
+	clients, err := s.db.GetUserClients(userID)
+	if err != nil {
+		return
+	}
+	apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr)
+	for _, c := range clients {
+		tag := c.InboundTag
+		if apiAddr != "" {
+			if err := xray.RemoveUserFromInboundViaAPI(apiAddr, tag, username); err != nil {
+				log.Printf("WARN: remove user %s from Xray inbound %s: %v", username, tag, err)
+			}
+		} else {
+			if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username); err != nil {
+				log.Printf("WARN: remove user %s from Xray config %s: %v", username, tag, err)
+			}
+		}
+	}
+	if apiAddr == "" && len(clients) > 0 {
+		go func() { _ = s.syncer.Sync() }()
+	}
+}
+
+// addUserToXray adds the user to all inbounds they have user_client for, using existing credentials from DB.
+func (s *Server) addUserToXray(userID int64, username string) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return
+	}
+	clients, err := s.db.GetUserClients(userID)
+	if err != nil {
+		return
+	}
+	apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr)
+	for _, c := range clients {
+		tag := c.InboundTag
+		if apiAddr != "" {
+			if err := xray.AddExistingClientToInboundViaAPI(apiAddr, tag, username, c.ClientConfig); err != nil {
+				log.Printf("WARN: add user %s to Xray inbound %s: %v", username, tag, err)
+			}
+		} else {
+			if err := xray.AddExistingClientToInbound(s.cfg.ConfigDir, tag, username, c.ClientConfig); err != nil {
+				log.Printf("WARN: add user %s to Xray config %s: %v", username, tag, err)
+			}
+		}
+	}
+	if apiAddr == "" && len(clients) > 0 {
+		go func() { _ = s.syncer.Sync() }()
+	}
 }
 
 func (s *Server) getUser(w http.ResponseWriter, r *http.Request) {
@@ -426,6 +634,9 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 	if user == nil || err != nil {
 		return
 	}
+	// Remove from Xray before deleting from DB (need username for removal)
+	s.removeUserFromXray(user.ID, user.Username)
+
 	if err := s.db.DeleteUser(user.ID); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -449,6 +660,12 @@ func (s *Server) setUserEnabled(w http.ResponseWriter, r *http.Request, enabled 
 	if err := s.db.SetUserEnabled(user.ID, enabled); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	// Sync to Xray: remove when disabled, add when enabled
+	if enabled {
+		s.addUserToXray(user.ID, user.Username)
+	} else {
+		s.removeUserFromXray(user.ID, user.Username)
 	}
 	jsonOK(w, map[string]bool{"enabled": enabled})
 }
@@ -497,7 +714,7 @@ func (s *Server) setUserRoutes(w http.ResponseWriter, r *http.Request) {
 	if user == nil || err != nil {
 		return
 	}
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(limitRequestBody(r))
 	if err != nil {
 		jsonError(w, "failed to read body", http.StatusBadRequest)
 		return
@@ -535,7 +752,7 @@ func (s *Server) addUserRoute(w http.ResponseWriter, r *http.Request) {
 	if user == nil || err != nil {
 		return
 	}
-	rule, err := decodeUserRouteFromBody(r.Body)
+	rule, err := decodeUserRouteFromBody(limitRequestBody(r))
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -581,7 +798,7 @@ func (s *Server) updateUserRoute(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	rule, err := decodeUserRouteFromBody(r.Body)
+	rule, err := decodeUserRouteFromBody(limitRequestBody(r))
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -634,7 +851,7 @@ func (s *Server) updateUserRouteByID(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "missing route id", http.StatusBadRequest)
 		return
 	}
-	rule, err := decodeUserRouteFromBody(r.Body)
+	rule, err := decodeUserRouteFromBody(limitRequestBody(r))
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -787,7 +1004,7 @@ func (s *Server) getGlobalRoutes(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) setGlobalRoutes(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(limitRequestBody(r))
 	if err != nil {
 		jsonError(w, "failed to read body", http.StatusBadRequest)
 		return
@@ -825,7 +1042,7 @@ func (s *Server) setGlobalRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) addGlobalRoute(w http.ResponseWriter, r *http.Request) {
-	rule, err := decodeUserRouteFromBody(r.Body)
+	rule, err := decodeUserRouteFromBody(limitRequestBody(r))
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -929,7 +1146,7 @@ func (s *Server) setBalancerConfig(w http.ResponseWriter, r *http.Request) {
 		ProbeInterval string `json:"probe_interval"`
 		Reset         bool   `json:"reset"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(limitRequestBody(r)).Decode(&req); err != nil {
 		jsonError(w, "invalid json body", http.StatusBadRequest)
 		return
 	}
@@ -946,7 +1163,7 @@ func (s *Server) setBalancerConfig(w http.ResponseWriter, r *http.Request) {
 
 	strategy := normalizeBalancerStrategyInput(req.Strategy)
 	if strategy == "" {
-		jsonError(w, "strategy must be one of: random, leastPing, leastLoad", http.StatusBadRequest)
+		jsonError(w, "strategy must be one of: random, roundRobin, leastPing, leastLoad", http.StatusBadRequest)
 		return
 	}
 	probeURL := strings.TrimSpace(req.ProbeURL)
@@ -989,6 +1206,66 @@ func (s *Server) getUserClients(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, clients)
 }
 
+// addUserClient adds one inbound client mapping for an existing user.
+// Request body: {"tag":"<inbound-tag>","protocol":"<optional>"}.
+func (s *Server) addUserClient(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getByID(w, r)
+	if user == nil || err != nil {
+		return
+	}
+
+	var req models.InboundSpec
+	if err := json.NewDecoder(limitRequestBody(r)).Decode(&req); err != nil {
+		jsonError(w, "invalid json body", http.StatusBadRequest)
+		return
+	}
+	tag := strings.TrimSpace(req.Tag)
+	if tag == "" {
+		jsonError(w, "tag is required", http.StatusBadRequest)
+		return
+	}
+
+	// Idempotent behavior: if enabled client for this tag already exists, return it.
+	existingClients, err := s.db.GetUserClients(user.ID)
+	if err == nil {
+		for _, c := range existingClients {
+			if c.InboundTag == tag {
+				jsonOK(w, c)
+				return
+			}
+		}
+	}
+
+	protocol := strings.TrimSpace(req.Protocol)
+	if protocol == "" {
+		inbounds, _ := s.db.ListInbounds()
+		for _, ib := range inbounds {
+			if ib.Tag == tag {
+				protocol = ib.Protocol
+				break
+			}
+		}
+	}
+	if protocol == "" {
+		protocol = strings.TrimSpace(s.cfg.APIUserInboundProtocol)
+	}
+
+	s.addUserToInbound(user, user.Username, tag, protocol)
+
+	clients, err := s.db.GetUserClients(user.ID)
+	if err != nil {
+		jsonError(w, "failed to load created client", http.StatusInternalServerError)
+		return
+	}
+	for _, c := range clients {
+		if c.InboundTag == tag {
+			jsonOK(w, c)
+			return
+		}
+	}
+	jsonError(w, "failed to add user to inbound", http.StatusInternalServerError)
+}
+
 func (s *Server) enableUserClient(w http.ResponseWriter, r *http.Request) {
 	s.setClientEnabled(w, r, true)
 }
@@ -1014,12 +1291,21 @@ func (s *Server) setClientEnabled(w http.ResponseWriter, r *http.Request, enable
 
 // ─── Inbound handlers ─────────────────────────────────────────────────────────
 
-func (s *Server) listInbounds(w http.ResponseWriter, _ *http.Request) {
-	inbounds, err := s.db.ListInbounds()
+func (s *Server) listInbounds(w http.ResponseWriter, r *http.Request) {
+	limit, offset, usePagination := parsePagination(r)
+
+	var inbounds []models.Inbound
+	var err error
+	if usePagination {
+		inbounds, err = s.db.ListInboundsPaginated(limit, offset)
+	} else {
+		inbounds, err = s.db.ListInbounds()
+	}
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	resp := make([]map[string]interface{}, 0, len(inbounds))
 	for _, ib := range inbounds {
 		item := map[string]interface{}{
@@ -1039,7 +1325,22 @@ func (s *Server) listInbounds(w http.ResponseWriter, _ *http.Request) {
 		}
 		resp = append(resp, item)
 	}
-	jsonOK(w, resp)
+
+	if usePagination {
+		total, err := s.db.CountInbounds()
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonOK(w, map[string]interface{}{
+			"items":  resp,
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+		})
+	} else {
+		jsonOK(w, resp)
+	}
 }
 
 // ─── Sync handler ─────────────────────────────────────────────────────────────
@@ -1054,6 +1355,54 @@ func (s *Server) triggerSync(w http.ResponseWriter, _ *http.Request) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const maxRequestBodyBytes = 512 * 1024 // 512KB
+
+// usernameValid matches alphanumeric, underscore, hyphen, at, dot (for emails). Length 1–64.
+var usernameValid = regexp.MustCompile(`^[a-zA-Z0-9_.@-]{1,64}$`)
+
+func validateUsername(s string) error {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return fmt.Errorf("username required")
+	}
+	if !usernameValid.MatchString(s) {
+		return fmt.Errorf("username must be 1–64 chars: letters, digits, underscore, hyphen, at, dot")
+	}
+	return nil
+}
+
+func limitRequestBody(r *http.Request) io.Reader {
+	return io.LimitReader(r.Body, maxRequestBodyBytes)
+}
+
+// parsePagination reads limit and offset from query params.
+// If both are absent, returns usePagination=false (backward compatible).
+// If either is present, returns limit (default 50, max 100), offset, usePagination=true.
+func parsePagination(r *http.Request) (limit, offset int, usePagination bool) {
+	q := r.URL.Query()
+	limitStr := q.Get("limit")
+	offsetStr := q.Get("offset")
+	if limitStr == "" && offsetStr == "" {
+		return 0, 0, false
+	}
+	limit = 50
+	if limitStr != "" {
+		if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
+			limit = n
+			if limit > 100 {
+				limit = 100
+			}
+		}
+	}
+	offset = 0
+	if offsetStr != "" {
+		if n, err := strconv.Atoi(offsetStr); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	return limit, offset, true
+}
 
 func (s *Server) getByID(w http.ResponseWriter, r *http.Request) (*models.User, error) {
 	idStr := mux.Vars(r)["id"]
@@ -1282,6 +1631,8 @@ func normalizeBalancerStrategyInput(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "random":
 		return "random"
+	case "roundrobin":
+		return "roundRobin"
 	case "leastping":
 		return "leastPing"
 	case "leastload":

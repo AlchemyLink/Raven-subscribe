@@ -50,6 +50,9 @@ func main() {
 		log.Printf("Initial sync warning: %v", err)
 	}
 
+	// Restore API-created users to Xray after restart
+	sync.RestoreOnStartup()
+
 	// API server needs sync capability
 	srv := api.NewServer(cfg, db, sync)
 

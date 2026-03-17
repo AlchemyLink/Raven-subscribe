@@ -53,7 +53,8 @@
 - **Персональные правила маршрутизации** — каждый пользователь может иметь свои правила: какие сайты открывать напрямую, через прокси или блокировать
 
 ### Для администраторов
-- **Автоматическое создание пользователей** — пользователи создаются из поля `email` в конфигах Xray без каких-либо ручных действий
+- **БД как источник правды** — при заданном `api_user_inbound_tag` добавление, удаление, включение и отключение пользователей через API сразу синхронизируется с Xray
+- **Автоматическое создание пользователей** — пользователи также могут создаваться из поля `email` в конфигах Xray
 - **Отслеживание изменений файлов** — сервис мгновенно реагирует на изменения в `config.d` (fsnotify + периодический опрос)
 - **Полноценный REST API** — управление пользователями, токенами, правилами маршрутизации и балансировщиком
 - **Управление доступом** — включить/отключить доступ пользователя к конкретным inbound-подключениям
@@ -82,7 +83,8 @@
            │
            ├─ Парсит inbound-ы, находит пользователей
            ├─ Сохраняет в SQLite
-           └─ Отдаёт ссылки подписки
+           ├─ Отдаёт ссылки подписки
+           └─ Пользователи через API → Xray (файлы или gRPC API)
                       │
                       ▼
     https://ваш-сервер.com/sub/{token}
@@ -173,35 +175,129 @@ curl -H "X-Admin-Token: ваш-секретный-токен" http://localhost:8
 
 ## Конфигурация
 
-Полный справочник `config.json`:
+Конфигурация загружается из JSON-файла (по умолчанию: `config.json` в текущей директории). Путь можно задать флагом `-config`:
+
+```bash
+xray-subscription -config /etc/xray-subscription/config.json
+```
+
+### Full config reference
 
 ```json
 {
   "listen_addr": ":8080",
-  "server_host": "ваш-сервер.com",
+  "server_host": "your-server.com",
   "config_dir": "/etc/xray/config.d",
   "db_path": "/var/lib/xray-subscription/db.sqlite",
   "sync_interval_seconds": 60,
-  "base_url": "http://ваш-сервер.com:8080",
-  "admin_token": "ваш-секретный-токен",
+  "base_url": "http://your-server.com:8080",
+  "admin_token": "your-secret-token",
   "balancer_strategy": "leastPing",
   "balancer_probe_url": "https://www.gstatic.com/generate_204",
-  "balancer_probe_interval": "30s"
+  "balancer_probe_interval": "30s",
+  "socks_inbound_port": 2080,
+  "http_inbound_port": 1081,
+  "rate_limit_sub_per_min": 60,
+  "rate_limit_admin_per_min": 30,
+  "api_user_inbound_tag": "vless-reality",
+  "xray_api_addr": ""
 }
 ```
 
+### Описание параметров
+
+#### Сервер
+
 | Поле | По умолчанию | Описание |
-|---|---|---|
-| `listen_addr` | `:8080` | Адрес и порт для прослушивания |
-| `server_host` | — | **Обязательно.** IP или домен вашего сервера — используется в генерируемых клиентских конфигах |
-| `config_dir` | `/etc/xray/config.d` | Директория с серверными конфигами Xray |
-| `db_path` | `/var/lib/xray-subscription/db.sqlite` | Путь к файлу SQLite-базы данных |
-| `sync_interval_seconds` | `60` | Как часто перечитывать `config_dir` (в секундах) |
-| `base_url` | `http://localhost:8080` | Базовый URL для ссылок подписки, которые показываются пользователям |
-| `admin_token` | — | Секретный токен для доступа к Admin API |
-| `balancer_strategy` | `leastPing` | Стратегия балансировки: `leastPing`, `leastLoad`, `random` |
-| `balancer_probe_url` | `https://www.gstatic.com/generate_204` | URL для измерения задержки при `leastPing` |
-| `balancer_probe_interval` | `30s` | Как часто проверять задержку |
+|------|--------------|----------|
+| `listen_addr` | `:8080` | Адрес и порт для прослушивания. `:8080` — все интерфейсы, `127.0.0.1:8080` — только localhost (например, за nginx). |
+| `server_host` | — | **Обязательно.** IP или домен сервера. Используется как адрес исходящих подключений в генерируемых клиентских конфигах. |
+| `base_url` | `http://localhost:8080` | Полный базовый URL для ссылок подписки. Показывается пользователям в ответах API. Используйте `https://` при работе за TLS reverse proxy. |
+
+#### Хранилище и синхронизация
+
+| Поле | По умолчанию | Описание |
+|------|--------------|----------|
+| `config_dir` | `/etc/xray/config.d` | Директория с JSON-конфигами inbound-ов Xray. Raven следит за изменениями (fsnotify + периодический опрос). |
+| `db_path` | `/var/lib/xray-subscription/db.sqlite` | Путь к файлу SQLite. Хранит пользователей, токены, правила маршрутизации и синхронизированные данные. |
+| `sync_interval_seconds` | `60` | Интервал (секунды) пересканирования `config_dir`. Также срабатывает при изменении файлов. |
+
+#### Admin API
+
+| Поле | По умолчанию | Описание |
+|------|--------------|----------|
+| `admin_token` | — | **Обязательно.** Секретный токен для Admin API. Передаётся в заголовке `X-Admin-Token`. Используйте длинную случайную строку: `openssl rand -hex 32`. |
+
+#### Балансировщик нагрузки
+
+Используется, когда в конфиге Xray несколько outbound-ов (несколько прокси-нод). Определяет, как клиент выбирает между ними.
+
+| Поле | По умолчанию | Описание |
+|------|--------------|----------|
+| `balancer_strategy` | `leastPing` | Стратегия: `leastPing` (минимальная задержка), `leastLoad` (меньше подключений), `random`, `roundRobin`. |
+| `balancer_probe_url` | `https://www.gstatic.com/generate_204` | URL для проверки задержки (при `leastPing`). Должен быть доступен с сервера. |
+| `balancer_probe_interval` | `30s` | Как часто проверять outbound-ы. Go duration: `30s`, `1m` и т.д. |
+
+#### Генерация клиентских конфигов
+
+| Поле | По умолчанию | Описание |
+|------|--------------|----------|
+| `socks_inbound_port` | `2080` | Порт локального SOCKS5-прокси в генерируемых конфигах. Используется клиентами для системного/прикладного прокси. |
+| `http_inbound_port` | `1081` | Порт локального HTTP-прокси в генерируемых конфигах. |
+
+#### Ограничение частоты запросов
+
+Ограничивает число запросов с одного IP в минуту. `0` = отключено. Защита от злоупотреблений.
+
+| Поле | По умолчанию | Описание |
+|------|--------------|----------|
+| `rate_limit_sub_per_min` | `0` | Макс. запросов/мин с IP для `/sub/*` и `/c/*`. Рекомендуется: 60 для продакшена. |
+| `rate_limit_admin_per_min` | `0` | Макс. запросов/мин с IP для `/api/*`. Рекомендуется: 30. |
+| `api_user_inbound_tag` | `""` | Если задан, БД — источник правды: пользователи из API добавляются в этот inbound Xray; удалённые — удаляются; включение/отключение синхронизируется с Xray. Запись в файлы `config_dir` или через Xray API (если задан `xray_api_addr`). |
+| `xray_api_addr` | `""` | Если задан, пользователи синхронизируются через gRPC API Xray вместо записи в файлы. Например `127.0.0.1:8080`. Требует `api_user_inbound_tag`. В Xray должен быть включён API с HandlerService. |
+| `api_user_inbound_protocol` | `""` | Запасной вариант, когда в `config_dir` нет inbound: протокол (`vless`, `vmess`, `trojan`, `shadowsocks`) для создания inbound в БД. Используйте, если конфиги Xray в другом месте. |
+| `api_user_inbound_port` | `443` | Порт inbound при использовании `api_user_inbound_protocol`. |
+
+**Синхронизация БД ↔ Xray** (при заданном `api_user_inbound_tag`): База данных — источник правды. Все изменения сразу отражаются в Xray:
+
+| Действие | БД | Xray |
+|----------|----|------|
+| Создание (`POST /api/users`) | Добавить | Добавить в inbound |
+| Удаление (`DELETE /api/users/{id}`) | Удалить | Удалить из inbound |
+| Отключение (`PUT /api/users/{id}/disable`) | `enabled=false` | Удалить из inbound |
+| Включение (`PUT /api/users/{id}/enable`) | `enabled=true` | Добавить в inbound |
+
+**Режим Xray API** (при заданном `xray_api_addr`): Синхронизация через gRPC вместо конфиг-файлов. В Xray должен быть включён API с `HandlerService` в `services`.
+
+- **Восстановление при старте:** Raven восстанавливает всех пользователей из БД в Xray через API (сохраняется при перезапуске Xray).
+- **Периодическая синхронизация БД→конфиг:** Raven периодически записывает пользователей в конфиг-файлы для сохранности при перезапуске Raven и Xray.
+
+### Пример: минимальный конфиг
+
+```json
+{
+  "server_host": "vpn.example.com",
+  "admin_token": "ваш-секретный-токен",
+  "base_url": "https://vpn.example.com"
+}
+```
+
+Остальные параметры берутся по умолчанию.
+
+### Пример: продакшен с rate limit
+
+```json
+{
+  "listen_addr": "127.0.0.1:8080",
+  "server_host": "vpn.example.com",
+  "base_url": "https://vpn.example.com",
+  "admin_token": "ваш-секретный-токен",
+  "rate_limit_sub_per_min": 60,
+  "rate_limit_admin_per_min": 30
+}
+```
+
+Используйте `127.0.0.1`, если Raven работает за nginx/caddy как reverse proxy.
 
 ---
 
@@ -318,6 +414,7 @@ curl -X POST -H "X-Admin-Token: secret" -H "Content-Type: application/json" \
   "sub_url": "http://ваш-сервер:8080/sub/xyz789"
 }
 ```
+При заданном `api_user_inbound_tag` пользователь также добавляется в Xray (конфиг или API).
 
 #### Получить пользователя
 ```bash
@@ -328,12 +425,14 @@ GET /api/users/{id}
 ```bash
 DELETE /api/users/{id}
 ```
+При заданном `api_user_inbound_tag` пользователь также удаляется из Xray.
 
 #### Включить / отключить пользователя
 ```bash
 PUT /api/users/{id}/enable
 PUT /api/users/{id}/disable
 ```
+При заданном `api_user_inbound_tag` пользователь добавляется в Xray или удаляется из него соответственно.
 
 #### Перегенерировать токен подписки
 ```bash
@@ -346,6 +445,26 @@ POST /api/users/{id}/token
 GET /api/users/{id}/clients
 ```
 Показывает, к каким inbound-ам подключён пользователь и включён ли каждый из них.
+
+#### Добавить одно inbound-подключение существующему пользователю
+```bash
+POST /api/users/{id}/clients
+Content-Type: application/json
+
+{
+  "tag": "vless-xhttp-in",
+  "protocol": "vless"
+}
+```
+Пример:
+```bash
+curl -H "X-Admin-Token: <admin-token>" \
+  -X POST http://<host>:8080/api/users/16/clients \
+  -d '{"tag":"vless-xhttp-in"}'
+```
+- `tag` обязателен.
+- `protocol` опционален. Если не передан, определяется по `tag` из синхронизированных inbound-ов, затем используется fallback `api_user_inbound_protocol`.
+- Если пользователь уже подключен к этому inbound, возвращается существующая запись клиента (идемпотентно).
 
 #### Включить / отключить конкретное подключение
 ```bash

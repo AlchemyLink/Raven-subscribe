@@ -8,5 +8,13 @@
   "admin_token": "CHANGE_ME_use_a_strong_random_secret",
   "balancer_strategy": "leastPing",
   "balancer_probe_url": "https://www.gstatic.com/generate_204",
-  "balancer_probe_interval": "30s"
+  "balancer_probe_interval": "30s",
+  "socks_inbound_port": 2080,
+  "http_inbound_port": 1081,
+  "rate_limit_sub_per_min": 60,
+  "rate_limit_admin_per_min": 30,
+  "api_user_inbound_tag": "",
+  "xray_api_addr": "",
+  "api_user_inbound_protocol": "",
+  "api_user_inbound_port": 443
 }

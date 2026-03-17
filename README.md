@@ -53,7 +53,8 @@ Users just add their subscription URL to any Xray-compatible client (V2RayNG, Ne
 - **Custom routing rules** — per-user rules to route specific sites directly, through proxy, or block them
 
 ### For administrators
-- **Zero-touch user sync** — users are created automatically from Xray config `email` fields
+- **Database as source of truth** — when `api_user_inbound_tag` is set, add/remove/enable/disable users via API and they sync to Xray immediately
+- **Zero-touch user sync** — users can also be discovered from Xray config `email` fields
 - **File watcher** — detects config changes instantly (fsnotify + periodic polling)
 - **Full REST API** — manage users, tokens, routing rules, and balancer settings
 - **Per-user client control** — enable/disable a user's access to specific inbounds
@@ -82,7 +83,8 @@ Users just add their subscription URL to any Xray-compatible client (V2RayNG, Ne
            │
            ├─ Parses inbounds, discovers users
            ├─ Stores in SQLite
-           └─ Serves subscription URLs
+           ├─ Serves subscription URLs
+           └─ API-created users → Xray (config files or gRPC API)
                       │
                       ▼
     https://your-server.com/sub/{token}
@@ -174,7 +176,13 @@ Give each user their `sub_url` — they add it to their VPN client and are ready
 
 ## Configuration
 
-Full `config.json` reference:
+Configuration is loaded from a JSON file (default: `config.json` in the current directory). Use `-config` flag to specify a path:
+
+```bash
+xray-subscription -config /etc/xray-subscription/config.json
+```
+
+### Full config reference
 
 ```json
 {
@@ -187,22 +195,110 @@ Full `config.json` reference:
   "admin_token": "your-secret-token",
   "balancer_strategy": "leastPing",
   "balancer_probe_url": "https://www.gstatic.com/generate_204",
-  "balancer_probe_interval": "30s"
+  "balancer_probe_interval": "30s",
+  "socks_inbound_port": 2080,
+  "http_inbound_port": 1081,
+  "rate_limit_sub_per_min": 60,
+  "rate_limit_admin_per_min": 30,
+  "api_user_inbound_tag": "vless-reality",
+  "xray_api_addr": ""
 }
 ```
 
+### Parameter reference
+
+#### Server
+
 | Field | Default | Description |
-|---|---|---|
-| `listen_addr` | `:8080` | Address and port to listen on |
-| `server_host` | — | **Required.** Your server IP or domain, used in generated client configs |
-| `config_dir` | `/etc/xray/config.d` | Directory with Xray server inbound config files |
-| `db_path` | `/var/lib/xray-subscription/db.sqlite` | SQLite database file path |
-| `sync_interval_seconds` | `60` | How often to re-scan `config_dir` (seconds) |
-| `base_url` | `http://localhost:8080` | Base URL for subscription links shown to users |
-| `admin_token` | — | Secret token for admin API access |
-| `balancer_strategy` | `leastPing` | Load balancing strategy: `leastPing`, `leastLoad`, `random` |
-| `balancer_probe_url` | `https://www.gstatic.com/generate_204` | URL used to measure latency for `leastPing` |
-| `balancer_probe_interval` | `30s` | How often to probe outbound latency |
+|-------|---------|-------------|
+| `listen_addr` | `:8080` | Address and port to bind. Use `:8080` for all interfaces, or `127.0.0.1:8080` for localhost only (e.g. behind nginx). |
+| `server_host` | — | **Required.** Your server IP or domain. Used as the outbound address in generated client configs. Must match what clients will connect to. |
+| `base_url` | `http://localhost:8080` | Full base URL for subscription links. Shown to users in API responses. Use `https://` if behind TLS reverse proxy. |
+
+#### Storage & sync
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `config_dir` | `/etc/xray/config.d` | Directory containing Xray server inbound JSON configs. Raven watches this for changes (fsnotify + periodic scan). |
+| `db_path` | `/var/lib/xray-subscription/db.sqlite` | SQLite database path. Stores users, tokens, routing rules, and synced client data. |
+| `sync_interval_seconds` | `60` | Interval (seconds) for re-scanning `config_dir`. Also triggered on file changes. |
+
+#### Admin API
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `admin_token` | — | **Required.** Secret token for Admin API. Pass in `X-Admin-Token` header. Use a long random string; generate with `openssl rand -hex 32`. |
+
+#### Load balancer
+
+Used when your Xray config has multiple outbounds (e.g. several proxy nodes). Controls how the client chooses between them.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `balancer_strategy` | `leastPing` | Strategy: `leastPing` (lowest latency), `leastLoad` (least connections), `random`, `roundRobin`. |
+| `balancer_probe_url` | `https://www.gstatic.com/generate_204` | URL for latency probes (used by `leastPing`). Must be reachable from the server. |
+| `balancer_probe_interval` | `30s` | How often to probe outbounds. Go duration: `30s`, `1m`, etc. |
+
+#### Client config generation
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `socks_inbound_port` | `2080` | Local SOCKS5 proxy port in generated client configs. Clients use this for system/app proxy. |
+| `http_inbound_port` | `1081` | Local HTTP proxy port in generated client configs. |
+
+#### Rate limiting
+
+Limits requests per IP per minute. `0` = disabled. Helps prevent abuse.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `rate_limit_sub_per_min` | `0` | Max requests/min per IP for `/sub/*` and `/c/*`. Recommended: 60 for production. |
+| `rate_limit_admin_per_min` | `0` | Max requests/min per IP for `/api/*`. Recommended: 30. |
+| `api_user_inbound_tag` | `""` | When set, the database is the source of truth: users created via API are added to this Xray inbound; deleted users are removed; enable/disable syncs to Xray. Uses `config_dir` file write or Xray API (if `xray_api_addr` is set). |
+| `xray_api_addr` | `""` | When set, users are synced via Xray gRPC API instead of config files. E.g. `127.0.0.1:8080`. Requires `api_user_inbound_tag`. Xray must have API enabled with HandlerService. |
+| `api_user_inbound_protocol` | `""` | Fallback when `config_dir` has no inbounds: protocol (`vless`, `vmess`, `trojan`, `shadowsocks`) to create the inbound in DB. Use when Xray configs are elsewhere. |
+| `api_user_inbound_port` | `443` | Port for the inbound when using `api_user_inbound_protocol` fallback. |
+
+**DB ↔ Xray sync (when `api_user_inbound_tag` is set):** The database is the source of truth. All changes propagate to Xray immediately:
+
+| Action | DB | Xray |
+|--------|----|------|
+| Create user (`POST /api/users`) | Add | Add to inbound |
+| Delete user (`DELETE /api/users/{id}`) | Remove | Remove from inbound |
+| Disable user (`PUT /api/users/{id}/disable`) | `enabled=false` | Remove from inbound |
+| Enable user (`PUT /api/users/{id}/enable`) | `enabled=true` | Add to inbound |
+
+**Xray API mode** (when `xray_api_addr` is set): Users are synced via gRPC instead of config files. Xray must have API enabled with `HandlerService` in `services`.
+
+- **Restore on startup:** Raven restores all users from the database to Xray via API (survives Xray restarts).
+- **Periodic DB→config sync:** Raven periodically writes users to config files, so they persist across both Raven and Xray restarts.
+
+### Example: minimal config
+
+```json
+{
+  "server_host": "vpn.example.com",
+  "admin_token": "your-secret-token",
+  "base_url": "https://vpn.example.com"
+}
+```
+
+All other parameters use defaults.
+
+### Example: production with rate limits
+
+```json
+{
+  "listen_addr": "127.0.0.1:8080",
+  "server_host": "vpn.example.com",
+  "base_url": "https://vpn.example.com",
+  "admin_token": "your-secret-token",
+  "rate_limit_sub_per_min": 60,
+  "rate_limit_admin_per_min": 30
+}
+```
+
+Use `127.0.0.1` when running behind nginx/caddy as reverse proxy.
 
 ---
 
@@ -319,6 +415,7 @@ curl -X POST -H "X-Admin-Token: secret" -H "Content-Type: application/json" \
   "sub_url": "http://your-server:8080/sub/xyz789"
 }
 ```
+When `api_user_inbound_tag` is set, the user is also added to Xray (config file or API).
 
 #### Get a user
 ```bash
@@ -329,12 +426,14 @@ GET /api/users/{id}
 ```bash
 DELETE /api/users/{id}
 ```
+When `api_user_inbound_tag` is set, the user is also removed from Xray.
 
 #### Enable / disable a user
 ```bash
 PUT /api/users/{id}/enable
 PUT /api/users/{id}/disable
 ```
+When `api_user_inbound_tag` is set, the user is added to or removed from Xray accordingly.
 
 #### Regenerate subscription token
 ```bash
@@ -347,6 +446,26 @@ Returns new `{token, sub_url}`. The old URL stops working immediately.
 GET /api/users/{id}/clients
 ```
 Shows which inbounds the user is enrolled in and whether each is enabled.
+
+#### Add one inbound connection for an existing user
+```bash
+POST /api/users/{id}/clients
+Content-Type: application/json
+
+{
+  "tag": "vless-xhttp-in",
+  "protocol": "vless"
+}
+```
+Example:
+```bash
+curl -H "X-Admin-Token: <admin-token>" \
+  -X POST http://<host>:8080/api/users/16/clients \
+  -d '{"tag":"vless-xhttp-in"}'
+```
+- `tag` is required.
+- `protocol` is optional. If omitted, it is resolved by `tag` from synced inbounds, then falls back to `api_user_inbound_protocol`.
+- If the user is already enrolled in this inbound, the existing client record is returned (idempotent behavior).
 
 #### Enable / disable a specific connection
 ```bash

@@ -69,6 +69,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
+      - name: Download Go modules
+        run: go mod download
+
       - name: Run tests
         run: go test ./... -race -timeout 2m -coverprofile=coverage.txt -covermode=atomic
 
@@ -98,6 +101,12 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Prime module graph
+        run: go list -deps ./... > /dev/null
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -155,8 +164,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - name: Build binary
-        run: make build
+      - name: Build and verify binary
+        run: make test-build
 
       - name: Upload build artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
