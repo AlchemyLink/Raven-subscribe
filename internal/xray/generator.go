@@ -12,14 +12,21 @@ import (
 	"golang.org/x/crypto/curve25519"
 )
 
-// GenerateClientConfig produces a complete xray client JSON config for a user
-func GenerateClientConfig(serverHost string, user models.User, clients []models.UserClientFull, globalRoutesJSON string, balancerStrategy string, balancerProbeURL string, balancerProbeInterval string) (*ClientConfig, error) {
+// GenerateClientConfig produces a complete xray client JSON config for a user.
+// socksPort and httpPort are the local proxy ports in the generated config; 0 = use default (2080, 1081).
+func GenerateClientConfig(serverHost string, user models.User, clients []models.UserClientFull, globalRoutesJSON string, balancerStrategy string, balancerProbeURL string, balancerProbeInterval string, socksPort, httpPort int) (*ClientConfig, error) {
+	if socksPort <= 0 {
+		socksPort = 2080
+	}
+	if httpPort <= 0 {
+		httpPort = 1081
+	}
 	cfg := &ClientConfig{
 		Log: &LogConfig{LogLevel: "warning"},
 		DNS: defaultDNS(),
 		Inbounds: []Inbound{
-			localSOCKS(),
-			localHTTP(),
+			localSOCKS(socksPort),
+			localHTTP(httpPort),
 		},
 		Routing: defaultRouting(),
 	}
@@ -490,14 +497,14 @@ func shouldUseMux(proto string, ss *StreamSettings) bool {
 
 // ─── Default client-side config pieces ───────────────────────────────────────
 
-func localSOCKS() Inbound {
+func localSOCKS(port int) Inbound {
 	raw, _ := json.Marshal(map[string]interface{}{
 		"auth": "noauth",
 		"udp":  true,
 	})
 	return Inbound{
 		Tag:      "socks",
-		Port:     2080,
+		Port:     port,
 		Listen:   "127.0.0.1",
 		Protocol: "socks",
 		Settings: raw,
@@ -508,11 +515,11 @@ func localSOCKS() Inbound {
 	}
 }
 
-func localHTTP() Inbound {
+func localHTTP(port int) Inbound {
 	raw, _ := json.Marshal(map[string]interface{}{})
 	return Inbound{
 		Tag:      "http",
-		Port:     1081,
+		Port:     port,
 		Listen:   "127.0.0.1",
 		Protocol: "http",
 		Settings: raw,

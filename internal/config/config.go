@@ -20,6 +20,9 @@ type Config struct {
 	BalancerStrategy  string `json:"balancer_strategy"`
 	BalancerProbeURL  string `json:"balancer_probe_url"`
 	BalancerProbeFreq string `json:"balancer_probe_interval"`
+	// Ports for client inbounds in generated subscription configs. Zero = use default.
+	SocksInboundPort int `json:"socks_inbound_port"` // default 2080
+	HTTPInboundPort  int `json:"http_inbound_port"`  // default 1081
 }
 
 // Load reads and parses a JSON config file from path. An empty path returns defaults.

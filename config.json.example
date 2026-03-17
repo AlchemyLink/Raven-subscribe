@@ -8,5 +8,7 @@
   "admin_token": "CHANGE_ME_use_a_strong_random_secret",
   "balancer_strategy": "leastPing",
   "balancer_probe_url": "https://www.gstatic.com/generate_204",
-  "balancer_probe_interval": "30s"
+  "balancer_probe_interval": "30s",
+  "socks_inbound_port": 2080,
+  "http_inbound_port": 1081
 }

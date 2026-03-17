@@ -186,7 +186,9 @@ curl -H "X-Admin-Token: ваш-секретный-токен" http://localhost:8
   "admin_token": "ваш-секретный-токен",
   "balancer_strategy": "leastPing",
   "balancer_probe_url": "https://www.gstatic.com/generate_204",
-  "balancer_probe_interval": "30s"
+  "balancer_probe_interval": "30s",
+  "socks_inbound_port": 2080,
+  "http_inbound_port": 1081
 }
 ```
 
@@ -202,6 +204,8 @@ curl -H "X-Admin-Token: ваш-секретный-токен" http://localhost:8
 | `balancer_strategy` | `leastPing` | Стратегия балансировки: `leastPing`, `leastLoad`, `random` |
 | `balancer_probe_url` | `https://www.gstatic.com/generate_204` | URL для измерения задержки при `leastPing` |
 | `balancer_probe_interval` | `30s` | Как часто проверять задержку |
+| `socks_inbound_port` | `2080` | Порт локального SOCKS-прокси в генерируемых клиентских конфигах |
+| `http_inbound_port` | `1081` | Порт локального HTTP-прокси в генерируемых клиентских конфигах |
 
 ---
 
