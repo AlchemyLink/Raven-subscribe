@@ -211,6 +211,8 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		balancerStrategy,
 		balancerProbeURL,
 		balancerProbeInterval,
+		s.cfg.SocksInboundPort,
+		s.cfg.HTTPInboundPort,
 	)
 	if err != nil {
 		// #nosec G706 -- username is sanitized before logging.

@@ -187,7 +187,9 @@ Full `config.json` reference:
   "admin_token": "your-secret-token",
   "balancer_strategy": "leastPing",
   "balancer_probe_url": "https://www.gstatic.com/generate_204",
-  "balancer_probe_interval": "30s"
+  "balancer_probe_interval": "30s",
+  "socks_inbound_port": 2080,
+  "http_inbound_port": 1081
 }
 ```
 
@@ -203,6 +205,8 @@ Full `config.json` reference:
 | `balancer_strategy` | `leastPing` | Load balancing strategy: `leastPing`, `leastLoad`, `random` |
 | `balancer_probe_url` | `https://www.gstatic.com/generate_204` | URL used to measure latency for `leastPing` |
 | `balancer_probe_interval` | `30s` | How often to probe outbound latency |
+| `socks_inbound_port` | `2080` | Local SOCKS proxy port in generated client configs |
+| `http_inbound_port` | `1081` | Local HTTP proxy port in generated client configs |
 
 ---
 
