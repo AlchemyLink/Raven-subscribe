@@ -267,6 +267,7 @@ xray-subscription -config /etc/xray-subscription/config.json
 | `xray_api_addr` | `""` | Если задан, пользователи синхронизируются через gRPC API Xray вместо записи в файлы. Например `127.0.0.1:8080`. Требует `api_user_inbound_tag`. В Xray должен быть включён API с HandlerService. |
 | `api_user_inbound_protocol` | `""` | Запасной вариант, когда в `config_dir` нет inbound: протокол (`vless`, `vmess`, `trojan`, `shadowsocks`) для создания inbound в БД. Используйте, если конфиги Xray в другом месте. |
 | `api_user_inbound_port` | `443` | Порт inbound при использовании `api_user_inbound_protocol`. |
+| `xray_config_file_mode` | *(не задавать)* | Права (octal) для JSON-файлов, которые Raven пишет в `config_dir` (например `"0644"`, чтобы другой локальный пользователь мог читать конфиги при тестах). По умолчанию **`0600`**. Только биты `0`–`7` (не больше `0777`). |
 
 **Синхронизация БД ↔ Xray** (при заданном `api_user_inbound_tag`): База данных — источник правды. Все изменения сразу отражаются в Xray:
 
@@ -401,7 +402,7 @@ curl -H "X-Admin-Token: secret" http://localhost:8080/api/users
 ```json
 [
   {
-    "user": {"id": 1, "username": "alice", "token": "abc123", "enabled": true},
+    "user": {"id": 1, "username": "alice@example.com", "token": "abc123", "enabled": true},
     "sub_url": "http://ваш-сервер:8080/sub/abc123"
   }
 ]
@@ -414,6 +415,8 @@ Content-Type: application/json
 
 {"username": "bob"}
 ```
+При создании поле `email` не передаётся; внутри оно совпадает с `username` для Xray. В JSON API поля `email` нет (используйте `username`).
+
 ```bash
 curl -X POST -H "X-Admin-Token: secret" -H "Content-Type: application/json" \
   -d '{"username":"bob"}' http://localhost:8080/api/users
@@ -435,7 +438,38 @@ GET /api/users/{id}
 ```bash
 DELETE /api/users/{id}
 ```
+`{id}` — только числовой **id** пользователя из ответа создания/списка (то же для `GET` и всех `/api/users/{id}/…`). Нечисловое значение → `400`.
+
 При заданном `api_user_inbound_tag` пользователь также удаляется из Xray.
+
+#### Пример: создать и удалить (bash)
+
+```bash
+HOST="http://localhost:8080"
+ADMIN="ваш-секретный-admin-token"
+
+# 1) Создать пользователя
+CREATE_JSON=$(curl -sS -X POST "$HOST/api/users" \
+  -H "X-Admin-Token: $ADMIN" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"demo-user"}')
+echo "$CREATE_JSON"
+
+# 2) Взять id (нужен jq) или скопировать .user.id из JSON
+USER_ID=$(echo "$CREATE_JSON" | jq -r '.user.id')
+
+# 3) Удалить по id
+curl -sS -X DELETE "$HOST/api/users/$USER_ID" \
+  -H "X-Admin-Token: $ADMIN"
+# {"status":"deleted"}
+
+# 4) Проверить, что пользователя нет
+curl -sS -H "X-Admin-Token: $ADMIN" "$HOST/api/users/$USER_ID"
+# {"error":"user not found"}
+```
+
+Без `jq`: из ответа создания возьмите `"id": 42` и выполните:  
+`curl -X DELETE -H "X-Admin-Token: $ADMIN" "$HOST/api/users/42"`.
 
 #### Включить / отключить пользователя
 ```bash

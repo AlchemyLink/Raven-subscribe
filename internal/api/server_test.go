@@ -46,7 +46,7 @@ func TestAPI_ListUsers_Unauthorized(t *testing.T) {
 	}
 }
 
-func TestAPI_ListUsers_CreateUser_GetUser_DeleteUser_ByIDAndToken(t *testing.T) {
+func TestAPI_ListUsers_CreateUser_GetUser_DeleteUser_ByID(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
 
@@ -64,8 +64,9 @@ func TestAPI_ListUsers_CreateUser_GetUser_DeleteUser_ByIDAndToken(t *testing.T) 
 
 	var createResp struct {
 		User struct {
-			ID    int64  `json:"id"`
-			Token string `json:"token"`
+			ID       int64  `json:"id"`
+			Username string `json:"username"`
+			Token    string `json:"token"`
 		} `json:"user"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&createResp); err != nil {
@@ -77,9 +78,10 @@ func TestAPI_ListUsers_CreateUser_GetUser_DeleteUser_ByIDAndToken(t *testing.T) 
 	if createResp.User.Token == "" {
 		t.Fatal("expected non-empty token")
 	}
+	idPath := strconv.FormatInt(createResp.User.ID, 10)
 
 	// GET by numeric ID
-	req = httptest.NewRequest(http.MethodGet, "/api/users/"+strconv.FormatInt(createResp.User.ID, 10), nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/users/"+idPath, nil)
 	req.Header.Set("X-Admin-Token", "admin-secret")
 	rec = httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
@@ -87,26 +89,26 @@ func TestAPI_ListUsers_CreateUser_GetUser_DeleteUser_ByIDAndToken(t *testing.T) 
 		t.Errorf("get user by id: got %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 
-	// GET by token (fallback)
+	// Token in path is invalid (not numeric id)
 	req = httptest.NewRequest(http.MethodGet, "/api/users/"+createResp.User.Token, nil)
 	req.Header.Set("X-Admin-Token", "admin-secret")
 	rec = httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("get user by token: got %d, want 200, body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("get user by token path: got %d, want 400, body=%s", rec.Code, rec.Body.String())
 	}
 
-	// DELETE by token
-	req = httptest.NewRequest(http.MethodDelete, "/api/users/"+createResp.User.Token, nil)
+	// DELETE by numeric id
+	req = httptest.NewRequest(http.MethodDelete, "/api/users/"+idPath, nil)
 	req.Header.Set("X-Admin-Token", "admin-secret")
 	rec = httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Errorf("delete user by token: got %d, want 200, body=%s", rec.Code, rec.Body.String())
+		t.Errorf("delete user by id: got %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 
 	// Verify deleted
-	req = httptest.NewRequest(http.MethodGet, "/api/users/"+createResp.User.Token, nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/users/"+idPath, nil)
 	req.Header.Set("X-Admin-Token", "admin-secret")
 	rec = httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
@@ -115,7 +117,7 @@ func TestAPI_ListUsers_CreateUser_GetUser_DeleteUser_ByIDAndToken(t *testing.T) 
 	}
 }
 
-func TestAPI_InvalidID_ReturnsNotFound(t *testing.T) {
+func TestAPI_InvalidID_ReturnsBadRequest(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
 
@@ -124,10 +126,8 @@ func TestAPI_InvalidID_ReturnsNotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
 
-	// Token "not-a-number" not found -> 404, or if we had empty id -> 400
-	// "not-a-number" is not a valid int, so we fallback to token lookup -> 404
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("invalid id: got %d, body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("non-numeric id: got %d, body=%s", rec.Code, rec.Body.String())
 	}
 }
 

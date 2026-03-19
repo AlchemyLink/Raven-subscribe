@@ -107,25 +107,38 @@ func (db *DB) migrate() error {
 			return err
 		}
 	}
+	if _, err := db.conn.Exec(`ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name: email") {
+			return err
+		}
+	}
+	if _, err := db.conn.Exec(`UPDATE users SET email = username WHERE trim(COALESCE(email, '')) = ''`); err != nil {
+		return err
+	}
 	return nil
 }
 
 // ─── Users ───────────────────────────────────────────────────────────────────
 
-// CreateUser inserts a new user with the given username and subscription token.
-func (db *DB) CreateUser(username, token string) (*models.User, error) {
+// CreateUser inserts a new user. If email is empty, it is set to username (Xray client email / monitoring).
+func (db *DB) CreateUser(username, email, token string) (*models.User, error) {
+	username = strings.TrimSpace(username)
+	email = strings.TrimSpace(email)
+	if email == "" {
+		email = username
+	}
 	now := time.Now().UTC()
 	res, err := db.conn.Exec(
-		`INSERT INTO users (username, token, enabled, client_routes, created_at, updated_at)
-		 VALUES (?, ?, 1, '[]', ?, ?)`,
-		username, token, now, now,
+		`INSERT INTO users (username, email, token, enabled, client_routes, created_at, updated_at)
+		 VALUES (?, ?, ?, 1, '[]', ?, ?)`,
+		username, email, token, now, now,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
 	return &models.User{
-		ID: id, Username: username, Token: token, Enabled: true,
+		ID: id, Username: username, Email: email, Token: token, Enabled: true,
 		CreatedAt: now, UpdatedAt: now,
 	}, nil
 }
@@ -133,21 +146,21 @@ func (db *DB) CreateUser(username, token string) (*models.User, error) {
 // GetUserByToken returns the user matching the given subscription token, or nil if not found.
 func (db *DB) GetUserByToken(token string) (*models.User, error) {
 	return db.scanUser(db.conn.QueryRow(
-		`SELECT id, username, token, enabled, client_routes, created_at, updated_at FROM users WHERE token = ?`, token,
+		`SELECT id, username, email, token, enabled, client_routes, created_at, updated_at FROM users WHERE token = ?`, token,
 	))
 }
 
 // GetUserByUsername returns the user with the given username, or nil if not found.
 func (db *DB) GetUserByUsername(username string) (*models.User, error) {
 	return db.scanUser(db.conn.QueryRow(
-		`SELECT id, username, token, enabled, client_routes, created_at, updated_at FROM users WHERE username = ?`, username,
+		`SELECT id, username, email, token, enabled, client_routes, created_at, updated_at FROM users WHERE username = ?`, username,
 	))
 }
 
 // GetUserByID returns the user with the given ID, or nil if not found.
 func (db *DB) GetUserByID(id int64) (*models.User, error) {
 	return db.scanUser(db.conn.QueryRow(
-		`SELECT id, username, token, enabled, client_routes, created_at, updated_at FROM users WHERE id = ?`, id,
+		`SELECT id, username, email, token, enabled, client_routes, created_at, updated_at FROM users WHERE id = ?`, id,
 	))
 }
 
@@ -158,7 +171,7 @@ func (db *DB) ListUsers() ([]models.User, error) {
 
 // ListUsersPaginated returns users with pagination. limit/offset 0 = no limit.
 func (db *DB) ListUsersPaginated(limit, offset int) ([]models.User, error) {
-	query := `SELECT id, username, token, enabled, client_routes, created_at, updated_at FROM users ORDER BY created_at`
+	query := `SELECT id, username, email, token, enabled, client_routes, created_at, updated_at FROM users ORDER BY created_at`
 	var args []interface{}
 	if limit > 0 {
 		query += ` LIMIT ? OFFSET ?`
@@ -223,7 +236,7 @@ func (db *DB) scanUser(row interface {
 }) (*models.User, error) {
 	var u models.User
 	var enabled int
-	err := row.Scan(&u.ID, &u.Username, &u.Token, &enabled, &u.ClientRoutes, &u.CreatedAt, &u.UpdatedAt)
+	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.Token, &enabled, &u.ClientRoutes, &u.CreatedAt, &u.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -231,6 +244,9 @@ func (db *DB) scanUser(row interface {
 		return nil, err
 	}
 	u.Enabled = enabled == 1
+	if strings.TrimSpace(u.Email) == "" {
+		u.Email = u.Username
+	}
 	return &u, nil
 }
 
@@ -550,18 +566,27 @@ func (db *DB) DeleteUserClientsByInbound(inboundID int64) error {
 	return err
 }
 
-// UserClientForInbound holds username and client config for a user enrolled in an inbound.
+// UserClientForInbound holds user identity and client config for a user enrolled in an inbound.
 type UserClientForInbound struct {
 	Username     string
+	Email        string
 	ClientConfig string
 	Protocol     string
+}
+
+// XrayClientEmail is the identity passed to Xray (client email field).
+func (r UserClientForInbound) XrayClientEmail() string {
+	if strings.TrimSpace(r.Email) != "" {
+		return strings.TrimSpace(r.Email)
+	}
+	return strings.TrimSpace(r.Username)
 }
 
 // ListUserClientsByInboundTag returns all users with their stored config for the given inbound tag.
 // Used for restoring users to Xray API and syncing DB to config files.
 func (db *DB) ListUserClientsByInboundTag(tag string) ([]UserClientForInbound, error) {
 	rows, err := db.conn.Query(`
-		SELECT u.username, uc.client_config, ib.protocol
+		SELECT u.username, u.email, uc.client_config, ib.protocol
 		FROM user_clients uc
 		JOIN users u ON u.id = uc.user_id
 		JOIN inbounds ib ON ib.id = uc.inbound_id
@@ -576,8 +601,11 @@ func (db *DB) ListUserClientsByInboundTag(tag string) ([]UserClientForInbound, e
 	var result []UserClientForInbound
 	for rows.Next() {
 		var r UserClientForInbound
-		if err := rows.Scan(&r.Username, &r.ClientConfig, &r.Protocol); err != nil {
+		if err := rows.Scan(&r.Username, &r.Email, &r.ClientConfig, &r.Protocol); err != nil {
 			return nil, err
+		}
+		if strings.TrimSpace(r.Email) == "" {
+			r.Email = r.Username
 		}
 		result = append(result, r)
 	}
