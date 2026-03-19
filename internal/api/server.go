@@ -513,7 +513,7 @@ func (s *Server) addUserToInbound(user *models.User, tag, protocolFallback strin
 		clientConfig, err = xray.AddClientToInbound(s.cfg.ConfigDir, tag, identity, s.cfg.XrayConfigFilePerm())
 	}
 	if err != nil {
-		log.Printf("WARN: add user %s to Xray inbound %s: %v", identity, tag, err)
+		logXrayUserInboundError("WARN: add user %s to Xray inbound %s: %s", identity, tag, err)
 		return
 	}
 
@@ -558,12 +558,12 @@ func (s *Server) addUserToInbound(user *models.User, tag, protocolFallback strin
 			if err == nil {
 				_ = s.db.UpsertUserClient(user.ID, ibID, clientConfig)
 				found = true
-				log.Printf("Created inbound %s in DB (api_user_inbound_protocol fallback)", tag)
+				log.Printf("Created inbound %s in DB (api_user_inbound_protocol fallback)", sanitizeLogField(tag))
 			}
 		}
 	}
 	if !found {
-		log.Printf("WARN: inbound %s not found in DB; user %s has no subscription for this inbound", tag, identity)
+		logXrayInboundUserMissing(tag, identity)
 	}
 }
 
@@ -582,11 +582,11 @@ func (s *Server) removeUserFromXray(userID int64, username string) {
 		tag := c.InboundTag
 		if apiAddr != "" {
 			if err := xray.RemoveUserFromInboundViaAPI(apiAddr, tag, username); err != nil {
-				log.Printf("WARN: remove user %s from Xray inbound %s: %v", username, tag, err)
+				logXrayUserInboundError("WARN: remove user %s from Xray inbound %s: %s", username, tag, err)
 			}
 		} else {
 			if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username, s.cfg.XrayConfigFilePerm()); err != nil {
-				log.Printf("WARN: remove user %s from Xray config %s: %v", username, tag, err)
+				logXrayUserInboundError("WARN: remove user %s from Xray config %s: %s", username, tag, err)
 			}
 		}
 	}
@@ -604,11 +604,11 @@ func (s *Server) addClientToXray(username, tag, clientConfig string) {
 	apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr)
 	if apiAddr != "" {
 		if err := xray.AddExistingClientToInboundViaAPI(apiAddr, tag, username, clientConfig); err != nil {
-			log.Printf("WARN: add user %s to Xray inbound %s: %v", username, tag, err)
+			logXrayUserInboundError("WARN: add user %s to Xray inbound %s: %s", username, tag, err)
 		}
 	} else {
 		if err := xray.AddExistingClientToInbound(s.cfg.ConfigDir, tag, username, clientConfig, s.cfg.XrayConfigFilePerm()); err != nil {
-			log.Printf("WARN: add user %s to Xray config %s: %v", username, tag, err)
+			logXrayUserInboundError("WARN: add user %s to Xray config %s: %s", username, tag, err)
 		}
 		go func() { _ = s.syncer.Sync() }()
 	}
@@ -623,11 +623,11 @@ func (s *Server) removeClientFromXray(username, tag string) {
 	apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr)
 	if apiAddr != "" {
 		if err := xray.RemoveUserFromInboundViaAPI(apiAddr, tag, username); err != nil {
-			log.Printf("WARN: remove user %s from Xray inbound %s: %v", username, tag, err)
+			logXrayUserInboundError("WARN: remove user %s from Xray inbound %s: %s", username, tag, err)
 		}
 	} else {
 		if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username, s.cfg.XrayConfigFilePerm()); err != nil {
-			log.Printf("WARN: remove user %s from Xray config %s: %v", username, tag, err)
+			logXrayUserInboundError("WARN: remove user %s from Xray config %s: %s", username, tag, err)
 		}
 		go func() { _ = s.syncer.Sync() }()
 	}
@@ -648,11 +648,11 @@ func (s *Server) addUserToXray(userID int64, username string) {
 		tag := c.InboundTag
 		if apiAddr != "" {
 			if err := xray.AddExistingClientToInboundViaAPI(apiAddr, tag, username, c.ClientConfig); err != nil {
-				log.Printf("WARN: add user %s to Xray inbound %s: %v", username, tag, err)
+				logXrayUserInboundError("WARN: add user %s to Xray inbound %s: %s", username, tag, err)
 			}
 		} else {
 			if err := xray.AddExistingClientToInbound(s.cfg.ConfigDir, tag, username, c.ClientConfig, s.cfg.XrayConfigFilePerm()); err != nil {
-				log.Printf("WARN: add user %s to Xray config %s: %v", username, tag, err)
+				logXrayUserInboundError("WARN: add user %s to Xray config %s: %s", username, tag, err)
 			}
 		}
 	}
@@ -1514,6 +1514,22 @@ func generateToken() string {
 func sanitizeLogField(v string) string {
 	// Prevent control characters from forging multiline log entries.
 	return strings.NewReplacer("\r", "", "\n", "", "\t", " ").Replace(v)
+}
+
+// logXrayUserInboundError logs a Xray sync warning. tmpl must be a constant format string with three %s (user, inbound, error text).
+// Operands are sanitized to mitigate log forging (gosec G706).
+func logXrayUserInboundError(tmpl string, user, inbound string, err error) {
+	if err == nil {
+		return
+	}
+	// #nosec G706 -- tmpl is fixed at each call site; user, inbound, err text sanitized via sanitizeLogField (standalone gosec ignores //nolint:gosec)
+	log.Printf(tmpl, sanitizeLogField(user), sanitizeLogField(inbound), sanitizeLogField(err.Error()))
+}
+
+func logXrayInboundUserMissing(tag, identity string) {
+	// #nosec G706 -- tag and identity sanitized via sanitizeLogField
+	log.Printf("WARN: inbound %s not found in DB; user %s has no subscription for this inbound",
+		sanitizeLogField(tag), sanitizeLogField(identity))
 }
 
 func isMobileProfileRequest(r *http.Request) bool {
