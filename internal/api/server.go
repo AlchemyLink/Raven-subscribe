@@ -96,8 +96,8 @@ func (s *Server) Router() http.Handler {
 	api.HandleFunc("/users/{id}/routes/id/{routeId}", s.deleteUserRouteByID).Methods(http.MethodDelete)
 	api.HandleFunc("/users/{id}/clients", s.getUserClients).Methods(http.MethodGet)
 	api.HandleFunc("/users/{id}/clients", s.addUserClient).Methods(http.MethodPost)
-	api.HandleFunc("/users/{userId}/clients/{inboundId}/enable", s.enableUserClient).Methods(http.MethodPut)
-	api.HandleFunc("/users/{userId}/clients/{inboundId}/disable", s.disableUserClient).Methods(http.MethodPut)
+	api.HandleFunc("/users/{id}/clients/{inboundId}/enable", s.enableUserClient).Methods(http.MethodPut)
+	api.HandleFunc("/users/{id}/clients/{inboundId}/disable", s.disableUserClient).Methods(http.MethodPut)
 
 	api.HandleFunc("/inbounds", s.listInbounds).Methods(http.MethodGet)
 	api.HandleFunc("/routes/global", s.getGlobalRoutes).Methods(http.MethodGet)
@@ -589,6 +589,44 @@ func (s *Server) removeUserFromXray(userID int64, username string) {
 		}
 	}
 	if apiAddr == "" && len(clients) > 0 {
+		go func() { _ = s.syncer.Sync() }()
+	}
+}
+
+// addClientToXray adds a single user/client to one inbound in Xray (config or API).
+func (s *Server) addClientToXray(username, tag, clientConfig string) {
+	username = strings.TrimSpace(username)
+	if username == "" || tag == "" {
+		return
+	}
+	apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr)
+	if apiAddr != "" {
+		if err := xray.AddExistingClientToInboundViaAPI(apiAddr, tag, username, clientConfig); err != nil {
+			log.Printf("WARN: add user %s to Xray inbound %s: %v", username, tag, err)
+		}
+	} else {
+		if err := xray.AddExistingClientToInbound(s.cfg.ConfigDir, tag, username, clientConfig); err != nil {
+			log.Printf("WARN: add user %s to Xray config %s: %v", username, tag, err)
+		}
+		go func() { _ = s.syncer.Sync() }()
+	}
+}
+
+// removeClientFromXray removes a single user from one inbound in Xray (config or API).
+func (s *Server) removeClientFromXray(username, tag string) {
+	username = strings.TrimSpace(username)
+	if username == "" || tag == "" {
+		return
+	}
+	apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr)
+	if apiAddr != "" {
+		if err := xray.RemoveUserFromInboundViaAPI(apiAddr, tag, username); err != nil {
+			log.Printf("WARN: remove user %s from Xray inbound %s: %v", username, tag, err)
+		}
+	} else {
+		if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username); err != nil {
+			log.Printf("WARN: remove user %s from Xray config %s: %v", username, tag, err)
+		}
 		go func() { _ = s.syncer.Sync() }()
 	}
 }
@@ -1275,16 +1313,34 @@ func (s *Server) disableUserClient(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) setClientEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
-	vars := mux.Vars(r)
-	userID, err1 := strconv.ParseInt(vars["userId"], 10, 64)
-	inboundID, err2 := strconv.ParseInt(vars["inboundId"], 10, 64)
-	if err1 != nil || err2 != nil {
-		jsonError(w, "invalid ids", http.StatusBadRequest)
+	user, err := s.getByID(w, r)
+	if user == nil || err != nil {
 		return
 	}
-	if err := s.db.SetUserClientEnabled(userID, inboundID, enabled); err != nil {
+	vars := mux.Vars(r)
+	inboundID, err := strconv.ParseInt(strings.TrimSpace(vars["inboundId"]), 10, 64)
+	if err != nil {
+		jsonError(w, "invalid inbound id", http.StatusBadRequest)
+		return
+	}
+	tag, clientConfig, err := s.db.GetUserClientByUserAndInbound(user.ID, inboundID)
+	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if tag == "" {
+		jsonError(w, "client not found", http.StatusNotFound)
+		return
+	}
+	if err := s.db.SetUserClientEnabled(user.ID, inboundID, enabled); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Sync to Xray (config or API), same as enable/disable user
+	if enabled {
+		s.addClientToXray(user.Username, tag, clientConfig)
+	} else {
+		s.removeClientFromXray(user.Username, tag)
 	}
 	jsonOK(w, map[string]bool{"enabled": enabled})
 }
@@ -1405,11 +1461,24 @@ func parsePagination(r *http.Request) (limit, offset int, usePagination bool) {
 }
 
 func (s *Server) getByID(w http.ResponseWriter, r *http.Request) (*models.User, error) {
-	idStr := mux.Vars(r)["id"]
+	idStr := strings.TrimSpace(mux.Vars(r)["id"])
+	if idStr == "" {
+		jsonError(w, "invalid id", http.StatusBadRequest)
+		return nil, fmt.Errorf("empty id")
+	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		jsonError(w, "invalid id", http.StatusBadRequest)
-		return nil, err
+		// Fallback: treat as token (e.g. client sends token instead of numeric id)
+		user, getErr := s.db.GetUserByToken(idStr)
+		if getErr != nil {
+			jsonError(w, getErr.Error(), http.StatusInternalServerError)
+			return nil, getErr
+		}
+		if user == nil {
+			jsonError(w, "user not found", http.StatusNotFound)
+			return nil, nil
+		}
+		return user, nil
 	}
 	user, err := s.db.GetUserByID(id)
 	if err != nil {
