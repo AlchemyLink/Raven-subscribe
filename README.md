@@ -148,6 +148,16 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now xray-subscription
 ```
 
+The service runs as `User=xray` so Raven and Xray share ownership of config files. When `api_user_inbound_tag` is set, Raven writes to `config_dir`; Xray must read those files. Ensure:
+
+```bash
+# Create xray user/group if missing (Xray package usually does this)
+sudo useradd -r -s /usr/sbin/nologin xray 2>/dev/null || true
+
+# Let xray own config_dir and data dir when using file-based sync
+sudo chown -R xray:xray /etc/xray/config.d /var/lib/xray-subscription
+```
+
 ### 4. Get user subscription URLs
 
 ```bash

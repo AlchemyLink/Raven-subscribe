@@ -101,6 +101,19 @@ func RemoveUserFromInbound(configDir, inboundTag, email string) error {
 	return removeClientFromFile(file, inboundTag, email)
 }
 
+// writeConfigFile writes config with 0o600. Run Raven as the same user as Xray (e.g. User=xray in systemd).
+func writeConfigFile(filePath string, out []byte) error {
+	tmpPath := filePath + ".raven.tmp"
+	if err := os.WriteFile(tmpPath, out, 0o600); err != nil {
+		return fmt.Errorf("write temp: %w", err)
+	}
+	if err := os.Rename(tmpPath, filePath); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("rename: %w", err)
+	}
+	return nil
+}
+
 func removeClientFromFile(filePath, inboundTag, email string) error {
 	// #nosec G304 -- filePath comes from controlled config discovery within configDir.
 	data, err := os.ReadFile(filePath)
@@ -172,16 +185,7 @@ func removeClientFromFile(filePath, inboundTag, email string) error {
 	if err != nil {
 		return fmt.Errorf("marshal output: %w", err)
 	}
-
-	tmpPath := filePath + ".raven.tmp"
-	if err := os.WriteFile(tmpPath, out, 0o600); err != nil {
-		return fmt.Errorf("write temp: %w", err)
-	}
-	if err := os.Rename(tmpPath, filePath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("rename: %w", err)
-	}
-	return nil
+	return writeConfigFile(filePath, out)
 }
 
 // storedConfigToClientMap converts StoredClientConfig JSON to the client map format for config files.
@@ -196,7 +200,7 @@ func storedConfigToClientMap(storedJSON, email string) (map[string]interface{}, 
 	case "vless":
 		return map[string]interface{}{
 			"id":    stored.ID,
-			"flow":  firstNonEmpty(stored.Flow, "none"),
+			"flow":  firstNonEmpty(stored.Flow, ""),
 			"email": email,
 		}, nil
 	case "vmess":
@@ -268,7 +272,7 @@ func findInboundSettings(configDir, tag string) (filePath, protocol string, sett
 }
 
 func buildVLESSClient(username string, settingsRaw json.RawMessage) map[string]interface{} {
-	flow := "none"
+	flow := ""
 	if len(settingsRaw) > 0 {
 		var s struct {
 			Clients []struct { Flow string `json:"flow"` } `json:"clients"`
@@ -450,16 +454,7 @@ func addClientToFile(filePath, inboundTag string, newClient map[string]interface
 	if err != nil {
 		return fmt.Errorf("marshal output: %w", err)
 	}
-
-	tmpPath := filePath + ".raven.tmp"
-	if err := os.WriteFile(tmpPath, out, 0o600); err != nil {
-		return fmt.Errorf("write temp: %w", err)
-	}
-	if err := os.Rename(tmpPath, filePath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("rename: %w", err)
-	}
-	return nil
+	return writeConfigFile(filePath, out)
 }
 
 func generateUUID() string {
