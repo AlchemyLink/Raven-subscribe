@@ -42,7 +42,7 @@ func TestCreateUserRequest_EmptyInbounds(t *testing.T) {
 
 func TestUserResponse_JSON(t *testing.T) {
 	resp := UserResponse{
-		User:   User{ID: 1, Username: "alice", Token: "t1", Enabled: true},
+		User:   User{ID: 1, Username: "alice", Email: "alice@example.com", Token: "t1", Enabled: true},
 		SubURL: "https://vpn.example.com/sub/t1",
 	}
 	data, err := json.Marshal(resp)
@@ -56,8 +56,23 @@ func TestUserResponse_JSON(t *testing.T) {
 	if decoded.User.ID != resp.User.ID {
 		t.Errorf("User.ID: got %d", decoded.User.ID)
 	}
+	// Email is not serialized in API JSON
+	if decoded.User.Email != "" {
+		t.Errorf("User.Email: expected empty after JSON round-trip, got %q", decoded.User.Email)
+	}
 	if decoded.SubURL != resp.SubURL {
 		t.Errorf("SubURL: got %q", decoded.SubURL)
+	}
+}
+
+func TestUser_ClientIdentity(t *testing.T) {
+	u := &User{Username: "u1", Email: "e@example.com"}
+	if u.ClientIdentity() != "e@example.com" {
+		t.Errorf("ClientIdentity: got %q", u.ClientIdentity())
+	}
+	u2 := &User{Username: "u2"}
+	if u2.ClientIdentity() != "u2" {
+		t.Errorf("ClientIdentity fallback: got %q", u2.ClientIdentity())
 	}
 }
 

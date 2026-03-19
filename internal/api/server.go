@@ -458,7 +458,8 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := generateToken()
-	user, err := s.db.CreateUser(username, token)
+	// Email in DB mirrors username for Xray; not accepted on create and not exposed in API JSON.
+	user, err := s.db.CreateUser(username, "", token)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -491,7 +492,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		if protocol == "" {
 			protocol = strings.TrimSpace(s.cfg.APIUserInboundProtocol)
 		}
-		s.addUserToInbound(user, username, tag, protocol)
+		s.addUserToInbound(user, tag, protocol)
 	}
 
 	if len(inboundsToAdd) > 0 && s.cfg.XrayAPIAddr == "" {
@@ -502,16 +503,17 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // addUserToInbound adds a user to one inbound (Xray + DB). Used when creating users.
-func (s *Server) addUserToInbound(user *models.User, username, tag, protocolFallback string) {
+func (s *Server) addUserToInbound(user *models.User, tag, protocolFallback string) {
+	identity := user.ClientIdentity()
 	var clientConfig string
 	var err error
 	if apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr); apiAddr != "" {
-		clientConfig, err = xray.AddClientToInboundViaAPI(apiAddr, s.cfg.ConfigDir, tag, username, protocolFallback)
+		clientConfig, err = xray.AddClientToInboundViaAPI(apiAddr, s.cfg.ConfigDir, tag, identity, protocolFallback)
 	} else {
-		clientConfig, err = xray.AddClientToInbound(s.cfg.ConfigDir, tag, username)
+		clientConfig, err = xray.AddClientToInbound(s.cfg.ConfigDir, tag, identity, s.cfg.XrayConfigFilePerm())
 	}
 	if err != nil {
-		log.Printf("WARN: add user %s to Xray inbound %s: %v", username, tag, err)
+		logXrayUserInboundError("WARN: add user %s to Xray inbound %s: %s", identity, tag, err)
 		return
 	}
 
@@ -556,12 +558,12 @@ func (s *Server) addUserToInbound(user *models.User, username, tag, protocolFall
 			if err == nil {
 				_ = s.db.UpsertUserClient(user.ID, ibID, clientConfig)
 				found = true
-				log.Printf("Created inbound %s in DB (api_user_inbound_protocol fallback)", tag)
+				log.Printf("Created inbound %s in DB (api_user_inbound_protocol fallback)", sanitizeLogField(tag))
 			}
 		}
 	}
 	if !found {
-		log.Printf("WARN: inbound %s not found in DB; user %s has no subscription for this inbound", tag, username)
+		logXrayInboundUserMissing(tag, identity)
 	}
 }
 
@@ -580,11 +582,11 @@ func (s *Server) removeUserFromXray(userID int64, username string) {
 		tag := c.InboundTag
 		if apiAddr != "" {
 			if err := xray.RemoveUserFromInboundViaAPI(apiAddr, tag, username); err != nil {
-				log.Printf("WARN: remove user %s from Xray inbound %s: %v", username, tag, err)
+				logXrayUserInboundError("WARN: remove user %s from Xray inbound %s: %s", username, tag, err)
 			}
 		} else {
-			if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username); err != nil {
-				log.Printf("WARN: remove user %s from Xray config %s: %v", username, tag, err)
+			if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username, s.cfg.XrayConfigFilePerm()); err != nil {
+				logXrayUserInboundError("WARN: remove user %s from Xray config %s: %s", username, tag, err)
 			}
 		}
 	}
@@ -602,11 +604,11 @@ func (s *Server) addClientToXray(username, tag, clientConfig string) {
 	apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr)
 	if apiAddr != "" {
 		if err := xray.AddExistingClientToInboundViaAPI(apiAddr, tag, username, clientConfig); err != nil {
-			log.Printf("WARN: add user %s to Xray inbound %s: %v", username, tag, err)
+			logXrayUserInboundError("WARN: add user %s to Xray inbound %s: %s", username, tag, err)
 		}
 	} else {
-		if err := xray.AddExistingClientToInbound(s.cfg.ConfigDir, tag, username, clientConfig); err != nil {
-			log.Printf("WARN: add user %s to Xray config %s: %v", username, tag, err)
+		if err := xray.AddExistingClientToInbound(s.cfg.ConfigDir, tag, username, clientConfig, s.cfg.XrayConfigFilePerm()); err != nil {
+			logXrayUserInboundError("WARN: add user %s to Xray config %s: %s", username, tag, err)
 		}
 		go func() { _ = s.syncer.Sync() }()
 	}
@@ -621,11 +623,11 @@ func (s *Server) removeClientFromXray(username, tag string) {
 	apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr)
 	if apiAddr != "" {
 		if err := xray.RemoveUserFromInboundViaAPI(apiAddr, tag, username); err != nil {
-			log.Printf("WARN: remove user %s from Xray inbound %s: %v", username, tag, err)
+			logXrayUserInboundError("WARN: remove user %s from Xray inbound %s: %s", username, tag, err)
 		}
 	} else {
-		if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username); err != nil {
-			log.Printf("WARN: remove user %s from Xray config %s: %v", username, tag, err)
+		if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username, s.cfg.XrayConfigFilePerm()); err != nil {
+			logXrayUserInboundError("WARN: remove user %s from Xray config %s: %s", username, tag, err)
 		}
 		go func() { _ = s.syncer.Sync() }()
 	}
@@ -646,11 +648,11 @@ func (s *Server) addUserToXray(userID int64, username string) {
 		tag := c.InboundTag
 		if apiAddr != "" {
 			if err := xray.AddExistingClientToInboundViaAPI(apiAddr, tag, username, c.ClientConfig); err != nil {
-				log.Printf("WARN: add user %s to Xray inbound %s: %v", username, tag, err)
+				logXrayUserInboundError("WARN: add user %s to Xray inbound %s: %s", username, tag, err)
 			}
 		} else {
-			if err := xray.AddExistingClientToInbound(s.cfg.ConfigDir, tag, username, c.ClientConfig); err != nil {
-				log.Printf("WARN: add user %s to Xray config %s: %v", username, tag, err)
+			if err := xray.AddExistingClientToInbound(s.cfg.ConfigDir, tag, username, c.ClientConfig, s.cfg.XrayConfigFilePerm()); err != nil {
+				logXrayUserInboundError("WARN: add user %s to Xray config %s: %s", username, tag, err)
 			}
 		}
 	}
@@ -673,7 +675,7 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Remove from Xray before deleting from DB (need username for removal)
-	s.removeUserFromXray(user.ID, user.Username)
+	s.removeUserFromXray(user.ID, user.ClientIdentity())
 
 	if err := s.db.DeleteUser(user.ID); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
@@ -701,9 +703,9 @@ func (s *Server) setUserEnabled(w http.ResponseWriter, r *http.Request, enabled 
 	}
 	// Sync to Xray: remove when disabled, add when enabled
 	if enabled {
-		s.addUserToXray(user.ID, user.Username)
+		s.addUserToXray(user.ID, user.ClientIdentity())
 	} else {
-		s.removeUserFromXray(user.ID, user.Username)
+		s.removeUserFromXray(user.ID, user.ClientIdentity())
 	}
 	jsonOK(w, map[string]bool{"enabled": enabled})
 }
@@ -741,9 +743,9 @@ func (s *Server) getUserRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	jsonOK(w, map[string]interface{}{
-		"user_id":   user.ID,
-		"username":  user.Username,
-		"rules":     rules,
+		"user_id":  user.ID,
+		"username": user.Username,
+		"rules":    rules,
 	})
 }
 
@@ -1288,7 +1290,7 @@ func (s *Server) addUserClient(w http.ResponseWriter, r *http.Request) {
 		protocol = strings.TrimSpace(s.cfg.APIUserInboundProtocol)
 	}
 
-	s.addUserToInbound(user, user.Username, tag, protocol)
+	s.addUserToInbound(user, tag, protocol)
 
 	clients, err := s.db.GetUserClients(user.ID)
 	if err != nil {
@@ -1338,9 +1340,9 @@ func (s *Server) setClientEnabled(w http.ResponseWriter, r *http.Request, enable
 	}
 	// Sync to Xray (config or API), same as enable/disable user
 	if enabled {
-		s.addClientToXray(user.Username, tag, clientConfig)
+		s.addClientToXray(user.ClientIdentity(), tag, clientConfig)
 	} else {
-		s.removeClientFromXray(user.Username, tag)
+		s.removeClientFromXray(user.ClientIdentity(), tag)
 	}
 	jsonOK(w, map[string]bool{"enabled": enabled})
 }
@@ -1468,17 +1470,8 @@ func (s *Server) getByID(w http.ResponseWriter, r *http.Request) (*models.User, 
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		// Fallback: treat as token (e.g. client sends token instead of numeric id)
-		user, getErr := s.db.GetUserByToken(idStr)
-		if getErr != nil {
-			jsonError(w, getErr.Error(), http.StatusInternalServerError)
-			return nil, getErr
-		}
-		if user == nil {
-			jsonError(w, "user not found", http.StatusNotFound)
-			return nil, nil
-		}
-		return user, nil
+		jsonError(w, "invalid id: must be numeric user id", http.StatusBadRequest)
+		return nil, fmt.Errorf("invalid id")
 	}
 	user, err := s.db.GetUserByID(id)
 	if err != nil {
@@ -1521,6 +1514,22 @@ func generateToken() string {
 func sanitizeLogField(v string) string {
 	// Prevent control characters from forging multiline log entries.
 	return strings.NewReplacer("\r", "", "\n", "", "\t", " ").Replace(v)
+}
+
+// logXrayUserInboundError logs a Xray sync warning. tmpl must be a constant format string with three %s (user, inbound, error text).
+// Operands are sanitized to mitigate log forging (gosec G706).
+func logXrayUserInboundError(tmpl string, user, inbound string, err error) {
+	if err == nil {
+		return
+	}
+	// #nosec G706 -- tmpl is fixed at each call site; user, inbound, err text sanitized via sanitizeLogField (standalone gosec ignores //nolint:gosec)
+	log.Printf(tmpl, sanitizeLogField(user), sanitizeLogField(inbound), sanitizeLogField(err.Error()))
+}
+
+func logXrayInboundUserMissing(tag, identity string) {
+	// #nosec G706 -- tag and identity sanitized via sanitizeLogField
+	log.Printf("WARN: inbound %s not found in DB; user %s has no subscription for this inbound",
+		sanitizeLogField(tag), sanitizeLogField(identity))
 }
 
 func isMobileProfileRequest(r *http.Request) bool {

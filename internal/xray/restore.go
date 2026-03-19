@@ -4,6 +4,7 @@ package xray
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 )
 
@@ -42,7 +43,7 @@ func SyncDBToConfig(configDir, inboundTag string, users []struct {
 	Username     string
 	ClientConfig string
 	Protocol     string
-}, existingIdentities map[string]bool) error {
+}, existingIdentities map[string]bool, filePerm os.FileMode) error {
 	if configDir == "" || inboundTag == "" {
 		return nil
 	}
@@ -56,7 +57,7 @@ func SyncDBToConfig(configDir, inboundTag string, users []struct {
 		if existingIdentities[username] {
 			continue
 		}
-		if err := AddExistingClientToInbound(configDir, inboundTag, username, u.ClientConfig); err != nil {
+		if err := AddExistingClientToInbound(configDir, inboundTag, username, u.ClientConfig, filePerm); err != nil {
 			log.Printf("WARN: sync user %s to config: %v", username, err)
 			continue
 		}
