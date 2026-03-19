@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -36,6 +37,10 @@ type Config struct {
 	APIUserInboundProtocol string `json:"api_user_inbound_protocol,omitempty"`
 	// Fallback port for the inbound when creating from api_user_inbound_protocol. Default 443.
 	APIUserInboundPort int `json:"api_user_inbound_port,omitempty"`
+	// Octal permission bits for Xray JSON files Raven writes under config_dir (e.g. "0644", "0755"). Empty = 0600.
+	XrayConfigFileMode string `json:"xray_config_file_mode,omitempty"`
+
+	xrayFilePerm os.FileMode `json:"-"`
 }
 
 // Load reads and parses a JSON config file from path. An empty path returns defaults.
@@ -53,6 +58,9 @@ func Load(path string) (*Config, error) {
 	}
 
 	if path == "" {
+		if err := applyXrayFilePerm(cfg); err != nil {
+			return nil, err
+		}
 		return cfg, nil
 	}
 
@@ -76,7 +84,57 @@ func Load(path string) (*Config, error) {
 	if cfg.BalancerStrategy == "" {
 		return nil, fmt.Errorf("invalid balancer_strategy: must be one of random, roundRobin, leastPing, leastLoad")
 	}
+	if err := applyXrayFilePerm(cfg); err != nil {
+		return nil, fmt.Errorf("xray_config_file_mode: %w", err)
+	}
 	return cfg, nil
+}
+
+// XrayConfigFilePerm returns permission bits used when writing Xray JSON configs under config_dir.
+// Default is 0o600 (owner read/write only). Safe for nil receiver.
+func (c *Config) XrayConfigFilePerm() os.FileMode {
+	if c == nil {
+		return 0o600
+	}
+	if c.xrayFilePerm == 0 {
+		return 0o600
+	}
+	return c.xrayFilePerm
+}
+
+func applyXrayFilePerm(cfg *Config) error {
+	perm, err := parseXrayConfigFileMode(cfg.XrayConfigFileMode)
+	if err != nil {
+		return err
+	}
+	cfg.xrayFilePerm = perm
+	return nil
+}
+
+// parseXrayConfigFileMode parses "0644", "644", "0o644", etc. Empty string → 0o600.
+func parseXrayConfigFileMode(s string) (os.FileMode, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0o600, nil
+	}
+	s = strings.TrimPrefix(s, "0o")
+	s = strings.TrimPrefix(s, "0O")
+	if s == "" {
+		return 0, fmt.Errorf("empty after stripping 0o prefix")
+	}
+	for _, r := range s {
+		if r < '0' || r > '7' {
+			return 0, fmt.Errorf("invalid octal digit in %q", s)
+		}
+	}
+	u, err := strconv.ParseUint(s, 8, 32)
+	if err != nil {
+		return 0, fmt.Errorf("parse octal: %w", err)
+	}
+	if u > 0o777 {
+		return 0, fmt.Errorf("mode must be <= 0777, got %#o", u)
+	}
+	return os.FileMode(u) & 0o777, nil
 }
 
 // SubURL returns the full subscription URL for the given user token.

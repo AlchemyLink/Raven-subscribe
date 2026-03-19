@@ -26,6 +26,9 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 	if cfg.BalancerStrategy != "leastPing" {
 		t.Errorf("BalancerStrategy: got %q, want leastPing", cfg.BalancerStrategy)
 	}
+	if cfg.XrayConfigFilePerm() != 0o600 {
+		t.Errorf("XrayConfigFilePerm default: got %o, want 0600", cfg.XrayConfigFilePerm())
+	}
 }
 
 func TestLoad_ValidFile_ReturnsParsedConfig(t *testing.T) {
@@ -140,5 +143,49 @@ func TestConfig_SubURL(t *testing.T) {
 	got := cfg.SubURL("abc123")
 	if got != "https://vpn.example.com/sub/abc123" {
 		t.Errorf("SubURL: got %q, want https://vpn.example.com/sub/abc123", got)
+	}
+}
+
+func TestLoad_XrayConfigFileMode(t *testing.T) {
+	tests := []struct {
+		raw      string
+		wantMode os.FileMode
+		wantErr  bool
+	}{
+		{`"0644"`, 0o644, false},
+		{`"644"`, 0o644, false},
+		{`"0o755"`, 0o755, false},
+		{`"0755"`, 0o755, false},
+		{`""`, 0o600, false},
+		{`"0800"`, 0, true},
+		{`"888"`, 0, true},
+	}
+	for _, tt := range tests {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.json")
+		var modeLine string
+		if tt.raw == `""` {
+			modeLine = ""
+		} else {
+			modeLine = `,"xray_config_file_mode":` + tt.raw
+		}
+		json := `{"server_host":"x.com"` + modeLine + `}`
+		if err := os.WriteFile(path, []byte(json), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		cfg, err := Load(path)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("raw %s: expected error", tt.raw)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("raw %s: Load: %v", tt.raw, err)
+			continue
+		}
+		if cfg.XrayConfigFilePerm() != tt.wantMode {
+			t.Errorf("raw %s: got mode %o, want %o", tt.raw, cfg.XrayConfigFilePerm(), tt.wantMode)
+		}
 	}
 }

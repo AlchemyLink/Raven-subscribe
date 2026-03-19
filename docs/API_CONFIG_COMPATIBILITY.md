@@ -25,6 +25,7 @@ All API endpoints correctly use configuration fields. Defaults and fallbacks are
 | `api_user_inbound_protocol` | Create user, add client | `""` | Fallback when tag not in config_dir. |
 | `api_user_inbound_port` | Create inbound fallback | `0` → 443 | Used when creating inbound from protocol. |
 | `xray_api_addr` | Add/remove users | `""` | Use Xray gRPC API instead of config files. |
+| `xray_config_file_mode` | Writes to `config_dir` JSON | `0600` | Octal string e.g. `0644` for group/other read (testing). |
 
 ---
 
@@ -42,8 +43,8 @@ All API endpoints correctly use configuration fields. Defaults and fallbacks are
 
 | Endpoint | Config Used | Compatibility |
 |----------|-------------|---------------|
-| `GET/POST /api/users` | AdminToken, BaseURL, APIUserInboundTag, APIUserInboundProtocol, ConfigDir, XrayAPIAddr | OK |
-| `GET/DELETE /api/users/{id}` | AdminToken, BaseURL, ConfigDir, XrayAPIAddr | OK |
+| `GET/POST /api/users` | AdminToken, BaseURL, APIUserInboundTag, APIUserInboundProtocol, ConfigDir, XrayAPIAddr | OK — `user` has no `email` field in JSON (Xray still uses username as client email internally). |
+| `GET/DELETE /api/users/{id}` | AdminToken, BaseURL, ConfigDir, XrayAPIAddr | OK — `{id}` must be numeric DB user id |
 | `PUT /api/users/{id}/enable|disable` | AdminToken, ConfigDir, XrayAPIAddr | OK |
 | `POST /api/users/{id}/token` | AdminToken, BaseURL | OK |
 | `GET/POST/PUT /api/users/{id}/routes` | AdminToken | OK |

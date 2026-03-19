@@ -1,17 +1,33 @@
 // Package models defines the shared data structures used across the application.
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // User represents a subscription user stored in the database.
 type User struct {
 	ID        int64     `json:"id"`
 	Username  string    `json:"username"`
+	Email     string    `json:"-"` // Xray client email / monitoring; not exposed in API JSON (use username)
 	Token     string    `json:"token"`
 	Enabled   bool      `json:"enabled"`
 	ClientRoutes string `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ClientIdentity returns the Xray client "email" (API + JSON configs). Prefers Email when set.
+func (u *User) ClientIdentity() string {
+	if u == nil {
+		return ""
+	}
+	e := strings.TrimSpace(u.Email)
+	if e != "" {
+		return e
+	}
+	return strings.TrimSpace(u.Username)
 }
 
 // Inbound represents a parsed xray server inbound stored in DB

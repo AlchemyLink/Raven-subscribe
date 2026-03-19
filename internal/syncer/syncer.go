@@ -126,7 +126,7 @@ func (s *Syncer) RestoreOnStartup() {
 				Username     string
 				ClientConfig string
 				Protocol     string
-			}{u.Username, u.ClientConfig, u.Protocol}
+			}{u.XrayClientEmail(), u.ClientConfig, u.Protocol}
 		}
 		xray.RestoreUsersToXray(apiAddr, ib.Tag, ucs)
 	}
@@ -228,9 +228,9 @@ func (s *Syncer) Sync() error {
 					Username     string
 					ClientConfig string
 					Protocol     string
-				}{u.Username, u.ClientConfig, u.Protocol}
+				}{u.XrayClientEmail(), u.ClientConfig, u.Protocol}
 			}
-			_ = xray.SyncDBToConfig(s.cfg.ConfigDir, ib.Tag, ucs, idents)
+			_ = xray.SyncDBToConfig(s.cfg.ConfigDir, ib.Tag, ucs, idents, s.cfg.XrayConfigFilePerm())
 		}
 	}
 
@@ -254,7 +254,7 @@ func (s *Syncer) syncClient(inboundID int64, client xray.ParsedClient) error {
 	if user == nil {
 		// Auto-create user with generated token
 		token := generateToken()
-		user, err = s.db.CreateUser(identity, token)
+		user, err = s.db.CreateUser(identity, identity, token)
 		if err != nil {
 			return fmt.Errorf("create user %s: %w", identity, err)
 		}

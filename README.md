@@ -268,6 +268,7 @@ Limits requests per IP per minute. `0` = disabled. Helps prevent abuse.
 | `xray_api_addr` | `""` | When set, users are synced via Xray gRPC API instead of config files. E.g. `127.0.0.1:8080`. Requires `api_user_inbound_tag`. Xray must have API enabled with HandlerService. |
 | `api_user_inbound_protocol` | `""` | Fallback when `config_dir` has no inbounds: protocol (`vless`, `vmess`, `trojan`, `shadowsocks`) to create the inbound in DB. Use when Xray configs are elsewhere. |
 | `api_user_inbound_port` | `443` | Port for the inbound when using `api_user_inbound_protocol` fallback. |
+| `xray_config_file_mode` | *(omit)* | Octal mode for JSON files Raven writes under `config_dir` (e.g. `"0644"` so another local user can read configs for testing). Default **`0600`**. Only permission bits `0`–`7` (max `0777`). |
 
 **DB ↔ Xray sync (when `api_user_inbound_tag` is set):** The database is the source of truth. All changes propagate to Xray immediately:
 
@@ -402,7 +403,7 @@ curl -H "X-Admin-Token: secret" http://localhost:8080/api/users
 ```json
 [
   {
-    "user": {"id": 1, "username": "alice", "token": "abc123", "enabled": true},
+    "user": {"id": 1, "username": "alice@example.com", "token": "abc123", "enabled": true},
     "sub_url": "http://your-server:8080/sub/abc123"
   }
 ]
@@ -415,6 +416,8 @@ Content-Type: application/json
 
 {"username": "bob"}
 ```
+On create, `email` is not accepted; internally it matches `username` for Xray. API JSON does **not** include `email` (use `username`).
+
 ```bash
 curl -X POST -H "X-Admin-Token: secret" -H "Content-Type: application/json" \
   -d '{"username":"bob"}' http://localhost:8080/api/users
@@ -436,7 +439,38 @@ GET /api/users/{id}
 ```bash
 DELETE /api/users/{id}
 ```
+`{id}` must be the numeric user **id** from create/list (same for `GET` and all other `/api/users/{id}/…` routes). Non-numeric values return `400`.
+
 When `api_user_inbound_tag` is set, the user is also removed from Xray.
+
+#### Example: create and delete (bash)
+
+```bash
+HOST="http://localhost:8080"
+ADMIN="your-secret-admin-token"
+
+# 1) Create user
+CREATE_JSON=$(curl -sS -X POST "$HOST/api/users" \
+  -H "X-Admin-Token: $ADMIN" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"demo-user"}')
+echo "$CREATE_JSON"
+
+# 2) Take numeric id (needs jq) or copy .user.id from the JSON above
+USER_ID=$(echo "$CREATE_JSON" | jq -r '.user.id')
+
+# 3) Delete by id
+curl -sS -X DELETE "$HOST/api/users/$USER_ID" \
+  -H "X-Admin-Token: $ADMIN"
+# {"status":"deleted"}
+
+# 4) Confirm gone
+curl -sS -H "X-Admin-Token: $ADMIN" "$HOST/api/users/$USER_ID"
+# {"error":"user not found"}
+```
+
+Without `jq`, open the create response, note `"id": 42`, then:  
+`curl -X DELETE -H "X-Admin-Token: $ADMIN" "$HOST/api/users/42"`.
 
 #### Enable / disable a user
 ```bash
