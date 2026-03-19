@@ -101,10 +101,10 @@ func RemoveUserFromInbound(configDir, inboundTag, email string) error {
 	return removeClientFromFile(file, inboundTag, email)
 }
 
-// writeConfigFile writes config with 0o644 so Xray (often runs as non-root) can read it.
+// writeConfigFile writes config with 0o600. Run Raven as the same user as Xray (e.g. User=xray in systemd).
 func writeConfigFile(filePath string, out []byte) error {
 	tmpPath := filePath + ".raven.tmp"
-	if err := os.WriteFile(tmpPath, out, 0o644); err != nil {
+	if err := os.WriteFile(tmpPath, out, 0o600); err != nil {
 		return fmt.Errorf("write temp: %w", err)
 	}
 	if err := os.Rename(tmpPath, filePath); err != nil {

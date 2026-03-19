@@ -49,7 +49,7 @@ func TestSyncer_Sync_WithConfigFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("database.New: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	cfg := &config.Config{ConfigDir: configDir}
 	s := New(cfg, db)
@@ -70,7 +70,7 @@ func TestSyncer_Sync_WithConfigFiles(t *testing.T) {
 func TestSyncer_Sync_APIFallbackCreatesInbound(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "empty_config")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	dbPath := filepath.Join(dir, "test.db")
@@ -78,7 +78,7 @@ func TestSyncer_Sync_APIFallbackCreatesInbound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("database.New: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	cfg := &config.Config{
 		ConfigDir:             configDir,

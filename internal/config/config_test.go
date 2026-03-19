@@ -36,7 +36,7 @@ func TestLoad_ValidFile_ReturnsParsedConfig(t *testing.T) {
 		"listen_addr": ":9090",
 		"admin_token": "secret"
 	}`
-	if err := os.WriteFile(path, []byte(json), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(json), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	cfg, err := Load(path)
@@ -67,7 +67,7 @@ func TestLoad_MissingFile_ReturnsError(t *testing.T) {
 func TestLoad_InvalidJSON_ReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
-	if err := os.WriteFile(path, []byte(`{invalid json`), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(`{invalid json`), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	_, err := Load(path)
@@ -79,7 +79,7 @@ func TestLoad_InvalidJSON_ReturnsError(t *testing.T) {
 func TestLoad_MissingServerHost_ReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
-	if err := os.WriteFile(path, []byte(`{}`), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(`{}`), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	_, err := Load(path)
@@ -95,7 +95,7 @@ func TestLoad_InvalidBalancerStrategy_ReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 	json := `{"server_host":"x.com","balancer_strategy":"invalid"}`
-	if err := os.WriteFile(path, []byte(json), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(json), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	_, err := Load(path)
@@ -121,7 +121,7 @@ func TestLoad_ValidBalancerStrategies(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.json")
 		json := `{"server_host":"x.com","balancer_strategy":"` + tt.input + `"}`
-		if err := os.WriteFile(path, []byte(json), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(json), 0o600); err != nil {
 			t.Fatalf("write config: %v", err)
 		}
 		cfg, err := Load(path)
