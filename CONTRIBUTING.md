@@ -37,7 +37,7 @@ Do not add package-wide or file-wide blanket suppressions.
 
 For test helper files:
 
-- Use file permissions `0o600` for generated config files (`os.WriteFile`).
+- Use file permissions `0o600` for Xray config files. Run Raven as the same user as Xray (e.g. `User=xray` in systemd).
 - Avoid obvious hardcoded credential names/values that trigger `gosec` (`G101`).
 - Prefer neutral constants for test headers/tokens.
 
