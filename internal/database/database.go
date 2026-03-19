@@ -488,6 +488,21 @@ func (db *DB) GetUserClients(userID int64) ([]models.UserClientFull, error) {
 	return result, rows.Err()
 }
 
+// GetUserClientByUserAndInbound returns the inbound tag and client config for a user/inbound pair.
+// Returns ("", "", nil) if not found. Does not filter by enabled.
+func (db *DB) GetUserClientByUserAndInbound(userID, inboundID int64) (tag, clientConfig string, err error) {
+	err = db.conn.QueryRow(
+		`SELECT ib.tag, uc.client_config FROM user_clients uc
+		 JOIN inbounds ib ON ib.id = uc.inbound_id
+		 WHERE uc.user_id = ? AND uc.inbound_id = ?`,
+		userID, inboundID,
+	).Scan(&tag, &clientConfig)
+	if err == sql.ErrNoRows {
+		return "", "", nil
+	}
+	return tag, clientConfig, err
+}
+
 // SetUserClientEnabled enables or disables a specific user/inbound client entry.
 func (db *DB) SetUserClientEnabled(userID, inboundID int64, enabled bool) error {
 	_, err := db.conn.Exec(

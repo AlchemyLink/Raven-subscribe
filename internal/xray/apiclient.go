@@ -84,7 +84,7 @@ func storedConfigToProtocolUser(storedJSON, email string) (*protocol.User, error
 			Email: email,
 			Account: cserial.ToTypedMessage(&vless.Account{
 				Id:   stored.ID,
-				Flow: firstNonEmpty(stored.Flow, "none"),
+				Flow: firstNonEmpty(stored.Flow, ""),
 			}),
 		}, nil
 	case "vmess":
