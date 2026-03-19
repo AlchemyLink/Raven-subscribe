@@ -10,7 +10,7 @@ func TestDB_CreateUser_GetUserByID_GetUserByToken(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	u, err := db.CreateUser("alice", "token-alice-123")
+	u, err := db.CreateUser("alice", "", "token-alice-123")
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -19,6 +19,9 @@ func TestDB_CreateUser_GetUserByID_GetUserByToken(t *testing.T) {
 	}
 	if u.Username != "alice" {
 		t.Errorf("Username: got %q", u.Username)
+	}
+	if u.Email != "alice" {
+		t.Errorf("Email default: got %q, want alice", u.Email)
 	}
 	if u.Token != "token-alice-123" {
 		t.Errorf("Token: got %q", u.Token)
@@ -74,7 +77,7 @@ func TestDB_DeleteUser(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	u, err := db.CreateUser("bob", "token-bob")
+	u, err := db.CreateUser("bob", "", "token-bob")
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -102,8 +105,8 @@ func TestDB_ListUsers_CountUsers(t *testing.T) {
 		t.Errorf("initial count: got %d, want 0", n)
 	}
 
-	_, _ = db.CreateUser("u1", "t1")
-	_, _ = db.CreateUser("u2", "t2")
+	_, _ = db.CreateUser("u1", "", "t1")
+	_, _ = db.CreateUser("u2", "", "t2")
 
 	users, err := db.ListUsers()
 	if err != nil {
@@ -159,7 +162,7 @@ func TestDB_UpsertUserClient_GetUserClients(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	u, _ := db.CreateUser("alice", "t-alice")
+	u, _ := db.CreateUser("alice", "alice@example.com", "t-alice")
 	ibID, _ := db.UpsertInbound("vless-1", "vless", 443, "01.json", `{}`)
 
 	if err := db.UpsertUserClient(u.ID, ibID, `{"protocol":"vless","id":"uuid1","flow":"xtls-rprx-vision"}`); err != nil {
@@ -176,13 +179,24 @@ func TestDB_UpsertUserClient_GetUserClients(t *testing.T) {
 	if clients[0].InboundTag != "vless-1" {
 		t.Errorf("InboundTag: got %q", clients[0].InboundTag)
 	}
+
+	list, err := db.ListUserClientsByInboundTag("vless-1")
+	if err != nil {
+		t.Fatalf("ListUserClientsByInboundTag: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("ListUserClientsByInboundTag: got %d", len(list))
+	}
+	if list[0].XrayClientEmail() != "alice@example.com" {
+		t.Errorf("XrayClientEmail: got %q", list[0].XrayClientEmail())
+	}
 }
 
 func TestDB_GetUserClientByUserAndInbound(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	u, _ := db.CreateUser("alice", "t-alice")
+	u, _ := db.CreateUser("alice", "", "t-alice")
 	ibID, _ := db.UpsertInbound("vless-1", "vless", 443, "01.json", `{}`)
 	_ = db.UpsertUserClient(u.ID, ibID, `{"protocol":"vless","id":"uuid1"}`)
 

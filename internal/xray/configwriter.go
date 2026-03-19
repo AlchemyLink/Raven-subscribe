@@ -17,8 +17,9 @@ import (
 // configDir is the Xray config directory (e.g. /etc/xray/config.d).
 // inboundTag is the tag of the inbound to add the client to.
 // username is used as the client's email/identity.
+// filePerm is applied to the written JSON file (e.g. 0o600 or 0o644).
 // Returns the client credentials JSON for UpsertUserClient, or error.
-func AddClientToInbound(configDir, inboundTag, username string) (clientConfigJSON string, err error) {
+func AddClientToInbound(configDir, inboundTag, username string, filePerm os.FileMode) (clientConfigJSON string, err error) {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return "", fmt.Errorf("username required")
@@ -58,7 +59,7 @@ func AddClientToInbound(configDir, inboundTag, username string) (clientConfigJSO
 	}
 
 	// Add client to settings and write back
-	if err := addClientToFile(file, inboundTag, newClient); err != nil {
+	if err := addClientToFile(file, inboundTag, newClient, filePerm); err != nil {
 		return "", err
 	}
 
@@ -67,7 +68,7 @@ func AddClientToInbound(configDir, inboundTag, username string) (clientConfigJSO
 
 // AddExistingClientToInbound adds a client with existing credentials (from DB) to the inbound.
 // Used when syncing DB users back to config files.
-func AddExistingClientToInbound(configDir, inboundTag, username, storedConfigJSON string) error {
+func AddExistingClientToInbound(configDir, inboundTag, username, storedConfigJSON string, filePerm os.FileMode) error {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return fmt.Errorf("username required")
@@ -83,11 +84,11 @@ func AddExistingClientToInbound(configDir, inboundTag, username, storedConfigJSO
 		return err
 	}
 
-	return addClientToFile(file, inboundTag, clientMap)
+	return addClientToFile(file, inboundTag, clientMap, filePerm)
 }
 
 // RemoveUserFromInbound removes a user (by email/username) from the inbound config file.
-func RemoveUserFromInbound(configDir, inboundTag, email string) error {
+func RemoveUserFromInbound(configDir, inboundTag, email string, filePerm os.FileMode) error {
 	email = strings.TrimSpace(email)
 	if email == "" {
 		return fmt.Errorf("email required")
@@ -98,13 +99,13 @@ func RemoveUserFromInbound(configDir, inboundTag, email string) error {
 		return err
 	}
 
-	return removeClientFromFile(file, inboundTag, email)
+	return removeClientFromFile(file, inboundTag, email, filePerm)
 }
 
-// writeConfigFile writes config with 0o600. Run Raven as the same user as Xray (e.g. User=xray in systemd).
-func writeConfigFile(filePath string, out []byte) error {
+// writeConfigFile atomically replaces filePath with out using filePerm (typically 0o600).
+func writeConfigFile(filePath string, out []byte, filePerm os.FileMode) error {
 	tmpPath := filePath + ".raven.tmp"
-	if err := os.WriteFile(tmpPath, out, 0o600); err != nil {
+	if err := os.WriteFile(tmpPath, out, filePerm&0o777); err != nil {
 		return fmt.Errorf("write temp: %w", err)
 	}
 	if err := os.Rename(tmpPath, filePath); err != nil {
@@ -114,7 +115,7 @@ func writeConfigFile(filePath string, out []byte) error {
 	return nil
 }
 
-func removeClientFromFile(filePath, inboundTag, email string) error {
+func removeClientFromFile(filePath, inboundTag, email string, filePerm os.FileMode) error {
 	// #nosec G304 -- filePath comes from controlled config discovery within configDir.
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -185,7 +186,7 @@ func removeClientFromFile(filePath, inboundTag, email string) error {
 	if err != nil {
 		return fmt.Errorf("marshal output: %w", err)
 	}
-	return writeConfigFile(filePath, out)
+	return writeConfigFile(filePath, out, filePerm)
 }
 
 // storedConfigToClientMap converts StoredClientConfig JSON to the client map format for config files.
@@ -399,7 +400,7 @@ func clientToStoredConfig(protocol string, client map[string]interface{}) (strin
 	}
 }
 
-func addClientToFile(filePath, inboundTag string, newClient map[string]interface{}) error {
+func addClientToFile(filePath, inboundTag string, newClient map[string]interface{}, filePerm os.FileMode) error {
 	// #nosec G304 -- filePath comes from controlled config discovery within configDir.
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -454,7 +455,7 @@ func addClientToFile(filePath, inboundTag string, newClient map[string]interface
 	if err != nil {
 		return fmt.Errorf("marshal output: %w", err)
 	}
-	return writeConfigFile(filePath, out)
+	return writeConfigFile(filePath, out, filePerm)
 }
 
 func generateUUID() string {
