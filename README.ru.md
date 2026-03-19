@@ -148,6 +148,16 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now xray-subscription
 ```
 
+Сервис запускается под `User=xray`, чтобы Raven и Xray использовали одного владельца конфигов. При заданном `api_user_inbound_tag` Raven пишет в `config_dir`; Xray должен читать эти файлы. Выполните:
+
+```bash
+# Создать пользователя xray, если нет (пакет Xray обычно создаёт)
+sudo useradd -r -s /usr/sbin/nologin xray 2>/dev/null || true
+
+# Дать xray владение config_dir и данными при file-based sync
+sudo chown -R xray:xray /etc/xray/config.d /var/lib/xray-subscription
+```
+
 ### 4. Получить ссылки подписки для пользователей
 
 ```bash

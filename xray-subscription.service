@@ -5,10 +5,10 @@ After=network.target xray.service
 
 [Service]
 Type=simple
-User=nobody
-Group=nogroup
-# Allow reading xray config files
-SupplementaryGroups=xray
+# Run as xray user so Raven and Xray share ownership of config_dir files.
+# When api_user_inbound_tag is set, Raven writes to config_dir; Xray must read those files.
+User=xray
+Group=xray
 ExecStart=/usr/local/bin/xray-subscription -config /etc/xray-subscription/config.json
 Restart=on-failure
 RestartSec=5s
@@ -16,8 +16,8 @@ RestartSec=5s
 # Security hardening
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/xray-subscription
-ReadOnlyPaths=/etc/xray/config.d /etc/xray-subscription
+ReadWritePaths=/var/lib/xray-subscription /etc/xray/config.d
+ReadOnlyPaths=/etc/xray-subscription
 PrivateTmp=yes
 ProtectHome=yes
 
