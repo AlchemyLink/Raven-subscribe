@@ -231,7 +231,7 @@ func buildOutbound(serverHost string, uc models.UserClientFull, index int) (*Out
 	}
 
 	// Enable Mux for compatible protocols (not XTLS/REALITY)
-	if shouldUseMux(proto, clientStream) {
+	if shouldUseMux(proto, cred.Flow, clientStream) {
 		ob.Mux = &MuxConfig{Enabled: true, Concurrency: 8}
 	}
 
@@ -490,7 +490,11 @@ func derivePublicKey(privateKeyB64 string) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(pubBytes), nil
 }
 
-func shouldUseMux(proto string, ss *StreamSettings) bool {
+func shouldUseMux(proto, flow string, ss *StreamSettings) bool {
+	// xtls-rprx-vision is fundamentally incompatible with Mux regardless of security layer
+	if flow == "xtls-rprx-vision" {
+		return false
+	}
 	if proto == "vless" || proto == "trojan" {
 		if ss != nil && ss.Security == "reality" {
 			return false

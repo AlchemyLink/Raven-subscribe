@@ -274,19 +274,25 @@ func findInboundSettings(configDir, tag string) (filePath, protocol string, sett
 
 func buildVLESSClient(username string, settingsRaw json.RawMessage) map[string]interface{} {
 	flow := ""
+	decryption := "none"
 	if len(settingsRaw) > 0 {
 		var s struct {
-			Clients []struct { Flow string `json:"flow"` } `json:"clients"`
+			Clients    []struct{ Flow string `json:"flow"` } `json:"clients"`
+			Decryption string                               `json:"decryption"`
 		}
 		_ = json.Unmarshal(settingsRaw, &s)
 		if len(s.Clients) > 0 && s.Clients[0].Flow != "" {
 			flow = s.Clients[0].Flow
 		}
+		if s.Decryption != "" {
+			decryption = s.Decryption
+		}
 	}
 	return map[string]interface{}{
-		"id":    generateUUID(),
-		"flow":  flow,
-		"email": username,
+		"id":         generateUUID(),
+		"flow":       flow,
+		"email":      username,
+		"decryption": decryption,
 	}
 }
 
