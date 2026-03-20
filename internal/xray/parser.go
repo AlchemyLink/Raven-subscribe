@@ -44,8 +44,19 @@ func GetInboundByTag(dir, tag string) (*ParsedInbound, string, error) {
 	return nil, "", nil
 }
 
-// ParseConfigDir reads all JSON files from dir and returns parsed inbounds per file
+// ParseConfigDir reads all JSON files from dir and returns parsed inbounds per file.
+// Client VLESS Encryption strings are not resolved; use ParseConfigDirWith for that.
 func ParseConfigDir(dir string) (map[string][]ParsedInbound, error) {
+	return parseConfigDirWith(dir, nil)
+}
+
+// ParseConfigDirWith is like ParseConfigDir but resolves VLESS Encryption client strings.
+// clientEncMap maps inbound tag to the client-side VLESS Encryption string from config.
+func ParseConfigDirWith(dir string, clientEncMap map[string]string) (map[string][]ParsedInbound, error) {
+	return parseConfigDirWith(dir, clientEncMap)
+}
+
+func parseConfigDirWith(dir string, clientEncMap map[string]string) (map[string][]ParsedInbound, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("read dir %s: %w", dir, err)
@@ -61,7 +72,7 @@ func ParseConfigDir(dir string) (map[string][]ParsedInbound, error) {
 			continue
 		}
 		fullPath := filepath.Join(dir, name)
-		inbounds, err := ParseConfigFile(fullPath)
+		inbounds, err := parseConfigFileWith(fullPath, clientEncMap)
 		if err != nil {
 			// Log and continue; don't fail all due to one bad file
 			fmt.Fprintf(os.Stderr, "WARN: parse %s: %v\n", fullPath, err)
@@ -72,8 +83,12 @@ func ParseConfigDir(dir string) (map[string][]ParsedInbound, error) {
 	return result, nil
 }
 
-// ParseConfigFile parses a single xray server config JSON file
+// ParseConfigFile parses a single xray server config JSON file.
 func ParseConfigFile(path string) ([]ParsedInbound, error) {
+	return parseConfigFileWith(path, nil)
+}
+
+func parseConfigFileWith(path string, clientEncMap map[string]string) ([]ParsedInbound, error) {
 	// #nosec G304 -- path comes from configured xray config directory traversal.
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -106,7 +121,7 @@ func ParseConfigFile(path string) ([]ParsedInbound, error) {
 			continue
 		}
 
-		clients, err := extractClients(si)
+		clients, err := extractClients(si, clientEncMap)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "WARN: extract clients for %s: %v\n", si.Tag, err)
 		}
@@ -141,14 +156,15 @@ func parsePort(raw json.RawMessage) (int, error) {
 	return 0, fmt.Errorf("cannot parse port %s", string(raw))
 }
 
-// extractClients pulls all client credentials from an inbound
-func extractClients(si ServerInbound) ([]ParsedClient, error) {
+// extractClients pulls all client credentials from an inbound.
+// clientEncMap maps inbound tag to the client-side VLESS Encryption string (may be nil).
+func extractClients(si ServerInbound, clientEncMap map[string]string) ([]ParsedClient, error) {
 	proto := strings.ToLower(si.Protocol)
 	switch proto {
 	case "vmess":
 		return extractVMess(si)
 	case "vless":
-		return extractVLESS(si)
+		return extractVLESS(si, clientEncMap)
 	case "trojan":
 		return extractTrojan(si)
 	case "shadowsocks":
@@ -180,21 +196,35 @@ func extractVMess(si ServerInbound) ([]ParsedClient, error) {
 	return clients, nil
 }
 
-func extractVLESS(si ServerInbound) ([]ParsedClient, error) {
+func extractVLESS(si ServerInbound, clientEncMap map[string]string) ([]ParsedClient, error) {
 	var s VLESSInboundSettings
 	if err := json.Unmarshal(si.Settings, &s); err != nil {
 		return nil, err
 	}
+
+	// Determine client-side encryption string.
+	// The server's settings.decryption contains private keys and is NOT sent to clients.
+	// The client encryption string (public keys only) comes from vless_client_encryption config map.
+	clientEnc := "none"
+	if s.Decryption != "" && s.Decryption != "none" {
+		if enc, ok := clientEncMap[si.Tag]; ok && enc != "" {
+			clientEnc = enc
+		} else {
+			fmt.Fprintf(os.Stderr,
+				"WARN: inbound %q uses VLESS Encryption but vless_client_encryption[%q] is not set; "+
+					"client outbound encryption will be \"none\" — clients will fail to connect\n",
+				si.Tag, si.Tag)
+		}
+	}
+
 	var clients []ParsedClient
 	for _, c := range s.Clients {
 		cred := StoredClientConfig{
-			Protocol: "vless",
-			ID:       c.ID,
-			Flow:     c.Flow,
-			Email:    c.Email,
-			// For VLESS outbound users this is expected to be "none".
-			// Read from inbound settings.decryption when present, fallback to "none".
-			Encryption: firstNonEmpty(s.Decryption, "none"),
+			Protocol:   "vless",
+			ID:         c.ID,
+			Flow:       c.Flow,
+			Email:      c.Email,
+			Encryption: clientEnc,
 		}
 		// #nosec G117 -- credentials are marshaled for internal DB storage.
 		b, _ := json.Marshal(cred)

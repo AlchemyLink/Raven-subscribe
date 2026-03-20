@@ -329,7 +329,7 @@ func (db *DB) DeleteBalancerRuntimeConfig() error {
 // UpsertInbound inserts or updates an inbound record identified by tag, returning its DB ID.
 func (db *DB) UpsertInbound(tag, protocol string, port int, configFile, rawConfig string) (int64, error) {
 	now := time.Now().UTC()
-	res, err := db.conn.Exec(
+	_, err := db.conn.Exec(
 		`INSERT INTO inbounds (tag, protocol, port, config_file, raw_config, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(tag) DO UPDATE SET
@@ -348,7 +348,6 @@ func (db *DB) UpsertInbound(tag, protocol string, port int, configFile, rawConfi
 	if err != nil {
 		return 0, err
 	}
-	_ = res
 	return id, nil
 }
 

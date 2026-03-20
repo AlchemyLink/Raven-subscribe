@@ -170,8 +170,9 @@ func RemoveUserFromInboundViaAPI(apiAddr, inboundTag, email string) error {
 // AddClientToInboundViaAPI adds a new client to the Xray inbound via gRPC API.
 // configDir is used to find the inbound (protocol, settings) for building credentials.
 // protocolFallback: when configDir has no inbound, use this protocol (vless, vmess, trojan, shadowsocks).
+// clientEncStr is the VLESS Encryption client string (from vless_client_encryption config); empty = "none".
 // Returns the client credentials JSON for UpsertUserClient, or error.
-func AddClientToInboundViaAPI(apiAddr, configDir, inboundTag, username, protocolFallback string) (clientConfigJSON string, err error) {
+func AddClientToInboundViaAPI(apiAddr, configDir, inboundTag, username, protocolFallback, clientEncStr string) (clientConfigJSON string, err error) {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return "", fmt.Errorf("username required")
@@ -242,7 +243,7 @@ func AddClientToInboundViaAPI(apiAddr, configDir, inboundTag, username, protocol
 	}
 
 	// Return stored config for DB
-	clientConfigJSON, err = clientToStoredConfig(protocolName, newClient)
+	clientConfigJSON, err = clientToStoredConfig(protocolName, newClient, clientEncStr)
 	if err != nil {
 		return "", fmt.Errorf("client config: %w", err)
 	}
