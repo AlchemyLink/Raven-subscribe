@@ -507,12 +507,13 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 // addUserToInbound adds a user to one inbound (Xray + DB). Used when creating users.
 func (s *Server) addUserToInbound(user *models.User, tag, protocolFallback string) {
 	identity := user.ClientIdentity()
+	clientEncStr := s.cfg.VLESSClientEncryption[tag]
 	var clientConfig string
 	var err error
 	if apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr); apiAddr != "" {
-		clientConfig, err = xray.AddClientToInboundViaAPI(apiAddr, s.cfg.ConfigDir, tag, identity, protocolFallback)
+		clientConfig, err = xray.AddClientToInboundViaAPI(apiAddr, s.cfg.ConfigDir, tag, identity, protocolFallback, clientEncStr)
 	} else {
-		clientConfig, err = xray.AddClientToInbound(s.cfg.ConfigDir, tag, identity, s.cfg.XrayConfigFilePerm())
+		clientConfig, err = xray.AddClientToInbound(s.cfg.ConfigDir, tag, identity, s.cfg.XrayConfigFilePerm(), clientEncStr)
 	}
 	if err != nil {
 		logXrayUserInboundError("WARN: add user %s to Xray inbound %s: %s", identity, tag, err)

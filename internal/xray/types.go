@@ -397,7 +397,9 @@ type StoredClientConfig struct {
 	AlterId int    `json:"alter_id,omitempty"`
 	Flow    string `json:"flow,omitempty"`
 	Email   string `json:"email,omitempty"`
-	// VLESS
+	// VLESS outbound encryption string. "none" for standard VLESS.
+	// For VLESS Encryption (PR #5067): client-side string from vless_client_encryption config map.
+	// Never stores the server-side decryption string (which contains private keys).
 	Encryption string `json:"encryption,omitempty"`
 	// Trojan/SS/SOCKS
 	Password string `json:"password,omitempty"`

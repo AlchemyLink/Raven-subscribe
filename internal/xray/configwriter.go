@@ -18,8 +18,9 @@ import (
 // inboundTag is the tag of the inbound to add the client to.
 // username is used as the client's email/identity.
 // filePerm is applied to the written JSON file (e.g. 0o600 or 0o644).
+// clientEncStr is the VLESS Encryption client string from vless_client_encryption config (empty = "none").
 // Returns the client credentials JSON for UpsertUserClient, or error.
-func AddClientToInbound(configDir, inboundTag, username string, filePerm os.FileMode) (clientConfigJSON string, err error) {
+func AddClientToInbound(configDir, inboundTag, username string, filePerm os.FileMode, clientEncStr string) (clientConfigJSON string, err error) {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return "", fmt.Errorf("username required")
@@ -53,7 +54,7 @@ func AddClientToInbound(configDir, inboundTag, username string, filePerm os.File
 	}
 
 	// Marshal client config for DB storage (StoredClientConfig format)
-	clientConfigJSON, err = clientToStoredConfig(protocol, newClient)
+	clientConfigJSON, err = clientToStoredConfig(protocol, newClient, clientEncStr)
 	if err != nil {
 		return "", fmt.Errorf("client config: %w", err)
 	}
@@ -274,25 +275,19 @@ func findInboundSettings(configDir, tag string) (filePath, protocol string, sett
 
 func buildVLESSClient(username string, settingsRaw json.RawMessage) map[string]interface{} {
 	flow := ""
-	decryption := "none"
 	if len(settingsRaw) > 0 {
 		var s struct {
-			Clients    []struct{ Flow string `json:"flow"` } `json:"clients"`
-			Decryption string                               `json:"decryption"`
+			Clients []struct{ Flow string `json:"flow"` } `json:"clients"`
 		}
 		_ = json.Unmarshal(settingsRaw, &s)
 		if len(s.Clients) > 0 && s.Clients[0].Flow != "" {
 			flow = s.Clients[0].Flow
 		}
-		if s.Decryption != "" {
-			decryption = s.Decryption
-		}
 	}
 	return map[string]interface{}{
-		"id":         generateUUID(),
-		"flow":       flow,
-		"email":      username,
-		"decryption": decryption,
+		"id":    generateUUID(),
+		"flow":  flow,
+		"email": username,
 	}
 }
 
@@ -351,16 +346,17 @@ func buildShadowsocksClient(username string, settingsRaw json.RawMessage) map[st
 	}
 }
 
-func clientToStoredConfig(protocol string, client map[string]interface{}) (string, error) {
+// clientToStoredConfig converts a built client map to StoredClientConfig JSON for DB storage.
+// clientEncStr is the VLESS Encryption client string (from vless_client_encryption config); empty = "none".
+func clientToStoredConfig(protocol string, client map[string]interface{}, clientEncStr string) (string, error) {
 	proto := strings.ToLower(protocol)
 	switch proto {
 	case "vless":
 		id, _ := client["id"].(string)
 		flow, _ := client["flow"].(string)
 		enc := "none"
-		dec, ok := client["decryption"].(string)
-		if ok && dec != "" {
-			enc = dec
+		if clientEncStr != "" {
+			enc = clientEncStr
 		}
 		// #nosec G117 -- password-like fields are expected in stored protocol credentials.
 		b, _ := json.Marshal(StoredClientConfig{
