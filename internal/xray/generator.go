@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/alchemylink/raven-subscribe/internal/models"
@@ -39,7 +40,7 @@ func GenerateClientConfig(serverHost string, user models.User, clients []models.
 	for i, uc := range clients {
 		ob, err := buildOutbound(serverHost, uc, i)
 		if err != nil {
-			fmt.Printf("WARN: build outbound for inbound %s: %v\n", uc.InboundTag, err)
+			log.Printf("WARN: build outbound for inbound %s: %v", uc.InboundTag, err)
 			continue
 		}
 		cfg.Outbounds = append(cfg.Outbounds, *ob)
@@ -580,10 +581,9 @@ func defaultRouting() *Routing {
 					"yandex.cloud",
 					"yandexcloud.net",
 					"lizaalert.org",
-					"selcdn.ne",
+					"selcdn.net",
 					"lk.dobroservice.com",
 					"dobroservice.com",
-					"okko.tv",
 				},
 			},
 			{Type: "field", OutboundTag: "direct", Protocol: []string{"bittorrent"}},

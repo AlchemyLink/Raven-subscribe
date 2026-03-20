@@ -3,6 +3,7 @@ package api
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -149,7 +150,7 @@ func (s *Server) adminAuth(next http.Handler) http.Handler {
 		if token == "" {
 			token = r.URL.Query().Get("admin_token")
 		}
-		if token != s.cfg.AdminToken {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AdminToken)) != 1 {
 			jsonError(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
