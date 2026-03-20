@@ -107,6 +107,45 @@ sudo nano /etc/xray-subscription/config.json
 }
 ```
 
+**С VLESS Encryption** (постквантовый ML-KEM-768, Xray ≥ 25.x):
+
+Генерируем ключевую пару командой `xray vlessenc`:
+
+```bash
+# Генерация ключей:
+xray vlessenc
+# Вывод — две строки:
+#   Сервер (decryption): mlkem768x25519plus.native/xorpub/random.600s.Pad.PrivKey.Seed
+#   Клиент (encryption): mlkem768x25519plus.native/xorpub/random.0rtt.Pad.PubKey.Client
+```
+
+Серверную строку вставляем в поле `decryption` в конфиге Xray. Клиентскую строку (только публичные ключи) — в конфиг Raven:
+
+`/etc/xray-subscription/config.json`:
+
+```json
+{
+  "listen_addr": ":8080",
+  "server_host": "vpn.example.com",
+  "config_dir": "/etc/xray/config.d",
+  "db_path": "/var/lib/xray-subscription/db.sqlite",
+  "sync_interval_seconds": 60,
+  "base_url": "https://vpn.example.com:8080",
+  "admin_token": "a3f8c2d1e9b047fc82a1d3e6c5f092bb",
+  "rate_limit_sub_per_min": 60,
+  "rate_limit_admin_per_min": 30,
+  "api_user_inbound_tag": "vless-reality-in",
+  "xray_api_addr": "127.0.0.1:10085",
+  "vless_client_encryption": {
+    "vless-reality-in": "mlkem768x25519plus.native/xorpub/random.0rtt/1rtt.3Kh8A.wX9pR2mLqTzYvNcBdEsUoJfGiHkP4aA.CLT7mZ2NpRqLvXyBwJfGiHkP4aAeUsOdTcE",
+    "vless-xhttp-in":   "mlkem768x25519plus.native/xorpub/random.0rtt/1rtt.3Kh8A.wX9pR2mLqTzYvNcBdEsUoJfGiHkP4aA.CLT7mZ2NpRqLvXyBwJfGiHkP4aAeUsOdTcE"
+  }
+}
+```
+
+> **Важно**: в `vless_client_encryption` — **только клиентская строка** (публичные ключи, её безопасно хранить в конфиге).
+> Серверная строка (`decryption`) содержит приватные ключи и **никогда** не должна попадать в конфиг Raven.
+
 Чтобы добавлять **каждого** нового пользователя **ко всем** inbound’ам, которые знает Raven, укажите `"api_user_all_inbounds": true` и не задавайте `api_user_inbound_tag` (или оставьте пустым).
 
 **Сгенерировать надёжный admin token:**

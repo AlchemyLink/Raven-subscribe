@@ -161,7 +161,7 @@ func (s *Syncer) Sync() error {
 		}
 	}
 
-	parsed, err := xray.ParseConfigDir(s.cfg.ConfigDir)
+	parsed, err := xray.ParseConfigDirWith(s.cfg.ConfigDir, s.cfg.VLESSClientEncryption)
 	if err != nil {
 		return fmt.Errorf("parse config dir: %w", err)
 	}

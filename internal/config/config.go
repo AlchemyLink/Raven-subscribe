@@ -41,6 +41,11 @@ type Config struct {
 	APIUserInboundPort int `json:"api_user_inbound_port,omitempty"`
 	// Octal permission bits for Xray JSON files Raven writes under config_dir (e.g. "0644", "0755"). Empty = 0600.
 	XrayConfigFileMode string `json:"xray_config_file_mode,omitempty"`
+	// VLESSClientEncryption maps VLESS inbound tag to its client-side VLESS Encryption string.
+	// Required when the inbound uses VLESS Encryption (decryption != "none").
+	// Generate both strings with: xray vlessenc
+	// Example: {"vless-reality-in": "mlkem768x25519plus.native.0rtt.(X25519 Password).(ML-KEM-768 Client)"}
+	VLESSClientEncryption map[string]string `json:"vless_client_encryption,omitempty"`
 
 	xrayFilePerm os.FileMode `json:"-"`
 }
