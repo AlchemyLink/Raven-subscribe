@@ -71,10 +71,21 @@ type CreateUserRequest struct {
 	Inbounds []InboundSpec  `json:"inbounds,omitempty"` // Optional: inbounds to add user to. If empty, uses api_user_inbound_tag from config.
 }
 
+// SubURLs holds all subscription URL variants for a user.
+type SubURLs struct {
+	Full        string `json:"full"`
+	LinksText   string `json:"links_txt"`
+	LinksB64    string `json:"links_b64"`
+	Compact     string `json:"compact"`
+	CompactText string `json:"compact_txt"`
+	CompactB64  string `json:"compact_b64"`
+}
+
 // UserResponse is the API response body returned when a user is created or fetched.
 type UserResponse struct {
-	User   User   `json:"user"`
-	SubURL string `json:"sub_url"`
+	User    User    `json:"user"`
+	SubURL  string  `json:"sub_url"`
+	SubURLs SubURLs `json:"sub_urls"`
 }
 
 // UserRouteRule describes a user-defined client routing rule.

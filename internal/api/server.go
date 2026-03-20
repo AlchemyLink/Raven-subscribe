@@ -417,8 +417,9 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	var resp []models.UserResponse
 	for _, u := range users {
 		resp = append(resp, models.UserResponse{
-			User:   u,
-			SubURL: s.cfg.SubURL(u.Token),
+			User:    u,
+			SubURL:  s.cfg.SubURL(u.Token),
+			SubURLs: s.cfg.SubURLs(u.Token),
 		})
 	}
 
@@ -500,7 +501,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		go func() { _ = s.syncer.Sync() }()
 	}
 
-	jsonOK(w, models.UserResponse{User: *user, SubURL: s.cfg.SubURL(user.Token)})
+	jsonOK(w, models.UserResponse{User: *user, SubURL: s.cfg.SubURL(user.Token), SubURLs: s.cfg.SubURLs(user.Token)})
 }
 
 // addUserToInbound adds a user to one inbound (Xray + DB). Used when creating users.
@@ -667,7 +668,7 @@ func (s *Server) getUser(w http.ResponseWriter, r *http.Request) {
 	if user == nil || err != nil {
 		return
 	}
-	jsonOK(w, models.UserResponse{User: *user, SubURL: s.cfg.SubURL(user.Token)})
+	jsonOK(w, models.UserResponse{User: *user, SubURL: s.cfg.SubURL(user.Token), SubURLs: s.cfg.SubURLs(user.Token)})
 }
 
 func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
@@ -1469,12 +1470,13 @@ func (s *Server) getByID(w http.ResponseWriter, r *http.Request) (*models.User, 
 		jsonError(w, "invalid id", http.StatusBadRequest)
 		return nil, fmt.Errorf("empty id")
 	}
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		jsonError(w, "invalid id: must be numeric user id", http.StatusBadRequest)
-		return nil, fmt.Errorf("invalid id")
+	var user *models.User
+	var err error
+	if id, parseErr := strconv.ParseInt(idStr, 10, 64); parseErr == nil {
+		user, err = s.db.GetUserByID(id)
+	} else {
+		user, err = s.db.GetUserByUsername(idStr)
 	}
-	user, err := s.db.GetUserByID(id)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return nil, err

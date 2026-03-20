@@ -89,13 +89,13 @@ func TestAPI_ListUsers_CreateUser_GetUser_DeleteUser_ByID(t *testing.T) {
 		t.Errorf("get user by id: got %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 
-	// Token in path is invalid (not numeric id)
-	req = httptest.NewRequest(http.MethodGet, "/api/users/"+createResp.User.Token, nil)
+	// Lookup by username should return the user
+	req = httptest.NewRequest(http.MethodGet, "/api/users/"+createResp.User.Username, nil)
 	req.Header.Set("X-Admin-Token", "admin-secret")
 	rec = httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("get user by token path: got %d, want 400, body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Errorf("get user by username: got %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 
 	// DELETE by numeric id
@@ -121,13 +121,14 @@ func TestAPI_InvalidID_ReturnsBadRequest(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
 
+	// Non-numeric id is treated as username lookup; unknown username → 404.
 	req := httptest.NewRequest(http.MethodGet, "/api/users/not-a-number", nil)
 	req.Header.Set("X-Admin-Token", "admin-secret")
 	rec := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("non-numeric id: got %d, body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown username: got %d, body=%s", rec.Code, rec.Body.String())
 	}
 }
 
