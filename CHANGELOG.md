@@ -10,6 +10,17 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `sub_urls` field in all user API responses with all subscription URL variants (`full`, `links_txt`, `links_b64`, `compact`, `compact_txt`, `compact_b64`)
+- User lookup by username (including email format) in addition to numeric id — applies to all `/api/users/{id}/…` routes
+
+### Fixed
+- Timing attack on admin token validation — replaced `!=` with `subtle.ConstantTimeCompare`
+- Typo `selcdn.ne` → `selcdn.net` in default routing rules
+- Duplicate `okko.tv` entry in default routing rules
+- `fmt.Printf` → `log.Printf` in `GenerateClientConfig` for consistent structured logging
+- Dead variable `res` in `UpsertInbound` removed
+
+
 - GitHub issue templates (bug report, feature request) with security advisory link
 - `config.json.example` with all available configuration fields
 - `SECURITY.md` with vulnerability reporting guidelines and deployment recommendations

@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/alchemylink/raven-subscribe/internal/models"
 )
 
 // Config holds all runtime configuration for the xray-subscription service.
@@ -140,6 +142,20 @@ func parseXrayConfigFileMode(s string) (os.FileMode, error) {
 // SubURL returns the full subscription URL for the given user token.
 func (c *Config) SubURL(token string) string {
 	return fmt.Sprintf("%s/sub/%s", c.BaseURL, token)
+}
+
+// SubURLs returns all subscription URL variants for the given user token.
+func (c *Config) SubURLs(token string) models.SubURLs {
+	sub := fmt.Sprintf("%s/sub/%s", c.BaseURL, token)
+	compact := fmt.Sprintf("%s/c/%s", c.BaseURL, token)
+	return models.SubURLs{
+		Full:        sub,
+		LinksText:   sub + "/links.txt",
+		LinksB64:    sub + "/links.b64",
+		Compact:     compact,
+		CompactText: compact + "/links.txt",
+		CompactB64:  compact + "/links.b64",
+	}
 }
 
 func normalizeBalancerStrategy(v string) string {
