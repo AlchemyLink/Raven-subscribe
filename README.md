@@ -175,12 +175,20 @@ Response:
       "token": "a3f8c2...",
       "enabled": true
     },
-    "sub_url": "http://your-server:8080/sub/a3f8c2..."
+    "sub_url": "http://your-server:8080/sub/a3f8c2...",
+    "sub_urls": {
+      "full":        "http://your-server:8080/sub/a3f8c2...",
+      "links_txt":   "http://your-server:8080/sub/a3f8c2.../links.txt",
+      "links_b64":   "http://your-server:8080/sub/a3f8c2.../links.b64",
+      "compact":     "http://your-server:8080/c/a3f8c2...",
+      "compact_txt": "http://your-server:8080/c/a3f8c2.../links.txt",
+      "compact_b64": "http://your-server:8080/c/a3f8c2.../links.b64"
+    }
   }
 ]
 ```
 
-Give each user their `sub_url` — they add it to their VPN client and are ready to go.
+Give each user their `sub_urls.compact` URL — they add it to their VPN client and are ready to go.
 
 ---
 
@@ -404,7 +412,15 @@ curl -H "X-Admin-Token: secret" http://localhost:8080/api/users
 [
   {
     "user": {"id": 1, "username": "alice@example.com", "token": "abc123", "enabled": true},
-    "sub_url": "http://your-server:8080/sub/abc123"
+    "sub_url": "http://your-server:8080/sub/abc123",
+    "sub_urls": {
+      "full":        "http://your-server:8080/sub/abc123",
+      "links_txt":   "http://your-server:8080/sub/abc123/links.txt",
+      "links_b64":   "http://your-server:8080/sub/abc123/links.b64",
+      "compact":     "http://your-server:8080/c/abc123",
+      "compact_txt": "http://your-server:8080/c/abc123/links.txt",
+      "compact_b64": "http://your-server:8080/c/abc123/links.b64"
+    }
   }
 ]
 ```
@@ -425,7 +441,15 @@ curl -X POST -H "X-Admin-Token: secret" -H "Content-Type: application/json" \
 ```json
 {
   "user": {"id": 2, "username": "bob", "token": "xyz789", "enabled": true},
-  "sub_url": "http://your-server:8080/sub/xyz789"
+  "sub_url": "http://your-server:8080/sub/xyz789",
+  "sub_urls": {
+    "full":        "http://your-server:8080/sub/xyz789",
+    "links_txt":   "http://your-server:8080/sub/xyz789/links.txt",
+    "links_b64":   "http://your-server:8080/sub/xyz789/links.b64",
+    "compact":     "http://your-server:8080/c/xyz789",
+    "compact_txt": "http://your-server:8080/c/xyz789/links.txt",
+    "compact_b64": "http://your-server:8080/c/xyz789/links.b64"
+  }
 }
 ```
 When `api_user_inbound_tag` is set, the user is also added to Xray (config file or API).
@@ -439,7 +463,7 @@ GET /api/users/{id}
 ```bash
 DELETE /api/users/{id}
 ```
-`{id}` must be the numeric user **id** from create/list (same for `GET` and all other `/api/users/{id}/…` routes). Non-numeric values return `400`.
+`{id}` accepts a **numeric id** or a **username** (including email format like `alice@example.com`). Applies to `GET`, `DELETE`, `enable`, `disable`, `token`, `routes`, and `clients` routes.
 
 When `api_user_inbound_tag` is set, the user is also removed from Xray.
 
@@ -453,24 +477,23 @@ ADMIN="your-secret-admin-token"
 CREATE_JSON=$(curl -sS -X POST "$HOST/api/users" \
   -H "X-Admin-Token: $ADMIN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"demo-user"}')
+  -d '{"username":"alice@example.com"}')
 echo "$CREATE_JSON"
 
-# 2) Take numeric id (needs jq) or copy .user.id from the JSON above
-USER_ID=$(echo "$CREATE_JSON" | jq -r '.user.id')
-
-# 3) Delete by id
-curl -sS -X DELETE "$HOST/api/users/$USER_ID" \
+# 2) Delete by username (no jq needed)
+curl -sS -X DELETE "$HOST/api/users/alice@example.com" \
   -H "X-Admin-Token: $ADMIN"
 # {"status":"deleted"}
 
-# 4) Confirm gone
-curl -sS -H "X-Admin-Token: $ADMIN" "$HOST/api/users/$USER_ID"
+# — or by numeric id (needs jq)
+USER_ID=$(echo "$CREATE_JSON" | jq -r '.user.id')
+curl -sS -X DELETE "$HOST/api/users/$USER_ID" \
+  -H "X-Admin-Token: $ADMIN"
+
+# 3) Confirm gone
+curl -sS -H "X-Admin-Token: $ADMIN" "$HOST/api/users/alice@example.com"
 # {"error":"user not found"}
 ```
-
-Without `jq`, open the create response, note `"id": 42`, then:  
-`curl -X DELETE -H "X-Admin-Token: $ADMIN" "$HOST/api/users/42"`.
 
 #### Enable / disable a user
 ```bash

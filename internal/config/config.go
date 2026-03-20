@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/alchemylink/raven-subscribe/internal/models"
 )
 
 // Config holds all runtime configuration for the xray-subscription service.
@@ -39,6 +41,11 @@ type Config struct {
 	APIUserInboundPort int `json:"api_user_inbound_port,omitempty"`
 	// Octal permission bits for Xray JSON files Raven writes under config_dir (e.g. "0644", "0755"). Empty = 0600.
 	XrayConfigFileMode string `json:"xray_config_file_mode,omitempty"`
+	// VLESSClientEncryption maps VLESS inbound tag to its client-side VLESS Encryption string.
+	// Required when the inbound uses VLESS Encryption (decryption != "none").
+	// Generate both strings with: xray vlessenc
+	// Example: {"vless-reality-in": "mlkem768x25519plus.native.0rtt.(X25519 Password).(ML-KEM-768 Client)"}
+	VLESSClientEncryption map[string]string `json:"vless_client_encryption,omitempty"`
 
 	xrayFilePerm os.FileMode `json:"-"`
 }
@@ -140,6 +147,20 @@ func parseXrayConfigFileMode(s string) (os.FileMode, error) {
 // SubURL returns the full subscription URL for the given user token.
 func (c *Config) SubURL(token string) string {
 	return fmt.Sprintf("%s/sub/%s", c.BaseURL, token)
+}
+
+// SubURLs returns all subscription URL variants for the given user token.
+func (c *Config) SubURLs(token string) models.SubURLs {
+	sub := fmt.Sprintf("%s/sub/%s", c.BaseURL, token)
+	compact := fmt.Sprintf("%s/c/%s", c.BaseURL, token)
+	return models.SubURLs{
+		Full:        sub,
+		LinksText:   sub + "/links.txt",
+		LinksB64:    sub + "/links.b64",
+		Compact:     compact,
+		CompactText: compact + "/links.txt",
+		CompactB64:  compact + "/links.b64",
+	}
 }
 
 func normalizeBalancerStrategy(v string) string {

@@ -174,12 +174,20 @@ curl -H "X-Admin-Token: ваш-секретный-токен" http://localhost:8
       "token": "a3f8c2...",
       "enabled": true
     },
-    "sub_url": "http://ваш-сервер:8080/sub/a3f8c2..."
+    "sub_url": "http://ваш-сервер:8080/sub/a3f8c2...",
+    "sub_urls": {
+      "full":        "http://ваш-сервер:8080/sub/a3f8c2...",
+      "links_txt":   "http://ваш-сервер:8080/sub/a3f8c2.../links.txt",
+      "links_b64":   "http://ваш-сервер:8080/sub/a3f8c2.../links.b64",
+      "compact":     "http://ваш-сервер:8080/c/a3f8c2...",
+      "compact_txt": "http://ваш-сервер:8080/c/a3f8c2.../links.txt",
+      "compact_b64": "http://ваш-сервер:8080/c/a3f8c2.../links.b64"
+    }
   }
 ]
 ```
 
-Передайте каждому пользователю его `sub_url` — они добавляют её в VPN-клиент и готово.
+Передайте каждому пользователю его `sub_urls.compact` — они добавляют её в VPN-клиент и готово.
 
 ---
 
@@ -403,7 +411,15 @@ curl -H "X-Admin-Token: secret" http://localhost:8080/api/users
 [
   {
     "user": {"id": 1, "username": "alice@example.com", "token": "abc123", "enabled": true},
-    "sub_url": "http://ваш-сервер:8080/sub/abc123"
+    "sub_url": "http://ваш-сервер:8080/sub/abc123",
+    "sub_urls": {
+      "full":        "http://ваш-сервер:8080/sub/abc123",
+      "links_txt":   "http://ваш-сервер:8080/sub/abc123/links.txt",
+      "links_b64":   "http://ваш-сервер:8080/sub/abc123/links.b64",
+      "compact":     "http://ваш-сервер:8080/c/abc123",
+      "compact_txt": "http://ваш-сервер:8080/c/abc123/links.txt",
+      "compact_b64": "http://ваш-сервер:8080/c/abc123/links.b64"
+    }
   }
 ]
 ```
@@ -424,7 +440,15 @@ curl -X POST -H "X-Admin-Token: secret" -H "Content-Type: application/json" \
 ```json
 {
   "user": {"id": 2, "username": "bob", "token": "xyz789", "enabled": true},
-  "sub_url": "http://ваш-сервер:8080/sub/xyz789"
+  "sub_url": "http://ваш-сервер:8080/sub/xyz789",
+  "sub_urls": {
+    "full":        "http://ваш-сервер:8080/sub/xyz789",
+    "links_txt":   "http://ваш-сервер:8080/sub/xyz789/links.txt",
+    "links_b64":   "http://ваш-сервер:8080/sub/xyz789/links.b64",
+    "compact":     "http://ваш-сервер:8080/c/xyz789",
+    "compact_txt": "http://ваш-сервер:8080/c/xyz789/links.txt",
+    "compact_b64": "http://ваш-сервер:8080/c/xyz789/links.b64"
+  }
 }
 ```
 При заданном `api_user_inbound_tag` пользователь также добавляется в Xray (конфиг или API).
@@ -438,7 +462,7 @@ GET /api/users/{id}
 ```bash
 DELETE /api/users/{id}
 ```
-`{id}` — только числовой **id** пользователя из ответа создания/списка (то же для `GET` и всех `/api/users/{id}/…`). Нечисловое значение → `400`.
+`{id}` принимает **числовой id** или **username** (включая email-формат, например `alice@example.com`). Применяется к `GET`, `DELETE`, `enable`, `disable`, `token`, `routes` и `clients`.
 
 При заданном `api_user_inbound_tag` пользователь также удаляется из Xray.
 
@@ -452,24 +476,23 @@ ADMIN="ваш-секретный-admin-token"
 CREATE_JSON=$(curl -sS -X POST "$HOST/api/users" \
   -H "X-Admin-Token: $ADMIN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"demo-user"}')
+  -d '{"username":"alice@example.com"}')
 echo "$CREATE_JSON"
 
-# 2) Взять id (нужен jq) или скопировать .user.id из JSON
-USER_ID=$(echo "$CREATE_JSON" | jq -r '.user.id')
-
-# 3) Удалить по id
-curl -sS -X DELETE "$HOST/api/users/$USER_ID" \
+# 2) Удалить по username (без jq)
+curl -sS -X DELETE "$HOST/api/users/alice@example.com" \
   -H "X-Admin-Token: $ADMIN"
 # {"status":"deleted"}
 
-# 4) Проверить, что пользователя нет
-curl -sS -H "X-Admin-Token: $ADMIN" "$HOST/api/users/$USER_ID"
+# — или по числовому id (нужен jq)
+USER_ID=$(echo "$CREATE_JSON" | jq -r '.user.id')
+curl -sS -X DELETE "$HOST/api/users/$USER_ID" \
+  -H "X-Admin-Token: $ADMIN"
+
+# 3) Проверить, что пользователя нет
+curl -sS -H "X-Admin-Token: $ADMIN" "$HOST/api/users/alice@example.com"
 # {"error":"user not found"}
 ```
-
-Без `jq`: из ответа создания возьмите `"id": 42` и выполните:  
-`curl -X DELETE -H "X-Admin-Token: $ADMIN" "$HOST/api/users/42"`.
 
 #### Включить / отключить пользователя
 ```bash
