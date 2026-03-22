@@ -289,6 +289,7 @@ xray-subscription -config /etc/xray-subscription/config.json
 | `api_user_inbound_protocol` | `""` | Запасной вариант, когда в `config_dir` нет inbound: протокол (`vless`, `vmess`, `trojan`, `shadowsocks`) для создания inbound в БД. Используйте, если конфиги Xray в другом месте. |
 | `api_user_inbound_port` | `443` | Порт inbound при использовании `api_user_inbound_protocol`. |
 | `xray_config_file_mode` | *(не задавать)* | Права (octal) для JSON-файлов, которые Raven пишет в `config_dir` (например `"0644"`, чтобы другой локальный пользователь мог читать конфиги при тестах). По умолчанию **`0600`**. Только биты `0`–`7` (не больше `0777`). |
+| `vless_client_encryption` | *(не задавать)* | Map тег inbound → клиентская строка VLESS Encryption (Xray-core ≥ v26.2.6, PR #5067). Нужно только когда inbound использует VLESS Encryption (`decryption` ≠ `"none"`). Генерация: `xray vlessenc`. Пример: `{"vless-reality-in": "mlkem768x25519plus..."}`. При включении flow принудительно `xtls-rprx-vision`, Mux отключён. Не задавайте или удалите при стандартном VLESS. |
 | `xray_enabled` | `true` | Установите `false` для отключения синхронизации Xray (убирает предупреждения, если Xray не установлен). |
 | `singbox_config` | `""` | Путь к серверному конфигу sing-box (например `/etc/sing-box/config.json`). При наличии Raven также синхронизирует Hysteria2 inbound-ы. |
 | `singbox_enabled` | авто | Управляет синхронизацией sing-box. По умолчанию `true`, если задан `singbox_config`. Установите `false` для временного отключения без удаления пути. |
