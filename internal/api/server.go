@@ -57,6 +57,14 @@ func (s *Server) Router() http.Handler {
 	r.HandleFunc("/c/{token}", s.handleCompactSubscription).Methods(http.MethodGet)
 	r.HandleFunc("/c/{token}/links.txt", s.handleCompactSubscriptionLinksText).Methods(http.MethodGet)
 	r.HandleFunc("/c/{token}/links.b64", s.handleCompactSubscriptionLinksB64).Methods(http.MethodGet)
+	// ── sing-box / Hysteria2 subscription endpoints ───────────────────────────
+	// /sub/{token}/singbox      → sing-box JSON with Hysteria2 outbounds only
+	// /sub/{token}/hysteria2    → hysteria2:// share links (plain text)
+	// /sub/{token}/hysteria2.b64 → hysteria2:// share links (base64)
+	r.HandleFunc("/sub/{token}/singbox", s.handleSingboxSubscription).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/hysteria2", s.handleHysteria2LinksText).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/hysteria2.b64", s.handleHysteria2LinksB64).Methods(http.MethodGet)
+
 	r.HandleFunc("/sub/{token}/vless", s.handleVLESSLinksText).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/vless.b64", s.handleVLESSLinksB64).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/vless/list", s.handleVLESSList).Methods(http.MethodGet)
