@@ -43,3 +43,5 @@ test_conf_xhttp.json
 .cursorindexingignore
 .cursor
 .ansible
+
+CLAUDE.md
