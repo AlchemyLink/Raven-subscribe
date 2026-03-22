@@ -26,6 +26,7 @@
 - [Admin API](#admin-api)
 - [Правила маршрутизации](#правила-маршрутизации)
 - [Протоколы и транспорты](#протоколы-и-транспорты)
+- [sing-box / Hysteria2](#sing-box--hysteria2)
 - [Docker](#docker)
 - [Участие в разработке](#участие-в-разработке)
 
@@ -50,8 +51,8 @@
 
 ### Для пользователей
 - **Персональная ссылка подписки** — одна ссылка, которая всегда возвращает актуальный конфиг
-- **Несколько форматов** — полный Xray JSON, обычные share-ссылки, Base64-кодировка
-- **Ссылки по протоколам** — только VLESS, только VMess, только Trojan или Shadowsocks
+- **Несколько форматов** — полный Xray JSON, sing-box JSON, обычные share-ссылки, Base64-кодировка
+- **Ссылки по протоколам** — только VLESS, только VMess, только Trojan, Shadowsocks или Hysteria2
 - **Оптимизация для мобильных** — автоматически определяется по User-Agent (Android, iPhone, NekoBox, V2RayNG) или через `?profile=mobile`
 - **Персональные правила маршрутизации** — каждый пользователь может иметь свои правила: какие сайты открывать напрямую, через прокси или блокировать
 
@@ -66,7 +67,8 @@
 - **Глобальные правила маршрутизации** — применяются сразу ко всем пользователям
 
 ### Протоколы и транспорты
-- **VLESS**, **VMess**, **Trojan**, **Shadowsocks**, **SOCKS**
+- **VLESS**, **VMess**, **Trojan**, **Shadowsocks**, **SOCKS** (через Xray-core)
+- **Hysteria2** (через sing-box) — протокол на базе QUIC с обфускацией Salamander
 - **TCP**, **WebSocket**, **gRPC**, **HTTP/2**, **KCP**, **QUIC**, **HTTPUpgrade**, **XHTTP (SplitHTTP)**
 - **TLS** и **REALITY** с автоматическим выводом публичного ключа
 
@@ -75,26 +77,29 @@
 ## Как это работает
 
 ```
-/etc/xray/config.d/
-    ├── vless-reality.json   ← серверные конфиги Xray
+/etc/xray/config.d/          /etc/sing-box/config.json
+    ├── vless-reality.json        └── (hysteria2 inbound)
     ├── vmess-ws.json
     └── trojan-tls.json
-           │
-           ▼
-    Raven Subscribe
-    (следит за изменениями)
-           │
-           ├─ Парсит inbound-ы, находит пользователей
-           ├─ Сохраняет в SQLite
-           ├─ Отдаёт ссылки подписки
-           └─ Пользователи через API → Xray (файлы или gRPC API)
-                      │
-                      ▼
-    https://ваш-сервер.com/sub/{token}
-                      │
-                      ▼
-    V2RayNG / NekoBox / Hiddify / V2Box
-    (автоматически получает конфиг)
+           │                              │
+           └──────────────┬───────────────┘
+                          ▼
+                   Raven Subscribe
+                   (следит за изменениями)
+                          │
+                          ├─ Парсит inbound-ы, находит пользователей
+                          ├─ Сохраняет в SQLite
+                          ├─ Отдаёт ссылки подписки
+                          └─ Пользователи через API → Xray (файлы или gRPC API)
+                                     │
+                                     ▼
+                   https://ваш-сервер.com/sub/{token}          ← Xray JSON
+                   https://ваш-сервер.com/sub/{token}/singbox   ← sing-box JSON
+                   https://ваш-сервер.com/sub/{token}/hysteria2 ← share-ссылки
+                                     │
+                                     ▼
+                   V2RayNG / NekoBox / Hiddify / V2Box / приложение Hysteria2
+                   (автоматически получает конфиг)
 ```
 
 Каждый пользователь получает уникальный токен. Когда его клиент обращается по ссылке подписки, Raven Subscribe собирает полный клиентский конфиг на лету — со всеми включёнными inbound-ами, правилами маршрутизации, настройками DNS и балансировщика.
@@ -184,13 +189,15 @@ curl -H "X-Admin-Token: ваш-секретный-токен" http://localhost:8
       "links_b64":   "http://ваш-сервер:8080/sub/a3f8c2.../links.b64",
       "compact":     "http://ваш-сервер:8080/c/a3f8c2...",
       "compact_txt": "http://ваш-сервер:8080/c/a3f8c2.../links.txt",
-      "compact_b64": "http://ваш-сервер:8080/c/a3f8c2.../links.b64"
+      "compact_b64": "http://ваш-сервер:8080/c/a3f8c2.../links.b64",
+      "singbox":     "http://ваш-сервер:8080/sub/a3f8c2.../singbox",
+      "hysteria2":   "http://ваш-сервер:8080/sub/a3f8c2.../hysteria2"
     }
   }
 ]
 ```
 
-Передайте каждому пользователю его `sub_urls.compact` — они добавляют её в VPN-клиент и готово.
+Передайте каждому пользователю его `sub_urls.compact` — они добавляют её в VPN-клиент и готово. Для Hysteria2-клиентов используйте `sub_urls.singbox` или `sub_urls.hysteria2`.
 
 ---
 
@@ -202,7 +209,7 @@ curl -H "X-Admin-Token: ваш-секретный-токен" http://localhost:8
 xray-subscription -config /etc/xray-subscription/config.json
 ```
 
-### Full config reference
+### Полный список параметров конфига
 
 ```json
 {
@@ -221,7 +228,10 @@ xray-subscription -config /etc/xray-subscription/config.json
   "rate_limit_sub_per_min": 60,
   "rate_limit_admin_per_min": 30,
   "api_user_inbound_tag": "vless-reality",
-  "xray_api_addr": ""
+  "xray_api_addr": "",
+  "xray_enabled": true,
+  "singbox_config": "/etc/sing-box/config.json",
+  "singbox_enabled": true
 }
 ```
 
@@ -279,6 +289,9 @@ xray-subscription -config /etc/xray-subscription/config.json
 | `api_user_inbound_protocol` | `""` | Запасной вариант, когда в `config_dir` нет inbound: протокол (`vless`, `vmess`, `trojan`, `shadowsocks`) для создания inbound в БД. Используйте, если конфиги Xray в другом месте. |
 | `api_user_inbound_port` | `443` | Порт inbound при использовании `api_user_inbound_protocol`. |
 | `xray_config_file_mode` | *(не задавать)* | Права (octal) для JSON-файлов, которые Raven пишет в `config_dir` (например `"0644"`, чтобы другой локальный пользователь мог читать конфиги при тестах). По умолчанию **`0600`**. Только биты `0`–`7` (не больше `0777`). |
+| `xray_enabled` | `true` | Установите `false` для отключения синхронизации Xray (убирает предупреждения, если Xray не установлен). |
+| `singbox_config` | `""` | Путь к серверному конфигу sing-box (например `/etc/sing-box/config.json`). При наличии Raven также синхронизирует Hysteria2 inbound-ы. |
+| `singbox_enabled` | авто | Управляет синхронизацией sing-box. По умолчанию `true`, если задан `singbox_config`. Установите `false` для временного отключения без удаления пути. |
 
 **Синхронизация БД ↔ Xray** (при заданном `api_user_inbound_tag`): База данных — источник правды. Все изменения сразу отражаются в Xray:
 
@@ -325,12 +338,15 @@ xray-subscription -config /etc/xray-subscription/config.json
 
 ## Ссылки подписки
 
-У каждого пользователя есть два эндпоинта подписки:
+У каждого пользователя есть несколько эндпоинтов подписки:
 
 | Эндпоинт | Описание |
 |---|---|
-| `/c/{token}` | **Основной.** Лёгкий конфиг — `geosite:`/`geoip:` селекторы убраны. Работает на всех устройствах. |
-| `/sub/{token}` | Полный конфиг со всеми правилами маршрутизации включая geo-базы. |
+| `/c/{token}` | **Основной.** Лёгкий Xray JSON конфиг — `geosite:`/`geoip:` селекторы убраны. Работает на всех устройствах. |
+| `/sub/{token}` | Полный Xray JSON конфиг со всеми правилами маршрутизации включая geo-базы. |
+| `/sub/{token}/singbox` | sing-box JSON конфиг с Hysteria2 outbound-ами. Для Hysteria2-клиентов. |
+| `/sub/{token}/hysteria2` | Share-ссылки Hysteria2 (`hysteria2://…`), обычный текст. |
+| `/sub/{token}/hysteria2.b64` | Share-ссылки Hysteria2, Base64-кодировка. |
 
 ### `/c/{token}` — основной эндпоинт (рекомендуется)
 
@@ -357,6 +373,9 @@ xray-subscription -config /etc/xray-subscription/config.json
 | Только VMess | `/sub/{token}/vmess` |
 | Только Trojan | `/sub/{token}/trojan` |
 | Только Shadowsocks | `/sub/{token}/ss` |
+| Только Hysteria2 share-ссылки | `/sub/{token}/hysteria2` |
+| Hysteria2 share-ссылки (Base64) | `/sub/{token}/hysteria2.b64` |
+| sing-box JSON (Hysteria2) | `/sub/{token}/singbox` |
 | Конкретный inbound по тегу | `/sub/{token}/inbound/{tag}` |
 | Лёгкий конфиг (явно) | `/sub/{token}?profile=mobile` |
 
@@ -421,7 +440,9 @@ curl -H "X-Admin-Token: secret" http://localhost:8080/api/users
       "links_b64":   "http://ваш-сервер:8080/sub/abc123/links.b64",
       "compact":     "http://ваш-сервер:8080/c/abc123",
       "compact_txt": "http://ваш-сервер:8080/c/abc123/links.txt",
-      "compact_b64": "http://ваш-сервер:8080/c/abc123/links.b64"
+      "compact_b64": "http://ваш-сервер:8080/c/abc123/links.b64",
+      "singbox":     "http://ваш-сервер:8080/sub/abc123/singbox",
+      "hysteria2":   "http://ваш-сервер:8080/sub/abc123/hysteria2"
     }
   }
 ]
@@ -450,7 +471,9 @@ curl -X POST -H "X-Admin-Token: secret" -H "Content-Type: application/json" \
     "links_b64":   "http://ваш-сервер:8080/sub/xyz789/links.b64",
     "compact":     "http://ваш-сервер:8080/c/xyz789",
     "compact_txt": "http://ваш-сервер:8080/c/xyz789/links.txt",
-    "compact_b64": "http://ваш-сервер:8080/c/xyz789/links.b64"
+    "compact_b64": "http://ваш-сервер:8080/c/xyz789/links.b64",
+    "singbox":     "http://ваш-сервер:8080/sub/xyz789/singbox",
+    "hysteria2":   "http://ваш-сервер:8080/sub/xyz789/hysteria2"
   }
 }
 ```
@@ -672,13 +695,14 @@ Content-Type: application/json
 
 ### Протоколы
 
-| Протокол | Формат share-ссылки | Примечания |
-|---|---|---|
-| VLESS | `vless://uuid@host:port?...#tag` | Поддерживает REALITY, TLS, plain |
-| VMess | `vmess://base64(json)` | |
-| Trojan | `trojan://password@host:port?...#tag` | |
-| Shadowsocks | `ss://base64(method:pass)@host:port#tag` | Одиночный и мультипользовательский |
-| SOCKS | — | Без share-ссылки |
+| Протокол | Ядро | Формат share-ссылки | Примечания |
+|---|---|---|---|
+| VLESS | Xray | `vless://uuid@host:port?...#tag` | Поддерживает REALITY, TLS, plain |
+| VMess | Xray | `vmess://base64(json)` | |
+| Trojan | Xray | `trojan://password@host:port?...#tag` | |
+| Shadowsocks | Xray | `ss://base64(method:pass)@host:port#tag` | Одиночный и мультипользовательский |
+| SOCKS | Xray | — | Без share-ссылки |
+| Hysteria2 | sing-box | `hysteria2://password@host:port?...#tag` | QUIC-протокол, обфускация Salamander |
 
 ### Транспортные слои
 
@@ -699,6 +723,65 @@ Content-Type: application/json
 |---|---|
 | TLS | Убирает серверные сертификаты, устанавливает `fingerprint: chrome` по умолчанию |
 | REALITY | Автоматически выводит `publicKey` из серверного `privateKey`, берёт первый `serverName` и `shortId` |
+
+---
+
+## sing-box / Hysteria2
+
+Raven Subscribe может работать параллельно с [sing-box](https://github.com/SagerNet/sing-box) и отдавать Hysteria2-подписки из того же сервиса.
+
+### Как это работает
+
+При заданном `singbox_config` Raven парсит серверный конфиг sing-box, находит Hysteria2 inbound-ы и их пользователей, и сохраняет их в ту же SQLite-базу рядом с Xray-пользователями. Подписка каждого пользователя автоматически включает Hysteria2-эндпоинты в `sub_urls`.
+
+Синхронизация Xray и sing-box полностью независимы — если одно ядро не установлено, второе продолжает работать.
+
+### Конфигурация
+
+```json
+{
+  "server_host": "vpn.example.com",
+  "admin_token": "ваш-секретный-токен",
+  "base_url": "https://vpn.example.com",
+  "singbox_config": "/etc/sing-box/config.json",
+  "singbox_enabled": true,
+  "xray_enabled": true
+}
+```
+
+| Параметр | По умолчанию | Описание |
+|---|---|---|
+| `singbox_config` | `""` | Путь к серверному конфигу sing-box. При наличии Raven синхронизирует Hysteria2 inbound-ы из него. |
+| `singbox_enabled` | авто | `true`, если `singbox_config` задан. Установите `false` для временного отключения без удаления пути. |
+| `xray_enabled` | `true` | Установите `false` для отключения синхронизации Xray (например, при использовании только sing-box). |
+
+### Эндпоинты подписки для Hysteria2
+
+| Эндпоинт | Формат | Для каких клиентов |
+|---|---|---|
+| `/sub/{token}/singbox` | sing-box JSON | sing-box клиент, NekoBox (режим sing-box) |
+| `/sub/{token}/hysteria2` | `hysteria2://` share-ссылки | приложение Hysteria2, Hiddify |
+| `/sub/{token}/hysteria2.b64` | Base64-кодировка | клиенты, требующие Base64 |
+
+### Обфускация Salamander
+
+Если в inbound sing-box настроен `obfs`, Raven автоматически включает его во все генерируемые ссылки и конфиги:
+
+```json
+{
+  "type": "hysteria2",
+  "tag": "hysteria2-in",
+  "listen_port": 443,
+  "obfs": {
+    "type": "salamander",
+    "password": "ваш-obfs-пароль"
+  },
+  "users": [{"name": "alice@example.com", "password": "пароль-пользователя"}],
+  "tls": {"enabled": true, "server_name": "vpn.example.com"}
+}
+```
+
+Генерируемая `hysteria2://` ссылка автоматически будет содержать `?obfs=salamander&obfs-password=...`.
 
 ---
 

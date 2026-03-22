@@ -46,6 +46,16 @@ type Config struct {
 	// Generate both strings with: xray vlessenc
 	// Example: {"vless-reality-in": "mlkem768x25519plus.native.0rtt.(X25519 Password).(ML-KEM-768 Client)"}
 	VLESSClientEncryption map[string]string `json:"vless_client_encryption,omitempty"`
+	// SingboxConfig is an optional path to a sing-box server config file (e.g. /etc/sing-box/config.json).
+	// When set, Raven additionally parses sing-box inbounds (currently hysteria2) and syncs their users to DB.
+	// Xray config_dir sync is unaffected.
+	SingboxConfig string `json:"singbox_config,omitempty"`
+	// XrayEnabled controls whether Xray config_dir sync is active. Default true.
+	// Set to false when Xray is not installed — suppresses "directory not found" warnings.
+	XrayEnabled *bool `json:"xray_enabled,omitempty"`
+	// SingboxEnabled controls whether sing-box config sync is active. Default: true if singbox_config is set.
+	// Set to false to temporarily disable sing-box sync without removing singbox_config.
+	SingboxEnabled *bool `json:"singbox_enabled,omitempty"`
 
 	xrayFilePerm os.FileMode `json:"-"`
 }
@@ -144,6 +154,23 @@ func parseXrayConfigFileMode(s string) (os.FileMode, error) {
 	return os.FileMode(u) & 0o777, nil
 }
 
+// IsXrayEnabled returns true if Xray sync is enabled (default true).
+func (c *Config) IsXrayEnabled() bool {
+	if c.XrayEnabled == nil {
+		return true
+	}
+	return *c.XrayEnabled
+}
+
+// IsSingboxEnabled returns true if sing-box sync is enabled.
+// Defaults to true when singbox_config is set, false otherwise.
+func (c *Config) IsSingboxEnabled() bool {
+	if c.SingboxEnabled != nil {
+		return *c.SingboxEnabled
+	}
+	return strings.TrimSpace(c.SingboxConfig) != ""
+}
+
 // SubURL returns the full subscription URL for the given user token.
 func (c *Config) SubURL(token string) string {
 	return fmt.Sprintf("%s/sub/%s", c.BaseURL, token)
@@ -160,6 +187,8 @@ func (c *Config) SubURLs(token string) models.SubURLs {
 		Compact:     compact,
 		CompactText: compact + "/links.txt",
 		CompactB64:  compact + "/links.b64",
+		Singbox:     sub + "/singbox",
+		Hysteria2:   sub + "/hysteria2",
 	}
 }
 

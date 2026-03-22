@@ -26,6 +26,7 @@ Languages: **English** | [Русский](README.ru.md)
 - [Admin API](#admin-api)
 - [Routing Rules](#routing-rules)
 - [Supported Protocols & Transports](#supported-protocols--transports)
+- [sing-box / Hysteria2](#sing-box--hysteria2)
 - [Docker](#docker)
 - [Contributing](#contributing)
 
@@ -50,8 +51,8 @@ Users just add their subscription URL to any Xray-compatible client (V2RayNG, Ne
 
 ### For users
 - **Personal subscription URL** — one link that always returns the latest config
-- **Multiple formats** — full Xray JSON, plain share links, Base64-encoded links
-- **Protocol-specific links** — get only VLESS, VMess, Trojan, or Shadowsocks links
+- **Multiple formats** — full Xray JSON, sing-box JSON, plain share links, Base64-encoded links
+- **Protocol-specific links** — get only VLESS, VMess, Trojan, Shadowsocks, or Hysteria2 links
 - **Mobile-optimized configs** — auto-detected from User-Agent (Android, iPhone, NekoBox, V2RayNG) or via `?profile=mobile`
 - **Custom routing rules** — per-user rules to route specific sites directly, through proxy, or block them
 
@@ -66,7 +67,8 @@ Users just add their subscription URL to any Xray-compatible client (V2RayNG, Ne
 - **Global routing rules** — apply routing rules to all users at once
 
 ### Protocols & transports
-- **VLESS**, **VMess**, **Trojan**, **Shadowsocks**, **SOCKS**
+- **VLESS**, **VMess**, **Trojan**, **Shadowsocks**, **SOCKS** (via Xray-core)
+- **Hysteria2** (via sing-box) — QUIC-based protocol with Salamander obfuscation
 - **TCP**, **WebSocket**, **gRPC**, **HTTP/2**, **KCP**, **QUIC**, **HTTPUpgrade**, **XHTTP (SplitHTTP)**
 - **TLS** and **REALITY** security layers with automatic key derivation
 
@@ -75,26 +77,29 @@ Users just add their subscription URL to any Xray-compatible client (V2RayNG, Ne
 ## How it works
 
 ```
-/etc/xray/config.d/
-    ├── vless-reality.json   ← Xray server inbound configs
+/etc/xray/config.d/          /etc/sing-box/config.json
+    ├── vless-reality.json        └── (hysteria2 inbound)
     ├── vmess-ws.json
     └── trojan-tls.json
-           │
-           ▼
-    Raven Subscribe
-    (watches for changes)
-           │
-           ├─ Parses inbounds, discovers users
-           ├─ Stores in SQLite
-           ├─ Serves subscription URLs
-           └─ API-created users → Xray (config files or gRPC API)
-                      │
-                      ▼
-    https://your-server.com/sub/{token}
-                      │
-                      ▼
-    V2RayNG / NekoBox / Hiddify / V2Box
-    (fetches config automatically)
+           │                              │
+           └──────────────┬───────────────┘
+                          ▼
+                   Raven Subscribe
+                   (watches for changes)
+                          │
+                          ├─ Parses inbounds, discovers users
+                          ├─ Stores in SQLite
+                          ├─ Serves subscription URLs
+                          └─ API-created users → Xray (config files or gRPC API)
+                                     │
+                                     ▼
+                   https://your-server.com/sub/{token}         ← Xray JSON
+                   https://your-server.com/sub/{token}/singbox  ← sing-box JSON
+                   https://your-server.com/sub/{token}/hysteria2 ← share links
+                                     │
+                                     ▼
+                   V2RayNG / NekoBox / Hiddify / V2Box / Hysteria2 app
+                   (fetches config automatically)
 ```
 
 Each user gets a unique token. When their client fetches the subscription URL, Raven Subscribe builds a complete Xray client config on the fly — with all their enabled inbounds, routing rules, DNS settings, and balancer config.
@@ -185,13 +190,15 @@ Response:
       "links_b64":   "http://your-server:8080/sub/a3f8c2.../links.b64",
       "compact":     "http://your-server:8080/c/a3f8c2...",
       "compact_txt": "http://your-server:8080/c/a3f8c2.../links.txt",
-      "compact_b64": "http://your-server:8080/c/a3f8c2.../links.b64"
+      "compact_b64": "http://your-server:8080/c/a3f8c2.../links.b64",
+      "singbox":     "http://your-server:8080/sub/a3f8c2.../singbox",
+      "hysteria2":   "http://your-server:8080/sub/a3f8c2.../hysteria2"
     }
   }
 ]
 ```
 
-Give each user their `sub_urls.compact` URL — they add it to their VPN client and are ready to go.
+Give each user their `sub_urls.compact` URL — they add it to their VPN client and are ready to go. For Hysteria2 clients, use `sub_urls.singbox` or `sub_urls.hysteria2`.
 
 ---
 
@@ -222,7 +229,10 @@ xray-subscription -config /etc/xray-subscription/config.json
   "rate_limit_sub_per_min": 60,
   "rate_limit_admin_per_min": 30,
   "api_user_inbound_tag": "vless-reality",
-  "xray_api_addr": ""
+  "xray_api_addr": "",
+  "xray_enabled": true,
+  "singbox_config": "/etc/sing-box/config.json",
+  "singbox_enabled": true
 }
 ```
 
@@ -280,6 +290,9 @@ Limits requests per IP per minute. `0` = disabled. Helps prevent abuse.
 | `api_user_inbound_protocol` | `""` | Fallback when `config_dir` has no inbounds: protocol (`vless`, `vmess`, `trojan`, `shadowsocks`) to create the inbound in DB. Use when Xray configs are elsewhere. |
 | `api_user_inbound_port` | `443` | Port for the inbound when using `api_user_inbound_protocol` fallback. |
 | `xray_config_file_mode` | *(omit)* | Octal mode for JSON files Raven writes under `config_dir` (e.g. `"0644"` so another local user can read configs for testing). Default **`0600`**. Only permission bits `0`–`7` (max `0777`). |
+| `xray_enabled` | `true` | Set to `false` to disable Xray config sync (suppress warnings if Xray is not installed). |
+| `singbox_config` | `""` | Path to sing-box server config file (e.g. `/etc/sing-box/config.json`). When set, Raven also syncs Hysteria2 inbounds from it. |
+| `singbox_enabled` | auto | Controls sing-box sync. Defaults to `true` when `singbox_config` is set. Set to `false` to temporarily disable without removing the path. |
 
 **DB ↔ Xray sync (when `api_user_inbound_tag` is set):** The database is the source of truth. All changes propagate to Xray immediately:
 
@@ -326,12 +339,15 @@ Use `127.0.0.1` when running behind nginx/caddy as reverse proxy.
 
 ## Subscription URLs
 
-Each user has two subscription endpoints:
+Each user has several subscription endpoints:
 
 | Endpoint | Description |
 |---|---|
-| `/c/{token}` | **Primary.** Lightweight config — `geosite:`/`geoip:` selectors stripped. Works great on all devices. |
-| `/sub/{token}` | Full config with all routing rules including geo databases. |
+| `/c/{token}` | **Primary.** Lightweight Xray JSON config — `geosite:`/`geoip:` selectors stripped. Works great on all devices. |
+| `/sub/{token}` | Full Xray JSON config with all routing rules including geo databases. |
+| `/sub/{token}/singbox` | sing-box JSON config with Hysteria2 outbounds. For Hysteria2 clients. |
+| `/sub/{token}/hysteria2` | Hysteria2 share links (`hysteria2://…`), plain text. |
+| `/sub/{token}/hysteria2.b64` | Hysteria2 share links, Base64-encoded. |
 
 ### `/c/{token}` — primary endpoint (recommended)
 
@@ -358,6 +374,9 @@ Returns the complete config including `geosite:` and `geoip:` routing rules. Use
 | VMess links only | `/sub/{token}/vmess` |
 | Trojan links only | `/sub/{token}/trojan` |
 | Shadowsocks links only | `/sub/{token}/ss` |
+| Hysteria2 share links | `/sub/{token}/hysteria2` |
+| Hysteria2 share links (Base64) | `/sub/{token}/hysteria2.b64` |
+| sing-box JSON (Hysteria2) | `/sub/{token}/singbox` |
 | Specific inbound only | `/sub/{token}/inbound/{tag}` |
 | Lightweight config (explicit) | `/sub/{token}?profile=mobile` |
 
@@ -422,7 +441,9 @@ curl -H "X-Admin-Token: secret" http://localhost:8080/api/users
       "links_b64":   "http://your-server:8080/sub/abc123/links.b64",
       "compact":     "http://your-server:8080/c/abc123",
       "compact_txt": "http://your-server:8080/c/abc123/links.txt",
-      "compact_b64": "http://your-server:8080/c/abc123/links.b64"
+      "compact_b64": "http://your-server:8080/c/abc123/links.b64",
+      "singbox":     "http://your-server:8080/sub/abc123/singbox",
+      "hysteria2":   "http://your-server:8080/sub/abc123/hysteria2"
     }
   }
 ]
@@ -451,7 +472,9 @@ curl -X POST -H "X-Admin-Token: secret" -H "Content-Type: application/json" \
     "links_b64":   "http://your-server:8080/sub/xyz789/links.b64",
     "compact":     "http://your-server:8080/c/xyz789",
     "compact_txt": "http://your-server:8080/c/xyz789/links.txt",
-    "compact_b64": "http://your-server:8080/c/xyz789/links.b64"
+    "compact_b64": "http://your-server:8080/c/xyz789/links.b64",
+    "singbox":     "http://your-server:8080/sub/xyz789/singbox",
+    "hysteria2":   "http://your-server:8080/sub/xyz789/hysteria2"
   }
 }
 ```
@@ -673,13 +696,14 @@ Content-Type: application/json
 
 ### Protocols
 
-| Protocol | Share link format | Notes |
-|---|---|---|
-| VLESS | `vless://uuid@host:port?...#tag` | Supports REALITY, TLS, plain |
-| VMess | `vmess://base64(json)` | |
-| Trojan | `trojan://password@host:port?...#tag` | |
-| Shadowsocks | `ss://base64(method:pass)@host:port#tag` | Single and multi-user |
-| SOCKS | — | No share link format |
+| Protocol | Core | Share link format | Notes |
+|---|---|---|---|
+| VLESS | Xray | `vless://uuid@host:port?...#tag` | Supports REALITY, TLS, plain |
+| VMess | Xray | `vmess://base64(json)` | |
+| Trojan | Xray | `trojan://password@host:port?...#tag` | |
+| Shadowsocks | Xray | `ss://base64(method:pass)@host:port#tag` | Single and multi-user |
+| SOCKS | Xray | — | No share link format |
+| Hysteria2 | sing-box | `hysteria2://password@host:port?...#tag` | QUIC-based, Salamander obfuscation |
 
 ### Transport layers
 
@@ -700,6 +724,65 @@ Content-Type: application/json
 |---|---|
 | TLS | Strips server certificates, sets `fingerprint: chrome` by default |
 | REALITY | Auto-derives `publicKey` from server's `privateKey`, picks first `serverName` and `shortId` |
+
+---
+
+## sing-box / Hysteria2
+
+Raven Subscribe can run alongside [sing-box](https://github.com/SagerNet/sing-box) and serve Hysteria2 subscriptions from the same service.
+
+### How it works
+
+When `singbox_config` is set, Raven parses the sing-box server config, discovers Hysteria2 inbounds and their users, and stores them in the same SQLite database alongside Xray users. Each user's subscription then includes Hysteria2 endpoints in `sub_urls`.
+
+Xray sync and sing-box sync are fully independent — if one core is not installed, the other still works.
+
+### Configuration
+
+```json
+{
+  "server_host": "vpn.example.com",
+  "admin_token": "your-secret-token",
+  "base_url": "https://vpn.example.com",
+  "singbox_config": "/etc/sing-box/config.json",
+  "singbox_enabled": true,
+  "xray_enabled": true
+}
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `singbox_config` | `""` | Path to sing-box server config file. When set, Raven syncs Hysteria2 inbounds from it. |
+| `singbox_enabled` | auto | `true` when `singbox_config` is set. Set to `false` to temporarily disable without removing the path. |
+| `xray_enabled` | `true` | Set to `false` to disable Xray sync (e.g. when running sing-box only). |
+
+### Subscription endpoints for Hysteria2
+
+| Endpoint | Format | Use with |
+|---|---|---|
+| `/sub/{token}/singbox` | sing-box JSON | sing-box client, NekoBox (sing-box mode) |
+| `/sub/{token}/hysteria2` | `hysteria2://` share links | Hysteria2 app, Hiddify |
+| `/sub/{token}/hysteria2.b64` | Base64-encoded links | Clients that require encoded input |
+
+### Salamander obfuscation
+
+If your sing-box inbound has `obfs` configured, Raven automatically includes it in all generated links and configs:
+
+```json
+{
+  "type": "hysteria2",
+  "tag": "hysteria2-in",
+  "listen_port": 443,
+  "obfs": {
+    "type": "salamander",
+    "password": "your-obfs-password"
+  },
+  "users": [{"name": "alice@example.com", "password": "user-password"}],
+  "tls": {"enabled": true, "server_name": "vpn.example.com"}
+}
+```
+
+The generated `hysteria2://` link will contain `?obfs=salamander&obfs-password=...` automatically.
 
 ---
 
