@@ -236,6 +236,8 @@ xray-subscription -config /etc/xray-subscription/config.json
 }
 ```
 
+> **Note:** `vless_client_encryption` is intentionally omitted from the example above — only add it when using VLESS Encryption (non-`"none"` decryption on the server inbound). Setting it to `false`, `"none"`, or `""` causes a parse error.
+
 ### Parameter reference
 
 #### Server
@@ -290,6 +292,7 @@ Limits requests per IP per minute. `0` = disabled. Helps prevent abuse.
 | `api_user_inbound_protocol` | `""` | Fallback when `config_dir` has no inbounds: protocol (`vless`, `vmess`, `trojan`, `shadowsocks`) to create the inbound in DB. Use when Xray configs are elsewhere. |
 | `api_user_inbound_port` | `443` | Port for the inbound when using `api_user_inbound_protocol` fallback. |
 | `xray_config_file_mode` | *(omit)* | Octal mode for JSON files Raven writes under `config_dir` (e.g. `"0644"` so another local user can read configs for testing). Default **`0600`**. Only permission bits `0`–`7` (max `0777`). |
+| `vless_client_encryption` | *(omit)* | Map of inbound tag → client-side VLESS Encryption string (Xray-core ≥ v26.2.6, PR #5067). Only needed when the inbound uses VLESS Encryption (`decryption` ≠ `"none"`). Generate both strings with `xray vlessenc`. Example: `{"vless-reality-in": "mlkem768x25519plus..."}`. When set, flow is forced to `xtls-rprx-vision` and Mux is disabled. Omit or remove entirely when not using VLESS Encryption. |
 | `xray_enabled` | `true` | Set to `false` to disable Xray config sync (suppress warnings if Xray is not installed). |
 | `singbox_config` | `""` | Path to sing-box server config file (e.g. `/etc/sing-box/config.json`). When set, Raven also syncs Hysteria2 inbounds from it. |
 | `singbox_enabled` | auto | Controls sing-box sync. Defaults to `true` when `singbox_config` is set. Set to `false` to temporarily disable without removing the path. |
