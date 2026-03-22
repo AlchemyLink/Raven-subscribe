@@ -7,6 +7,9 @@
 [![Security Scan](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml/badge.svg)](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/alchemylink/raven-subscribe)](https://goreportcard.com/report/github.com/alchemylink/raven-subscribe)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/AlchemyLink/Raven-subscribe?style=flat)](https://github.com/AlchemyLink/Raven-subscribe/stargazers)
+[![Forks](https://img.shields.io/github/forks/AlchemyLink/Raven-subscribe?style=flat)](https://github.com/AlchemyLink/Raven-subscribe/network/members)
+[![Hits](https://hits.dwyl.com/AlchemyLink/Raven-subscribe.svg?style=flat)](https://hits.dwyl.com/AlchemyLink/Raven-subscribe)
 
 **Сервер подписок для [XTLS/Xray-core](https://github.com/XTLS/Xray-core).** Читает конфиги вашего Xray-сервера, автоматически находит пользователей и выдаёт каждому персональную ссылку-подписку — чтобы VPN-клиент всегда получал актуальные настройки подключения.
 
