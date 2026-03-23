@@ -336,7 +336,7 @@ func buildHysteria2Settings(host string, port int, tag string, cred StoredClient
 			Password: cred.ObfsPassword,
 		}
 	}
-	return json.Marshal(s)
+	return json.Marshal(s) // #nosec G117 -- marshaling outbound settings struct, password field is intentional.
 }
 
 func buildSOCKSSettings(host string, port int, cred StoredClientConfig) (json.RawMessage, error) {
