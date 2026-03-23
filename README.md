@@ -742,6 +742,8 @@ When `singbox_config` is set, Raven parses the sing-box server config, discovers
 
 Xray sync and sing-box sync are fully independent — if one core is not installed, the other still works.
 
+**Important:** Hysteria2 users are excluded from Xray JSON subscriptions (`/sub/{token}`, `/c/{token}`). They are served exclusively via the dedicated Hysteria2 endpoints below.
+
 ### Configuration
 
 ```json
@@ -769,6 +771,37 @@ Xray sync and sing-box sync are fully independent — if one core is not install
 | `/sub/{token}/hysteria2` | `hysteria2://` share links | Hysteria2 app, Hiddify |
 | `/sub/{token}/hysteria2.b64` | Base64-encoded links | Clients that require encoded input |
 
+### Generated sing-box client config
+
+`/sub/{token}/singbox` returns a ready-to-use sing-box client config:
+
+```json
+{
+  "log": {"level": "warn", "timestamp": true},
+  "inbounds": [
+    {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080}
+  ],
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2-in-0",
+      "server": "vpn.example.com",
+      "server_port": 443,
+      "password": "<user-password>",
+      "tls": {"enabled": true, "server_name": "vpn.example.com"}
+    },
+    {"type": "direct", "tag": "direct"},
+    {"type": "block",  "tag": "block"}
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "final": "hysteria2-in-0"
+  }
+}
+```
+
+The `mixed` inbound listens on `127.0.0.1:2080` and accepts both SOCKS5 and HTTP proxy connections. All traffic is routed through the first Hysteria2 outbound by default.
+
 ### Salamander obfuscation
 
 If your sing-box inbound has `obfs` configured, Raven automatically includes it in all generated links and configs:
@@ -787,7 +820,7 @@ If your sing-box inbound has `obfs` configured, Raven automatically includes it 
 }
 ```
 
-The generated `hysteria2://` link will contain `?obfs=salamander&obfs-password=...` automatically.
+The generated `hysteria2://` share link will contain `?obfs=salamander&obfs-password=...` automatically, and the sing-box JSON config will include the `obfs` block in the outbound.
 
 ---
 
