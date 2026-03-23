@@ -7,7 +7,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/xtls/xray-core v1.260206.0
 	golang.org/x/crypto v0.49.0
-	golang.org/x/time v0.12.0
+	golang.org/x/time v0.15.0
 	google.golang.org/grpc v1.78.0
 	modernc.org/sqlite v1.46.1
 )
