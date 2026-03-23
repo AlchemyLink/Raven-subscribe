@@ -220,6 +220,7 @@ func TestBuildHysteria2Link_NoObfs(t *testing.T) {
 		ServerPort: 443,
 		Password:   "p",
 	}
+	// #nosec G117 -- marshaling test fixture struct, not a real secret.
 	settingsJSON, _ := json.Marshal(settings)
 	ob := xray.Outbound{Tag: "t", Protocol: "hysteria2", Settings: settingsJSON}
 	link := buildHysteria2Link(ob)
@@ -230,6 +231,7 @@ func TestBuildHysteria2Link_NoObfs(t *testing.T) {
 
 func TestBuildHysteria2Link_MissingPassword_ReturnsEmpty(t *testing.T) {
 	settings := xray.Hysteria2OutboundSettings{Server: "h", ServerPort: 443}
+	// #nosec G117 -- marshaling test fixture struct, not a real secret.
 	settingsJSON, _ := json.Marshal(settings)
 	ob := xray.Outbound{Tag: "t", Protocol: "hysteria2", Settings: settingsJSON}
 	if link := buildHysteria2Link(ob); link != "" {
