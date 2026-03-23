@@ -138,7 +138,8 @@ func parseHysteria2(ib inbound, sourceFile string) (*ParsedInbound, error) {
 		}
 		cred := shared
 		cred.Password = u.Password
-		credBytes, err := json.Marshal(cred) // #nosec G117 -- marshaling user credential struct for storage, password field is intentional.
+		// #nosec G117 -- password-like fields are expected in stored protocol credentials.
+		credBytes, err := json.Marshal(cred)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "WARN: singbox marshal cred for user %q: %v\n", u.Name, err)
 			continue

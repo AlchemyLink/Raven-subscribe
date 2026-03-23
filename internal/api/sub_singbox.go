@@ -30,7 +30,8 @@ func (s *Server) handleSingboxSubscription(w http.ResponseWriter, r *http.Reques
 	}
 	clients, err := s.db.GetUserClients(user.ID)
 	if err != nil {
-		log.Printf("ERROR get user clients for singbox sub %s: %v", sanitizeLogField(user.Username), err) // #nosec G706 -- username is sanitized before logging.
+		// #nosec G706 -- username is sanitized before logging.
+		log.Printf("ERROR get user clients for singbox sub %s: %v", sanitizeLogField(user.Username), err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
