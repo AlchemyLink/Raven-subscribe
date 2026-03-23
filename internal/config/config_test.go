@@ -146,6 +146,71 @@ func TestConfig_SubURL(t *testing.T) {
 	}
 }
 
+func TestConfig_IsXrayEnabled(t *testing.T) {
+	// nil pointer → default true
+	boolFalse := false
+	boolTrue := true
+	tests := []struct {
+		cfg  *Config
+		want bool
+	}{
+		{&Config{}, true},
+		{&Config{XrayEnabled: &boolTrue}, true},
+		{&Config{XrayEnabled: &boolFalse}, false},
+	}
+	for _, tt := range tests {
+		got := tt.cfg.IsXrayEnabled()
+		if got != tt.want {
+			t.Errorf("IsXrayEnabled: got %v, want %v", got, tt.want)
+		}
+	}
+}
+
+func TestConfig_IsSingboxEnabled(t *testing.T) {
+	boolFalse := false
+	boolTrue := true
+	tests := []struct {
+		cfg  *Config
+		want bool
+	}{
+		{&Config{}, false},
+		{&Config{SingboxConfig: "/etc/sing-box/config.json"}, true},
+		{&Config{SingboxConfig: "  "}, false},
+		{&Config{SingboxEnabled: &boolTrue}, true},
+		{&Config{SingboxEnabled: &boolFalse, SingboxConfig: "/path"}, false},
+	}
+	for _, tt := range tests {
+		got := tt.cfg.IsSingboxEnabled()
+		if got != tt.want {
+			t.Errorf("IsSingboxEnabled(singbox_config=%q, enabled=%v): got %v, want %v",
+				tt.cfg.SingboxConfig, tt.cfg.SingboxEnabled, got, tt.want)
+		}
+	}
+}
+
+func TestConfig_SubURLs(t *testing.T) {
+	cfg := &Config{BaseURL: "https://vpn.example.com"}
+	urls := cfg.SubURLs("mytoken")
+	if urls.Full != "https://vpn.example.com/sub/mytoken" {
+		t.Errorf("Full: got %q", urls.Full)
+	}
+	if urls.LinksText != "https://vpn.example.com/sub/mytoken/links.txt" {
+		t.Errorf("LinksText: got %q", urls.LinksText)
+	}
+	if urls.LinksB64 != "https://vpn.example.com/sub/mytoken/links.b64" {
+		t.Errorf("LinksB64: got %q", urls.LinksB64)
+	}
+	if urls.Compact != "https://vpn.example.com/c/mytoken" {
+		t.Errorf("Compact: got %q", urls.Compact)
+	}
+	if urls.Singbox != "https://vpn.example.com/sub/mytoken/singbox" {
+		t.Errorf("Singbox: got %q", urls.Singbox)
+	}
+	if urls.Hysteria2 != "https://vpn.example.com/sub/mytoken/hysteria2" {
+		t.Errorf("Hysteria2: got %q", urls.Hysteria2)
+	}
+}
+
 func TestLoad_XrayConfigFileMode(t *testing.T) {
 	tests := []struct {
 		raw      string

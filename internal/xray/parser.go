@@ -59,6 +59,10 @@ func ParseConfigDirWith(dir string, clientEncMap map[string]string) (map[string]
 func parseConfigDirWith(dir string, clientEncMap map[string]string) (map[string][]ParsedInbound, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// config_dir absent means Xray is not installed or not yet configured — not an error.
+			return make(map[string][]ParsedInbound), nil
+		}
 		return nil, fmt.Errorf("read dir %s: %w", dir, err)
 	}
 

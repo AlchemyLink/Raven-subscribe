@@ -11,6 +11,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/alchemylink/raven-subscribe/internal/config"
 	"github.com/alchemylink/raven-subscribe/internal/database"
+	"github.com/alchemylink/raven-subscribe/internal/singbox"
 	"github.com/alchemylink/raven-subscribe/internal/xray"
 )
 
@@ -161,6 +162,25 @@ func (s *Syncer) Sync() error {
 		}
 	}
 
+	if s.cfg.IsXrayEnabled() {
+		if err := s.syncXray(); err != nil {
+			return err
+		}
+	} else {
+		log.Printf("Xray sync disabled (xray_enabled=false)")
+	}
+
+	if s.cfg.IsSingboxEnabled() {
+		if err := s.syncSingbox(strings.TrimSpace(s.cfg.SingboxConfig)); err != nil {
+			log.Printf("WARN: sing-box sync error: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// syncXray reads config_dir and upserts Xray inbounds/users into DB.
+func (s *Syncer) syncXray() error {
 	parsed, err := xray.ParseConfigDirWith(s.cfg.ConfigDir, s.cfg.VLESSClientEncryption)
 	if err != nil {
 		return fmt.Errorf("parse config dir: %w", err)
@@ -195,7 +215,6 @@ func (s *Syncer) Sync() error {
 			}
 			totalInbounds++
 
-			// Sync clients
 			for _, client := range ib.Clients {
 				if err := s.syncClient(ibID, client); err != nil {
 					log.Printf("WARN: sync client %s in %s: %v", client.Identity, ib.Tag, err)
@@ -234,7 +253,35 @@ func (s *Syncer) Sync() error {
 		}
 	}
 
-	log.Printf("Sync complete: %d inbounds, %d client entries", totalInbounds, totalClients)
+	log.Printf("Xray sync complete: %d inbounds, %d client entries", totalInbounds, totalClients)
+	return nil
+}
+
+// syncSingbox parses a sing-box config file and upserts its inbounds/users into DB.
+// Errors are non-fatal — Xray sync is unaffected.
+func (s *Syncer) syncSingbox(path string) error {
+	inbounds, err := singbox.ParseConfig(path)
+	if err != nil {
+		return err
+	}
+
+	for _, ib := range inbounds {
+		ibID, err := s.db.UpsertInbound(ib.Tag, ib.Protocol, ib.Port, path, ib.RawJSON)
+		if err != nil {
+			log.Printf("WARN: singbox upsert inbound %s: %v", ib.Tag, err)
+			continue
+		}
+		for _, client := range ib.Clients {
+			xrayClient := xray.ParsedClient{
+				Identity:   client.Identity,
+				ConfigJSON: client.ConfigJSON,
+			}
+			if err := s.syncClient(ibID, xrayClient); err != nil {
+				log.Printf("WARN: singbox sync client %s in %s: %v", client.Identity, ib.Tag, err)
+			}
+		}
+		log.Printf("sing-box sync: inbound %s (%s), %d users", ib.Tag, ib.Protocol, len(ib.Clients))
+	}
 	return nil
 }
 

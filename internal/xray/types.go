@@ -388,6 +388,31 @@ type RoutingRule struct {
 	Protocol    []string `json:"protocol,omitempty"`
 }
 
+// Hysteria2OutboundSettings holds Hysteria2 outbound server config for the client (sing-box format).
+type Hysteria2OutboundSettings struct {
+	Type       string        `json:"type"`
+	Tag        string        `json:"tag"`
+	Server     string        `json:"server"`
+	ServerPort int           `json:"server_port"`
+	Password   string        `json:"password"`
+	UpMbps     int           `json:"up_mbps,omitempty"`
+	DownMbps   int           `json:"down_mbps,omitempty"`
+	Obfs       *Hysteria2Obfs `json:"obfs,omitempty"`
+	TLS        *Hysteria2TLS `json:"tls,omitempty"`
+}
+
+// Hysteria2Obfs holds obfuscation settings for Hysteria2.
+type Hysteria2Obfs struct {
+	Type     string `json:"type"`
+	Password string `json:"password"`
+}
+
+// Hysteria2TLS holds TLS settings for Hysteria2 outbound.
+type Hysteria2TLS struct {
+	Enabled    bool   `json:"enabled"`
+	ServerName string `json:"server_name,omitempty"`
+}
+
 // StoredClientConfig holds per-user per-inbound credential data in DB
 type StoredClientConfig struct {
 	Protocol string `json:"protocol"`
@@ -406,6 +431,12 @@ type StoredClientConfig struct {
 	Method   string `json:"method,omitempty"`
 	// SOCKS
 	User string `json:"user,omitempty"`
+	// Hysteria2 transport metadata (shared across all users of one inbound).
+	ServerName   string `json:"server_name,omitempty"`
+	ObfsType     string `json:"obfs_type,omitempty"`
+	ObfsPassword string `json:"obfs_password,omitempty"`
+	UpMbps       int    `json:"up_mbps,omitempty"`
+	DownMbps     int    `json:"down_mbps,omitempty"`
 }
 
 // UnmarshalJSON keeps backward compatibility for VMess alterId naming.
