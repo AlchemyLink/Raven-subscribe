@@ -79,6 +79,8 @@ type SubURLs struct {
 	Compact     string `json:"compact"`
 	CompactText string `json:"compact_txt"`
 	CompactB64  string `json:"compact_b64"`
+	Singbox     string `json:"singbox,omitempty"`
+	Hysteria2   string `json:"hysteria2,omitempty"`
 }
 
 // UserResponse is the API response body returned when a user is created or fetched.

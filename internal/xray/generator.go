@@ -185,14 +185,17 @@ func buildOutbound(serverHost string, uc models.UserClientFull, index int) (*Out
 		return nil, fmt.Errorf("parse stored config: %w", err)
 	}
 
-	// Parse the server-side inbound raw JSON to get stream settings
-	var si ServerInbound
-	if err := json.Unmarshal([]byte(uc.InboundRaw), &si); err != nil {
-		return nil, fmt.Errorf("parse inbound raw: %w", err)
-	}
-
 	tag := fmt.Sprintf("%s-%d", sanitizeTag(uc.InboundTag), index)
 	proto := strings.ToLower(uc.InboundProtocol)
+
+	// Parse the server-side inbound raw JSON to get stream settings.
+	// Hysteria2 uses sing-box format — no Xray ServerInbound parsing needed.
+	var si ServerInbound
+	if proto != "hysteria2" {
+		if err := json.Unmarshal([]byte(uc.InboundRaw), &si); err != nil {
+			return nil, fmt.Errorf("parse inbound raw: %w", err)
+		}
+	}
 
 	var (
 		settings json.RawMessage
@@ -210,6 +213,8 @@ func buildOutbound(serverHost string, uc models.UserClientFull, index int) (*Out
 		settings, err = buildShadowsocksSettings(serverHost, uc.InboundPort, cred)
 	case "socks":
 		settings, err = buildSOCKSSettings(serverHost, uc.InboundPort, cred)
+	case "hysteria2":
+		settings, err = buildHysteria2Settings(serverHost, uc.InboundPort, tag, cred)
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", proto)
 	}
@@ -217,10 +222,13 @@ func buildOutbound(serverHost string, uc models.UserClientFull, index int) (*Out
 		return nil, err
 	}
 
-	// Convert server-side stream settings to client-side
-	clientStream, err := convertStreamSettings(si.StreamSettings, serverHost)
-	if err != nil {
-		return nil, fmt.Errorf("convert stream settings: %w", err)
+	// Hysteria2 uses sing-box format — no Xray stream settings.
+	var clientStream *StreamSettings
+	if proto != "hysteria2" {
+		clientStream, err = convertStreamSettings(si.StreamSettings, serverHost)
+		if err != nil {
+			return nil, fmt.Errorf("convert stream settings: %w", err)
+		}
 	}
 
 	ob := &Outbound{
@@ -301,6 +309,34 @@ func buildShadowsocksSettings(host string, port int, cred StoredClientConfig) (j
 			Password: cred.Password,
 		}},
 	}
+	return json.Marshal(s)
+}
+
+func buildHysteria2Settings(host string, port int, tag string, cred StoredClientConfig) (json.RawMessage, error) {
+	serverName := cred.ServerName
+	if serverName == "" {
+		serverName = host
+	}
+	s := Hysteria2OutboundSettings{
+		Type:       "hysteria2",
+		Tag:        tag,
+		Server:     host,
+		ServerPort: port,
+		Password:   cred.Password,
+		UpMbps:     cred.UpMbps,
+		DownMbps:   cred.DownMbps,
+		TLS: &Hysteria2TLS{
+			Enabled:    true,
+			ServerName: serverName,
+		},
+	}
+	if cred.ObfsType != "" {
+		s.Obfs = &Hysteria2Obfs{
+			Type:     cred.ObfsType,
+			Password: cred.ObfsPassword,
+		}
+	}
+	// #nosec G117 -- password-like fields are expected in stored protocol credentials.
 	return json.Marshal(s)
 }
 
