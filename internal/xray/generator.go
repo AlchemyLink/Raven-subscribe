@@ -336,7 +336,8 @@ func buildHysteria2Settings(host string, port int, tag string, cred StoredClient
 			Password: cred.ObfsPassword,
 		}
 	}
-	return json.Marshal(s) // #nosec G117 -- marshaling outbound settings struct, password field is intentional.
+	// #nosec G117 -- password-like fields are expected in stored protocol credentials.
+	return json.Marshal(s)
 }
 
 func buildSOCKSSettings(host string, port int, cred StoredClientConfig) (json.RawMessage, error) {
