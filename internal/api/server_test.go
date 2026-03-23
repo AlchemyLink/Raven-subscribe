@@ -172,7 +172,7 @@ func createTestUserWithHysteria2(t *testing.T, db *database.DB, username string)
 	if err != nil {
 		t.Fatalf("UpsertInbound: %v", err)
 	}
-	cred := `{"protocol":"hysteria2","password":"secret","server_name":"vpn.example.com","obfs_type":"salamander","obfs_password":"obfssecret"}`
+	cred := `{"protocol":"hysteria2","password":"secret","server_name":"vpn.example.com","obfs_type":"salamander","obfs_password":"obfssecret"}` // #nosec G101 -- test fixture, not a real credential.
 	if err := db.UpsertUserClient(user.ID, ibID, cred); err != nil {
 		t.Fatalf("UpsertUserClient: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestBuildHysteria2Link(t *testing.T) {
 		TLS:        &xray.Hysteria2TLS{Enabled: true, ServerName: "vpn.example.com"},
 		Obfs:       &xray.Hysteria2Obfs{Type: "salamander", Password: "obfssecret"},
 	}
-	settingsJSON, _ := json.Marshal(settings)
+	settingsJSON, _ := json.Marshal(settings) // #nosec G117 -- marshaling test fixture struct, not a real secret.
 	ob := xray.Outbound{
 		Tag:      "hy2-tag",
 		Protocol: "hysteria2",
