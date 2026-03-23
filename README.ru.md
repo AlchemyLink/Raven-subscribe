@@ -739,6 +739,8 @@ Raven Subscribe может работать параллельно с [sing-box]
 
 Синхронизация Xray и sing-box полностью независимы — если одно ядро не установлено, второе продолжает работать.
 
+**Важно:** Hysteria2-пользователи исключаются из Xray JSON подписок (`/sub/{token}`, `/c/{token}`). Они отдаются исключительно через специальные Hysteria2-эндпоинты ниже.
+
 ### Конфигурация
 
 ```json
@@ -766,6 +768,37 @@ Raven Subscribe может работать параллельно с [sing-box]
 | `/sub/{token}/hysteria2` | `hysteria2://` share-ссылки | приложение Hysteria2, Hiddify |
 | `/sub/{token}/hysteria2.b64` | Base64-кодировка | клиенты, требующие Base64 |
 
+### Структура генерируемого sing-box конфига
+
+`/sub/{token}/singbox` возвращает готовый клиентский конфиг sing-box:
+
+```json
+{
+  "log": {"level": "warn", "timestamp": true},
+  "inbounds": [
+    {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080}
+  ],
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2-in-0",
+      "server": "vpn.example.com",
+      "server_port": 443,
+      "password": "<пароль-пользователя>",
+      "tls": {"enabled": true, "server_name": "vpn.example.com"}
+    },
+    {"type": "direct", "tag": "direct"},
+    {"type": "block",  "tag": "block"}
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "final": "hysteria2-in-0"
+  }
+}
+```
+
+`mixed` inbound слушает на `127.0.0.1:2080` и принимает подключения по SOCKS5 и HTTP proxy. Весь трафик по умолчанию направляется через первый Hysteria2 outbound.
+
 ### Обфускация Salamander
 
 Если в inbound sing-box настроен `obfs`, Raven автоматически включает его во все генерируемые ссылки и конфиги:
@@ -784,7 +817,7 @@ Raven Subscribe может работать параллельно с [sing-box]
 }
 ```
 
-Генерируемая `hysteria2://` ссылка автоматически будет содержать `?obfs=salamander&obfs-password=...`.
+Генерируемая `hysteria2://` ссылка автоматически будет содержать `?obfs=salamander&obfs-password=...`, а в sing-box JSON конфиг будет добавлен блок `obfs` в outbound.
 
 ---
 
