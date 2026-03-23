@@ -11,7 +11,9 @@ Languages: **English** | [Русский](README.ru.md)
 [![Forks](https://img.shields.io/github/forks/AlchemyLink/Raven-subscribe?style=flat)](https://github.com/AlchemyLink/Raven-subscribe/network/members)
 [![Hits](https://hits.dwyl.com/AlchemyLink/Raven-subscribe.svg?style=flat)](https://hits.dwyl.com/AlchemyLink/Raven-subscribe)
 
-**Subscription server for [XTLS/Xray-core](https://github.com/XTLS/Xray-core).** Reads your Xray server configs, auto-discovers users, and gives each one a personal subscription URL — so their VPN client always has the latest connection settings.
+**Self-hosted subscription server for [XTLS/Xray-core](https://github.com/XTLS/Xray-core) and [sing-box](https://github.com/SagerNet/sing-box).** Auto-discovers users from your Xray server configs and gives each one a personal subscription URL — so V2RayNG, NekoBox, Hiddify, and other VPN clients always fetch the latest connection settings automatically.
+
+Supports **VLESS, VMess, Trojan, Shadowsocks, Hysteria2**, transports **XHTTP/SplitHTTP, WebSocket, gRPC, REALITY**, and serves configs in Xray JSON, sing-box JSON, and share-link formats.
 
 ---
 
