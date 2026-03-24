@@ -233,7 +233,13 @@ xray-subscription -config /etc/xray-subscription/config.json
   "xray_api_addr": "",
   "xray_enabled": true,
   "singbox_config": "/etc/sing-box/config.json",
-  "singbox_enabled": true
+  "singbox_enabled": true,
+  "inbound_hosts": {
+    "vless-reality-in": "media.example.com"
+  },
+  "inbound_ports": {
+    "vless-reality-in": 8445
+  }
 }
 ```
 
@@ -295,6 +301,8 @@ xray-subscription -config /etc/xray-subscription/config.json
 | `xray_enabled` | `true` | Установите `false` для отключения синхронизации Xray (убирает предупреждения, если Xray не установлен). |
 | `singbox_config` | `""` | Путь к серверному конфигу sing-box (например `/etc/sing-box/config.json`). При наличии Raven также синхронизирует Hysteria2 inbound-ы. |
 | `singbox_enabled` | авто | Управляет синхронизацией sing-box. По умолчанию `true`, если задан `singbox_config`. Установите `false` для временного отключения без удаления пути. |
+| `inbound_hosts` | `{}` | Переопределение хоста для конкретных inbound-ов. Ключ: тег inbound, значение: хост/домен. Переопределяет `server_host` для подходящих inbound-ов в генерируемых клиентских конфигах. При отсутствии тега используется `server_host`. Пример: `{"vless-reality-in": "relay.example.com"}` |
+| `inbound_ports` | `{}` | Переопределение порта для конкретных inbound-ов. Ключ: тег inbound, значение: порт. Переопределяет собственный порт inbound в генерируемых конфигах. Полезно, когда клиенты подключаются через relay на другом порту. Пример: `{"vless-reality-in": 8445}` |
 
 **Синхронизация БД ↔ Xray** (при заданном `api_user_inbound_tag`): База данных — источник правды. Все изменения сразу отражаются в Xray:
 
