@@ -314,6 +314,8 @@ func (s *Server) generateConfigForSubscriptionRequestWithForcedProtocol(r *http.
 	}
 	cfg, err := xray.GenerateClientConfig(
 		s.cfg.ServerHost,
+		s.cfg.InboundHosts,
+		s.cfg.InboundPorts,
 		*user,
 		clients,
 		globalRoutesJSON,

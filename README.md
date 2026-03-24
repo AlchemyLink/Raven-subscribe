@@ -234,7 +234,13 @@ xray-subscription -config /etc/xray-subscription/config.json
   "xray_api_addr": "",
   "xray_enabled": true,
   "singbox_config": "/etc/sing-box/config.json",
-  "singbox_enabled": true
+  "singbox_enabled": true,
+  "inbound_hosts": {
+    "vless-reality-in": "media.example.com"
+  },
+  "inbound_ports": {
+    "vless-reality-in": 8445
+  }
 }
 ```
 
@@ -298,6 +304,8 @@ Limits requests per IP per minute. `0` = disabled. Helps prevent abuse.
 | `xray_enabled` | `true` | Set to `false` to disable Xray config sync (suppress warnings if Xray is not installed). |
 | `singbox_config` | `""` | Path to sing-box server config file (e.g. `/etc/sing-box/config.json`). When set, Raven also syncs Hysteria2 inbounds from it. |
 | `singbox_enabled` | auto | Controls sing-box sync. Defaults to `true` when `singbox_config` is set. Set to `false` to temporarily disable without removing the path. |
+| `inbound_hosts` | `{}` | Per-inbound host overrides. Key: inbound tag, value: host/domain. Overrides `server_host` for matching inbounds in generated client configs. Falls back to `server_host` when tag is not listed. Example: `{"vless-reality-in": "relay.example.com"}` |
+| `inbound_ports` | `{}` | Per-inbound port overrides. Key: inbound tag, value: port number. Overrides the inbound's own port in generated client configs. Useful when clients connect through a relay that listens on a different port. Example: `{"vless-reality-in": 8445}` |
 
 **DB ↔ Xray sync (when `api_user_inbound_tag` is set):** The database is the source of truth. All changes propagate to Xray immediately:
 

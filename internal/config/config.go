@@ -41,6 +41,17 @@ type Config struct {
 	APIUserInboundPort int `json:"api_user_inbound_port,omitempty"`
 	// Octal permission bits for Xray JSON files Raven writes under config_dir (e.g. "0644", "0755"). Empty = 0600.
 	XrayConfigFileMode string `json:"xray_config_file_mode,omitempty"`
+	// InboundHosts overrides server_host for specific inbound tags.
+	// Key: inbound tag, value: host/IP to use in generated client configs.
+	// Falls back to ServerHost when a tag is not listed.
+	// Example: {"hysteria-in": "64.226.79.239", "vless-reality-in": "zirgate.com"}
+	InboundHosts map[string]string `json:"inbound_hosts,omitempty"`
+
+	// InboundPorts overrides the port for specific inbound tags in generated client configs.
+	// Key: inbound tag, value: port number. Falls back to inbound's own port when tag is not listed.
+	// Example: {"vless-reality-in": 8444} — clients connect to relay:8444 instead of EU:443
+	InboundPorts map[string]int `json:"inbound_ports,omitempty"`
+
 	// VLESSClientEncryption maps VLESS inbound tag to its client-side VLESS Encryption string.
 	// Required when the inbound uses VLESS Encryption (decryption != "none").
 	// Generate both strings with: xray vlessenc
@@ -169,6 +180,15 @@ func (c *Config) IsSingboxEnabled() bool {
 		return *c.SingboxEnabled
 	}
 	return strings.TrimSpace(c.SingboxConfig) != ""
+}
+
+// HostForInbound returns the server host for a given inbound tag.
+// Falls back to ServerHost if the tag is not in InboundHosts.
+func (c *Config) HostForInbound(tag string) string {
+	if h, ok := c.InboundHosts[tag]; ok && strings.TrimSpace(h) != "" {
+		return h
+	}
+	return c.ServerHost
 }
 
 // SubURL returns the full subscription URL for the given user token.
