@@ -237,6 +237,8 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 
 	cfg, err := xray.GenerateClientConfig(
 		s.cfg.ServerHost,
+		s.cfg.InboundHosts,
+		s.cfg.InboundPorts,
 		*user,
 		clients,
 		globalRoutesJSON,

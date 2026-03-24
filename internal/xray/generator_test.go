@@ -22,7 +22,7 @@ func TestGenerateClientConfig(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 0, 0)
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
 	if err != nil {
 		t.Fatalf("GenerateClientConfig error: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestGenerateClientConfigCustomInboundPorts(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 31080, 31081)
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 31080, 31081)
 	if err != nil {
 		t.Fatalf("GenerateClientConfig error: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestGenerateClientConfigMultiProxy(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateClientConfig(serverHost, user, clients, "", "leastPing", "https://www.gstatic.com/generate_204", "30s", 0, 0)
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "leastPing", "https://www.gstatic.com/generate_204", "30s", 0, 0)
 	if err != nil {
 		t.Fatalf("GenerateClientConfig error: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestGenerateClientConfigSingleProxy(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 0, 0)
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
 	if err != nil {
 		t.Fatalf("GenerateClientConfig error: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestGenerateClientConfigInvalidClientConfig(t *testing.T) {
 		},
 	}
 
-	_, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 0, 0)
+	_, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
 	if err == nil {
 		t.Fatal("expected error for invalid client config, got nil")
 	}
@@ -210,7 +210,7 @@ func TestGenerateClientConfigInvalidInboundRaw(t *testing.T) {
 		},
 	}
 
-	_, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 0, 0)
+	_, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
 	if err == nil {
 		t.Fatal("expected error for invalid inbound raw, got nil")
 	}
@@ -231,7 +231,7 @@ func TestGenerateClientConfigNoValidOutbounds(t *testing.T) {
 		},
 	}
 
-	_, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 0, 0)
+	_, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
 	if err == nil {
 		t.Fatal("expected error for no valid outbounds, got nil")
 	}
@@ -257,7 +257,7 @@ func TestGenerateClientConfigWithGlobalRoutes(t *testing.T) {
 
 	globalRoutes := `[{"type":"field","outboundTag":"direct","domain":["geosite:ru"]}]`
 
-	cfg, err := GenerateClientConfig(serverHost, user, clients, globalRoutes, "", "", "", 0, 0)
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, globalRoutes, "", "", "", 0, 0)
 	if err != nil {
 		t.Fatalf("GenerateClientConfig error: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestGenerateClientConfigUserRoutes(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 0, 0)
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
 	if err != nil {
 		t.Fatalf("GenerateClientConfig error: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestGenerateClientConfigMuxEnabled(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 0, 0)
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
 	if err != nil {
 		t.Fatalf("GenerateClientConfig error: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestGenerateClientConfigNoMuxForREALITY(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 0, 0)
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
 	if err != nil {
 		t.Fatalf("GenerateClientConfig error: %v", err)
 	}
@@ -387,7 +387,7 @@ func TestGenerateClientConfigShadowsocks(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 0, 0)
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
 	if err != nil {
 		t.Fatalf("GenerateClientConfig error: %v", err)
 	}
@@ -434,7 +434,7 @@ func TestGenerateClientConfigTrojan(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 0, 0)
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
 	if err != nil {
 		t.Fatalf("GenerateClientConfig error: %v", err)
 	}
@@ -473,7 +473,7 @@ func TestGenerateClientConfigSOCKS(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 0, 0)
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
 	if err != nil {
 		t.Fatalf("GenerateClientConfig error: %v", err)
 	}
@@ -516,7 +516,7 @@ func TestGenerateClientConfigMarshalJSON(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 0, 0)
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
 	if err != nil {
 		t.Fatalf("GenerateClientConfig error: %v", err)
 	}
@@ -555,7 +555,7 @@ func TestGenerateClientConfigPortParsing(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateClientConfig(serverHost, user, clients, "", "", "", "", 0, 0)
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
 	if err != nil {
 		t.Fatalf("GenerateClientConfig error: %v", err)
 	}
