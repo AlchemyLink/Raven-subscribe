@@ -42,7 +42,7 @@ jobs:
         run: go mod download
 
       - name: Run GoSec Security Scanner
-        uses: securego/gosec@1d909e2687abe43eaa81af88d6efde3d20c8d481 # v2.9.6
+        uses: securego/gosec@223e19b8856e00f02cc67804499a83f77e208f3c # v2.25.0
         with:
           args: ./...
 
