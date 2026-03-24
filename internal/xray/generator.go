@@ -15,7 +15,9 @@ import (
 
 // GenerateClientConfig produces a complete xray client JSON config for a user.
 // socksPort and httpPort are the local proxy ports in the generated config; 0 = use default (2080, 1081).
-func GenerateClientConfig(serverHost string, user models.User, clients []models.UserClientFull, globalRoutesJSON string, balancerStrategy string, balancerProbeURL string, balancerProbeInterval string, socksPort, httpPort int) (*ClientConfig, error) {
+// inboundHosts overrides serverHost per inbound tag; falls back to serverHost when tag is not listed.
+// inboundPorts overrides the port per inbound tag; falls back to the inbound's own port when tag is not listed.
+func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inboundPorts map[string]int, user models.User, clients []models.UserClientFull, globalRoutesJSON string, balancerStrategy string, balancerProbeURL string, balancerProbeInterval string, socksPort, httpPort int) (*ClientConfig, error) {
 	if socksPort <= 0 {
 		socksPort = 2080
 	}
@@ -38,7 +40,14 @@ func GenerateClientConfig(serverHost string, user models.User, clients []models.
 	// Build outbounds from each user client
 	var proxyTags []string
 	for i, uc := range clients {
-		ob, err := buildOutbound(serverHost, uc, i)
+		host := serverHost
+		if h, ok := inboundHosts[uc.InboundTag]; ok && strings.TrimSpace(h) != "" {
+			host = h
+		}
+		if p, ok := inboundPorts[uc.InboundTag]; ok && p > 0 {
+			uc.InboundPort = p
+		}
+		ob, err := buildOutbound(host, uc, i)
 		if err != nil {
 			log.Printf("WARN: build outbound for inbound %s: %v", uc.InboundTag, err)
 			continue
