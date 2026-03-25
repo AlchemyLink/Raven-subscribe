@@ -105,6 +105,8 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config file: %w", err)
 	}
 
+	normalizeVLESSClientEncryption(cfg)
+
 	if cfg.ServerHost == "" {
 		return nil, fmt.Errorf("server_host is required in config")
 	}
@@ -116,6 +118,28 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("xray_config_file_mode: %w", err)
 	}
 	return cfg, nil
+}
+
+// normalizeVLESSClientEncryption trims map keys and values so lookups match Xray inbound tags
+// (avoids misses from accidental spaces in config.json).
+func normalizeVLESSClientEncryption(cfg *Config) {
+	if cfg == nil || len(cfg.VLESSClientEncryption) == 0 {
+		return
+	}
+	out := make(map[string]string, len(cfg.VLESSClientEncryption))
+	for k, v := range cfg.VLESSClientEncryption {
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" || v == "" {
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		cfg.VLESSClientEncryption = nil
+	} else {
+		cfg.VLESSClientEncryption = out
+	}
 }
 
 // XrayConfigFilePerm returns permission bits used when writing Xray JSON configs under config_dir.
