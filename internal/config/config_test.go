@@ -254,3 +254,31 @@ func TestLoad_XrayConfigFileMode(t *testing.T) {
 		}
 	}
 }
+
+func TestLoad_VLESSClientEncryption_TrimsKeysAndValues(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	json := `{
+		"server_host": "vpn.example.com",
+		"admin_token": "x",
+		"vless_client_encryption": {
+			"  vless-reality-in  ": "  client-string-here  ",
+			"bad": "   ",
+			"  ": "skipped"
+		}
+	}`
+	if err := os.WriteFile(path, []byte(json), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got, ok := cfg.VLESSClientEncryption["vless-reality-in"]
+	if !ok || got != "client-string-here" {
+		t.Fatalf("VLESSClientEncryption: got %q ok=%v, want client-string-here", got, ok)
+	}
+	if len(cfg.VLESSClientEncryption) != 1 {
+		t.Errorf("expected 1 map entry after normalize, got %d", len(cfg.VLESSClientEncryption))
+	}
+}
