@@ -2,9 +2,9 @@ name: Security Scan
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, develop]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, develop]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

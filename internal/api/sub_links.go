@@ -61,6 +61,14 @@ func (s *Server) handleShadowsocksLinksB64(w http.ResponseWriter, r *http.Reques
 	s.handleSubscriptionLinksByFormatAndProtocol(w, r, "b64", "shadowsocks")
 }
 
+func (s *Server) handleHysteria2LinksText(w http.ResponseWriter, r *http.Request) {
+	s.handleHysteria2LinksByFormat(w, r, "txt")
+}
+
+func (s *Server) handleHysteria2LinksB64(w http.ResponseWriter, r *http.Request) {
+	s.handleHysteria2LinksByFormat(w, r, "b64")
+}
+
 func (s *Server) handleVLESSList(w http.ResponseWriter, r *http.Request) {
 	cfg, username, err := s.generateConfigForSubscriptionRequest(r)
 	if err != nil {
@@ -258,6 +266,10 @@ func buildProxyLinkEntries(cfg *xray.ClientConfig) []proxyLink {
 			if l := buildSSLink(ob); l != "" {
 				links = append(links, proxyLink{Protocol: "shadowsocks", Tag: ob.Tag, URL: l})
 			}
+		case "hysteria2":
+			if l := buildHysteria2Link(ob); l != "" {
+				links = append(links, proxyLink{Protocol: "hysteria2", Tag: ob.Tag, URL: l})
+			}
 		}
 	}
 	return links
@@ -286,6 +298,9 @@ func (s *Server) generateConfigForSubscriptionRequestWithForcedProtocol(r *http.
 		return nil, "", fmt.Errorf("internal error")
 	}
 	clients = applySubscriptionFiltersWithProtocol(clients, r, forcedProtocol)
+	// Hysteria2 uses sing-box format — exclude from Xray JSON subscription.
+	// Hysteria2 clients are served via /sub/{token}/singbox and share links.
+	clients = excludeProtocol(clients, "hysteria2")
 	if len(clients) == 0 {
 		return nil, "", fmt.Errorf("no enabled clients matched filters")
 	}
@@ -299,6 +314,8 @@ func (s *Server) generateConfigForSubscriptionRequestWithForcedProtocol(r *http.
 	}
 	cfg, err := xray.GenerateClientConfig(
 		s.cfg.ServerHost,
+		s.cfg.InboundHosts,
+		s.cfg.InboundPorts,
 		*user,
 		clients,
 		globalRoutesJSON,
@@ -522,5 +539,116 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func excludeProtocol(clients []models.UserClientFull, protocol string) []models.UserClientFull {
+	filtered := clients[:0]
+	for _, c := range clients {
+		if !strings.EqualFold(c.InboundProtocol, protocol) {
+			filtered = append(filtered, c)
+		}
+	}
+	return filtered
+}
+
+func (s *Server) handleHysteria2LinksByFormat(w http.ResponseWriter, r *http.Request, format string) {
+	token := mux.Vars(r)["token"]
+	if token == "" {
+		jsonError(w, "missing token", http.StatusBadRequest)
+		return
+	}
+	user, err := s.db.GetUserByToken(token)
+	if err != nil || user == nil {
+		jsonError(w, "invalid token", http.StatusNotFound)
+		return
+	}
+	if !user.Enabled {
+		jsonError(w, "user disabled", http.StatusForbidden)
+		return
+	}
+	clients, err := s.db.GetUserClients(user.ID)
+	if err != nil {
+		// #nosec G706 -- username is sanitized before logging.
+		log.Printf("ERROR get user clients for hysteria2 sub %s: %v", sanitizeLogField(user.Username), err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	links := make([]string, 0)
+	for i, c := range clients {
+		if !strings.EqualFold(c.InboundProtocol, "hysteria2") {
+			continue
+		}
+		var cred xray.StoredClientConfig
+		if err := json.Unmarshal([]byte(c.ClientConfig), &cred); err != nil {
+			log.Printf("WARN: hysteria2 sub parse cred for inbound %s: %v", c.InboundTag, err)
+			continue
+		}
+		serverName := cred.ServerName
+		if serverName == "" {
+			serverName = s.cfg.ServerHost
+		}
+		tag := strings.NewReplacer(" ", "-", "/", "-", "\\", "-").Replace(c.InboundTag)
+		tag = fmt.Sprintf("%s-%d", tag, i)
+
+		params := url.Values{}
+		if serverName != "" {
+			params.Set("sni", serverName)
+		}
+		if cred.ObfsType != "" {
+			params.Set("obfs", cred.ObfsType)
+			if cred.ObfsPassword != "" {
+				params.Set("obfs-password", cred.ObfsPassword)
+			}
+		}
+		params.Set("insecure", "0")
+		link := fmt.Sprintf("hysteria2://%s@%s:%d?%s#%s",
+			url.QueryEscape(cred.Password), s.cfg.ServerHost, c.InboundPort, params.Encode(), url.QueryEscape(tag))
+		links = append(links, link)
+	}
+
+	if len(links) == 0 {
+		jsonError(w, "no hysteria2 inbounds found", http.StatusNotFound)
+		return
+	}
+
+	plain := strings.Join(links, "\n")
+	w.Header().Set("Profile-Title", user.Username)
+	w.Header().Set("Subscription-Userinfo", "upload=0; download=0; total=0; expire=0")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if format == "b64" {
+		_, _ = w.Write([]byte(base64.StdEncoding.EncodeToString([]byte(plain))))
+		return
+	}
+	_, _ = w.Write([]byte(plain))
+}
+
+func buildHysteria2Link(ob xray.Outbound) string {
+	var s xray.Hysteria2OutboundSettings
+	if err := json.Unmarshal(ob.Settings, &s); err != nil {
+		return ""
+	}
+	if s.Password == "" || s.Server == "" || s.ServerPort == 0 {
+		return ""
+	}
+	params := url.Values{}
+	if s.TLS != nil && s.TLS.ServerName != "" {
+		params.Set("sni", s.TLS.ServerName)
+	}
+	if s.Obfs != nil && s.Obfs.Type != "" {
+		params.Set("obfs", s.Obfs.Type)
+		if s.Obfs.Password != "" {
+			params.Set("obfs-password", s.Obfs.Password)
+		}
+	}
+	params.Set("insecure", "0")
+	q := params.Encode()
+	link := fmt.Sprintf("hysteria2://%s@%s:%d",
+		url.QueryEscape(s.Password), s.Server, s.ServerPort)
+	if q != "" {
+		link += "?" + q
+	}
+	link += "#" + url.QueryEscape(ob.Tag)
+	return link
 }
 

@@ -41,11 +41,32 @@ type Config struct {
 	APIUserInboundPort int `json:"api_user_inbound_port,omitempty"`
 	// Octal permission bits for Xray JSON files Raven writes under config_dir (e.g. "0644", "0755"). Empty = 0600.
 	XrayConfigFileMode string `json:"xray_config_file_mode,omitempty"`
+	// InboundHosts overrides server_host for specific inbound tags.
+	// Key: inbound tag, value: host/IP to use in generated client configs.
+	// Falls back to ServerHost when a tag is not listed.
+	// Example: {"hysteria-in": "64.226.79.239", "vless-reality-in": "zirgate.com"}
+	InboundHosts map[string]string `json:"inbound_hosts,omitempty"`
+
+	// InboundPorts overrides the port for specific inbound tags in generated client configs.
+	// Key: inbound tag, value: port number. Falls back to inbound's own port when tag is not listed.
+	// Example: {"vless-reality-in": 8444} — clients connect to relay:8444 instead of EU:443
+	InboundPorts map[string]int `json:"inbound_ports,omitempty"`
+
 	// VLESSClientEncryption maps VLESS inbound tag to its client-side VLESS Encryption string.
 	// Required when the inbound uses VLESS Encryption (decryption != "none").
 	// Generate both strings with: xray vlessenc
 	// Example: {"vless-reality-in": "mlkem768x25519plus.native.0rtt.(X25519 Password).(ML-KEM-768 Client)"}
 	VLESSClientEncryption map[string]string `json:"vless_client_encryption,omitempty"`
+	// SingboxConfig is an optional path to a sing-box server config file (e.g. /etc/sing-box/config.json).
+	// When set, Raven additionally parses sing-box inbounds (currently hysteria2) and syncs their users to DB.
+	// Xray config_dir sync is unaffected.
+	SingboxConfig string `json:"singbox_config,omitempty"`
+	// XrayEnabled controls whether Xray config_dir sync is active. Default true.
+	// Set to false when Xray is not installed — suppresses "directory not found" warnings.
+	XrayEnabled *bool `json:"xray_enabled,omitempty"`
+	// SingboxEnabled controls whether sing-box config sync is active. Default: true if singbox_config is set.
+	// Set to false to temporarily disable sing-box sync without removing singbox_config.
+	SingboxEnabled *bool `json:"singbox_enabled,omitempty"`
 
 	xrayFilePerm os.FileMode `json:"-"`
 }
@@ -84,6 +105,8 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config file: %w", err)
 	}
 
+	normalizeVLESSClientEncryption(cfg)
+
 	if cfg.ServerHost == "" {
 		return nil, fmt.Errorf("server_host is required in config")
 	}
@@ -95,6 +118,28 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("xray_config_file_mode: %w", err)
 	}
 	return cfg, nil
+}
+
+// normalizeVLESSClientEncryption trims map keys and values so lookups match Xray inbound tags
+// (avoids misses from accidental spaces in config.json).
+func normalizeVLESSClientEncryption(cfg *Config) {
+	if cfg == nil || len(cfg.VLESSClientEncryption) == 0 {
+		return
+	}
+	out := make(map[string]string, len(cfg.VLESSClientEncryption))
+	for k, v := range cfg.VLESSClientEncryption {
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" || v == "" {
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		cfg.VLESSClientEncryption = nil
+	} else {
+		cfg.VLESSClientEncryption = out
+	}
 }
 
 // XrayConfigFilePerm returns permission bits used when writing Xray JSON configs under config_dir.
@@ -144,6 +189,32 @@ func parseXrayConfigFileMode(s string) (os.FileMode, error) {
 	return os.FileMode(u) & 0o777, nil
 }
 
+// IsXrayEnabled returns true if Xray sync is enabled (default true).
+func (c *Config) IsXrayEnabled() bool {
+	if c.XrayEnabled == nil {
+		return true
+	}
+	return *c.XrayEnabled
+}
+
+// IsSingboxEnabled returns true if sing-box sync is enabled.
+// Defaults to true when singbox_config is set, false otherwise.
+func (c *Config) IsSingboxEnabled() bool {
+	if c.SingboxEnabled != nil {
+		return *c.SingboxEnabled
+	}
+	return strings.TrimSpace(c.SingboxConfig) != ""
+}
+
+// HostForInbound returns the server host for a given inbound tag.
+// Falls back to ServerHost if the tag is not in InboundHosts.
+func (c *Config) HostForInbound(tag string) string {
+	if h, ok := c.InboundHosts[tag]; ok && strings.TrimSpace(h) != "" {
+		return h
+	}
+	return c.ServerHost
+}
+
 // SubURL returns the full subscription URL for the given user token.
 func (c *Config) SubURL(token string) string {
 	return fmt.Sprintf("%s/sub/%s", c.BaseURL, token)
@@ -160,6 +231,8 @@ func (c *Config) SubURLs(token string) models.SubURLs {
 		Compact:     compact,
 		CompactText: compact + "/links.txt",
 		CompactB64:  compact + "/links.b64",
+		Singbox:     sub + "/singbox",
+		Hysteria2:   sub + "/hysteria2",
 	}
 }
 

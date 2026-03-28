@@ -30,6 +30,13 @@ profile.cov
 go.work
 go.work.sum
 
+# Secrets — never commit real credentials
+secrets.yml
+secrets*.yml
+vault_password.txt
+*.secret
+*.vault
+
 # env file
 .env
 
@@ -43,3 +50,5 @@ test_conf_xhttp.json
 .cursorindexingignore
 .cursor
 .ansible
+
+CLAUDE.md
