@@ -2,6 +2,7 @@ package xray
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -330,6 +331,50 @@ func TestFirstNonEmpty(t *testing.T) {
 				t.Fatalf("firstNonEmpty(%v) = %v, want %v", tt.args, got, tt.want)
 			}
 		})
+	}
+}
+
+// Two JSON files in config.d often repeat the same inbound; VLESS Encryption WARN must not spam once per file.
+func TestParseConfigDirWith_DedupVLESSEncryptionWarn(t *testing.T) {
+	dir := t.TempDir()
+	fragment := `{
+		"inbounds": [{
+			"tag": "dup-vless-in",
+			"port": 443,
+			"protocol": "vless",
+			"settings": {
+				"decryption": "mlkem768x25519.native",
+				"clients": [{"id": "11111111-1111-1111-1111-111111111111", "email": "a@test.com"}]
+			}
+		}]
+	}`
+	for _, name := range []string{"01.json", "02.json"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(fragment), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldErr := os.Stderr
+	os.Stderr = w
+	_, parseErr := ParseConfigDirWith(dir, nil)
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = oldErr
+	if parseErr != nil {
+		t.Fatalf("ParseConfigDirWith: %v", parseErr)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = r.Close()
+	n := strings.Count(string(out), `vless_client_encryption["dup-vless-in"]`)
+	if n != 1 {
+		t.Fatalf("expected 1 deduplicated VLESS enc WARN, got %d\n%s", n, out)
 	}
 }
 
