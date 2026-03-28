@@ -155,9 +155,6 @@ func (s *Server) adminAuth(next http.Handler) http.Handler {
 			return
 		}
 		token := r.Header.Get("X-Admin-Token")
-		if token == "" {
-			token = r.URL.Query().Get("admin_token")
-		}
 		if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AdminToken)) != 1 {
 			jsonError(w, "unauthorized", http.StatusUnauthorized)
 			return
