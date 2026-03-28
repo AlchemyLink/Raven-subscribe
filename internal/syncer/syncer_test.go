@@ -126,6 +126,126 @@ func TestSyncer_Start_StopsOnContextCancel(t *testing.T) {
 	}
 }
 
+func TestSyncer_SyncSingbox(t *testing.T) {
+	dir := t.TempDir()
+	singboxCfg := `{
+		"inbounds": [
+			{
+				"type": "hysteria2",
+				"tag": "hy2-in",
+				"listen_port": 8443,
+				"users": [
+					{"name": "alice@test.com", "password": "passA"},
+					{"name": "bob@test.com", "password": "passB"}
+				],
+				"obfs": {"type": "salamander", "password": "obfssecret"},
+				"tls": {"enabled": true, "server_name": "example.com"}
+			}
+		]
+	}`
+	cfgPath := filepath.Join(dir, "singbox.json")
+	if err := os.WriteFile(cfgPath, []byte(singboxCfg), 0o600); err != nil {
+		t.Fatalf("write singbox config: %v", err)
+	}
+
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	cfg := &config.Config{SingboxConfig: cfgPath}
+	s := New(cfg, db)
+
+	if err := s.syncSingbox(cfgPath); err != nil {
+		t.Fatalf("syncSingbox: %v", err)
+	}
+
+	inbounds, err := db.ListInbounds()
+	if err != nil {
+		t.Fatalf("ListInbounds: %v", err)
+	}
+	if len(inbounds) != 1 {
+		t.Fatalf("expected 1 inbound, got %d", len(inbounds))
+	}
+	if inbounds[0].Tag != "hy2-in" {
+		t.Errorf("tag: got %q, want hy2-in", inbounds[0].Tag)
+	}
+
+	// Check users were created
+	users, err := db.ListUsers()
+	if err != nil {
+		t.Fatalf("ListUsers: %v", err)
+	}
+	if len(users) != 2 {
+		t.Errorf("expected 2 users, got %d", len(users))
+	}
+}
+
+func TestSyncer_Sync_SingboxEnabled(t *testing.T) {
+	dir := t.TempDir()
+	singboxCfg := `{
+		"inbounds": [
+			{
+				"type": "hysteria2",
+				"tag": "hy2-test",
+				"listen_port": 9443,
+				"users": [{"name": "user@test.com", "password": "p"}]
+			}
+		]
+	}`
+	cfgPath := filepath.Join(dir, "singbox.json")
+	if err := os.WriteFile(cfgPath, []byte(singboxCfg), 0o600); err != nil {
+		t.Fatalf("write singbox config: %v", err)
+	}
+
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	enabled := true
+	cfg := &config.Config{
+		ConfigDir:      dir,
+		SingboxConfig:  cfgPath,
+		SingboxEnabled: &enabled,
+	}
+	xrayDisabled := false
+	cfg.XrayEnabled = &xrayDisabled
+
+	s := New(cfg, db)
+	if err := s.Sync(); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	inbounds, err := db.ListInbounds()
+	if err != nil {
+		t.Fatalf("ListInbounds: %v", err)
+	}
+	if len(inbounds) != 1 || inbounds[0].Tag != "hy2-test" {
+		t.Errorf("expected hy2-test inbound from singbox sync, got %v", inbounds)
+	}
+}
+
+func TestSyncer_SanitizeUsername(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"user@test.com", "user@test.com"},
+		{"  user  ", "user"},
+		{"user name", "user_name"},
+		{"user\tname", "user_name"},
+		{"user\nname", "username"},
+		{"user'name", "username"},
+		{`user"name`, "username"},
+		{"user;name", "username"},
+		{"user--name", "username"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := sanitizeUsername(tt.input)
+		if got != tt.want {
+			t.Errorf("sanitizeUsername(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
 func testDB(t *testing.T) (*database.DB, func()) {
 	t.Helper()
 	dir := t.TempDir()
