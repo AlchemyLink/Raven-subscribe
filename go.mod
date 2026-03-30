@@ -9,7 +9,7 @@ require (
 	golang.org/x/crypto v0.49.0
 	golang.org/x/time v0.15.0
 	google.golang.org/grpc v1.79.3
-	modernc.org/sqlite v1.47.0
+	modernc.org/sqlite v1.48.0
 )
 
 require (
