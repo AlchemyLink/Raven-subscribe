@@ -94,6 +94,15 @@ func (db *DB) migrate() error {
 
 	CREATE INDEX IF NOT EXISTS idx_users_token ON users(token);
 	CREATE INDEX IF NOT EXISTS idx_user_clients_user ON user_clients(user_id);
+
+	CREATE TABLE IF NOT EXISTS emergency_profiles (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		name         TEXT    NOT NULL UNIQUE,
+		description  TEXT    NOT NULL DEFAULT '',
+		inbound_tags TEXT    NOT NULL DEFAULT '[]',
+		created_at   DATETIME NOT NULL,
+		updated_at   DATETIME NOT NULL
+	);
 	`
 	_, err := db.conn.Exec(schema)
 	if err != nil {
@@ -609,6 +618,166 @@ func (db *DB) ListUserClientsByInboundTag(tag string) ([]UserClientForInbound, e
 		result = append(result, r)
 	}
 	return result, rows.Err()
+}
+
+// ─── Emergency profiles ───────────────────────────────────────────────────────
+
+// CreateEmergencyProfile inserts a new emergency profile.
+func (db *DB) CreateEmergencyProfile(name, description string, inboundTags []string) (*models.EmergencyProfile, error) {
+	tagsJSON, err := json.Marshal(inboundTags)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	res, err := db.conn.Exec(
+		`INSERT INTO emergency_profiles (name, description, inbound_tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+		name, description, string(tagsJSON), now, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return &models.EmergencyProfile{
+		ID: id, Name: name, Description: description, InboundTags: inboundTags,
+		CreatedAt: now, UpdatedAt: now,
+	}, nil
+}
+
+// GetEmergencyProfile returns the profile with the given ID, or nil if not found.
+func (db *DB) GetEmergencyProfile(id int64) (*models.EmergencyProfile, error) {
+	var p models.EmergencyProfile
+	var tagsJSON string
+	err := db.conn.QueryRow(
+		`SELECT id, name, description, inbound_tags, created_at, updated_at FROM emergency_profiles WHERE id = ?`, id,
+	).Scan(&p.ID, &p.Name, &p.Description, &tagsJSON, &p.CreatedAt, &p.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(tagsJSON), &p.InboundTags); err != nil {
+		return nil, fmt.Errorf("parse inbound_tags for profile %d: %w", id, err)
+	}
+	return &p, nil
+}
+
+// ListEmergencyProfiles returns all emergency profiles ordered by name.
+func (db *DB) ListEmergencyProfiles() ([]models.EmergencyProfile, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, name, description, inbound_tags, created_at, updated_at FROM emergency_profiles ORDER BY name`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var profiles []models.EmergencyProfile
+	for rows.Next() {
+		var p models.EmergencyProfile
+		var tagsJSON string
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &tagsJSON, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(tagsJSON), &p.InboundTags); err != nil {
+			return nil, fmt.Errorf("parse inbound_tags for profile %d: %w", p.ID, err)
+		}
+		profiles = append(profiles, p)
+	}
+	return profiles, rows.Err()
+}
+
+// UpdateEmergencyProfile updates the profile fields. Returns nil if not found.
+func (db *DB) UpdateEmergencyProfile(id int64, name, description string, inboundTags []string) (*models.EmergencyProfile, error) {
+	tagsJSON, err := json.Marshal(inboundTags)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	res, err := db.conn.Exec(
+		`UPDATE emergency_profiles SET name = ?, description = ?, inbound_tags = ?, updated_at = ? WHERE id = ?`,
+		name, description, string(tagsJSON), now, id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, nil
+	}
+	return &models.EmergencyProfile{
+		ID: id, Name: name, Description: description, InboundTags: inboundTags, UpdatedAt: now,
+	}, nil
+}
+
+// DeleteEmergencyProfile removes the profile with the given ID.
+func (db *DB) DeleteEmergencyProfile(id int64) error {
+	_, err := db.conn.Exec(`DELETE FROM emergency_profiles WHERE id = ?`, id)
+	return err
+}
+
+// ─── Emergency status ──────────────────────────────────────────────────────��──
+
+// GetEmergencyStatus returns the current emergency mode state including the active profile.
+func (db *DB) GetEmergencyStatus() (*models.EmergencyStatus, error) {
+	status := &models.EmergencyStatus{Active: false}
+
+	var activeStr string
+	err := db.conn.QueryRow(`SELECT value FROM app_settings WHERE key = 'emergency_active'`).Scan(&activeStr)
+	if err == sql.ErrNoRows {
+		return status, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if activeStr != "true" {
+		return status, nil
+	}
+	status.Active = true
+
+	var profileIDStr string
+	if err := db.conn.QueryRow(`SELECT value FROM app_settings WHERE key = 'emergency_profile_id'`).Scan(&profileIDStr); err == nil && profileIDStr != "" {
+		var profileID int64
+		if _, err := fmt.Sscanf(profileIDStr, "%d", &profileID); err == nil {
+			status.ProfileID = &profileID
+			if p, err := db.GetEmergencyProfile(profileID); err == nil && p != nil {
+				status.Profile = p
+			}
+		}
+	}
+
+	var activatedAtStr string
+	if err := db.conn.QueryRow(`SELECT value FROM app_settings WHERE key = 'emergency_activated_at'`).Scan(&activatedAtStr); err == nil {
+		if t, err := time.Parse(time.RFC3339, activatedAtStr); err == nil {
+			status.ActivatedAt = &t
+		}
+	}
+
+	return status, nil
+}
+
+// ActivateEmergency sets the emergency mode to active with the given profile.
+func (db *DB) ActivateEmergency(profileID int64) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	upsert := func(key, value string) error {
+		_, err := db.conn.Exec(
+			`INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+			key, value,
+		)
+		return err
+	}
+	if err := upsert("emergency_active", "true"); err != nil {
+		return err
+	}
+	if err := upsert("emergency_profile_id", fmt.Sprintf("%d", profileID)); err != nil {
+		return err
+	}
+	return upsert("emergency_activated_at", now)
+}
+
+// DeactivateEmergency clears the emergency mode.
+func (db *DB) DeactivateEmergency() error {
+	_, err := db.conn.Exec(`DELETE FROM app_settings WHERE key IN ('emergency_active', 'emergency_profile_id', 'emergency_activated_at')`)
+	return err
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
