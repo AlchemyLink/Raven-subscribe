@@ -573,3 +573,68 @@ func TestGenerateClientConfigPortParsing(t *testing.T) {
 		t.Fatalf("expected port 443, got %d", vlessSettings.Vnext[0].Port)
 	}
 }
+
+// TestGenerateClientConfigXHTTPHostFromServerNames verifies that when the server-side
+// xhttpSettings has no "host" field and realitySettings uses serverNames[] (array),
+// the generated client xhttp config still gets the correct host derived from serverNames[0].
+func TestGenerateClientConfigXHTTPHostFromServerNames(t *testing.T) {
+	serverHost := "1.2.3.4"
+	user := models.User{Username: "testuser"}
+	clients := []models.UserClientFull{
+		{
+			UserClient: models.UserClient{
+				ClientConfig: `{"protocol":"vless","id":"uuid1","flow":"xtls-rprx-vision","encryption":"none"}`,
+			},
+			InboundTag:      "vless-xhttp-in",
+			InboundProtocol: "vless",
+			InboundPort:     2053,
+			InboundRaw: `{
+				"tag":"vless-xhttp-in","protocol":"vless","port":2053,
+				"settings":{"decryption":"none","clients":[{"id":"uuid1","email":"u@t.com","flow":"xtls-rprx-vision"}]},
+				"streamSettings":{
+					"network":"xhttp","security":"reality",
+					"realitySettings":{
+						"dest":"www.adobe.com:443",
+						"serverNames":["www.adobe.com"],
+						"publicKey":"testpublickey12345678901234567890123456789012",
+						"shortIds":["abc123"]
+					},
+					"xhttpSettings":{
+						"mode":"auto",
+						"path":"/api/v3/data-sync",
+						"scMaxPacketSize":50000
+					}
+				}
+			}`,
+		},
+	}
+
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
+	if err != nil {
+		t.Fatalf("GenerateClientConfig error: %v", err)
+	}
+	if len(cfg.Outbounds) == 0 {
+		t.Fatal("expected at least one outbound")
+	}
+
+	ob := cfg.Outbounds[0]
+	if ob.StreamSettings == nil {
+		t.Fatal("expected stream settings")
+	}
+	if ob.StreamSettings.XHTTPSettings == nil {
+		t.Fatal("expected xhttp settings in outbound")
+	}
+
+	var xhttp map[string]interface{}
+	if err := json.Unmarshal(ob.StreamSettings.XHTTPSettings, &xhttp); err != nil {
+		t.Fatalf("unmarshal xhttp settings: %v", err)
+	}
+
+	host, ok := xhttp["host"]
+	if !ok {
+		t.Fatal("xhttpSettings missing 'host' — client cannot establish XHTTP+Reality connection")
+	}
+	if host != "www.adobe.com" {
+		t.Fatalf("expected host 'www.adobe.com', got %q", host)
+	}
+}

@@ -482,9 +482,13 @@ func convertXHTTPSettings(raw json.RawMessage, rs *RealitySettings) (json.RawMes
 	}
 	if host, ok := serverSettings["host"]; ok {
 		clientSettings["host"] = host
-	} else if rs != nil && rs.ServerName != "" {
-		// If host is missing, use serverName from realitySettings
-		clientSettings["host"] = rs.ServerName
+	} else if rs != nil {
+		// If host is missing, derive from realitySettings (server uses ServerNames[], client uses ServerName)
+		if rs.ServerName != "" {
+			clientSettings["host"] = rs.ServerName
+		} else if len(rs.ServerNames) > 0 {
+			clientSettings["host"] = rs.ServerNames[0]
+		}
 	}
 	if mode, ok := serverSettings["mode"]; ok {
 		clientSettings["mode"] = mode
