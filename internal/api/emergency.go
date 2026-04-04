@@ -136,7 +136,7 @@ func (s *Server) getEmergencyProfileByID(w http.ResponseWriter, r *http.Request)
 	}
 	profile, err := s.db.GetEmergencyProfile(id)
 	if err != nil {
-		log.Printf("ERROR get emergency profile %d: %v", id, err)
+		log.Printf("ERROR get emergency profile %d: %v", id, err) // #nosec G706 -- id is int64 from validated URL path
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -179,7 +179,7 @@ func (s *Server) updateEmergencyProfile(w http.ResponseWriter, r *http.Request) 
 			jsonError(w, "profile name already exists", http.StatusConflict)
 			return
 		}
-		log.Printf("ERROR update emergency profile %d: %v", id, err)
+		log.Printf("ERROR update emergency profile %d: %v", id, err) // #nosec G706 -- id is int64 from validated URL path
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -205,7 +205,7 @@ func (s *Server) deleteEmergencyProfile(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := s.db.DeleteEmergencyProfile(id); err != nil {
-		log.Printf("ERROR delete emergency profile %d: %v", id, err)
+		log.Printf("ERROR delete emergency profile %d: %v", id, err) // #nosec G706 -- id is int64 from validated URL path
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
