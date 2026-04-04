@@ -117,6 +117,16 @@ func (s *Server) Router() http.Handler {
 	api.HandleFunc("/config/balancer", s.setBalancerConfig).Methods(http.MethodPut)
 	api.HandleFunc("/sync", s.triggerSync).Methods(http.MethodPost)
 
+	// ── Emergency config rotation ─────────────────────────────────────────────
+	api.HandleFunc("/emergency/status", s.getEmergencyStatus).Methods(http.MethodGet)
+	api.HandleFunc("/emergency/activate", s.activateEmergency).Methods(http.MethodPost)
+	api.HandleFunc("/emergency/deactivate", s.deactivateEmergency).Methods(http.MethodPost)
+	api.HandleFunc("/emergency/profiles", s.listEmergencyProfiles).Methods(http.MethodGet)
+	api.HandleFunc("/emergency/profiles", s.createEmergencyProfile).Methods(http.MethodPost)
+	api.HandleFunc("/emergency/profiles/{id:[0-9]+}", s.getEmergencyProfileByID).Methods(http.MethodGet)
+	api.HandleFunc("/emergency/profiles/{id:[0-9]+}", s.updateEmergencyProfile).Methods(http.MethodPut)
+	api.HandleFunc("/emergency/profiles/{id:[0-9]+}", s.deleteEmergencyProfile).Methods(http.MethodDelete)
+
 	// Health check
 	r.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		jsonOK(w, map[string]string{"status": "ok"})
@@ -189,6 +199,27 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ERROR get user clients for %s: %v", sanitizeLogField(user.Username), err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	// Emergency mode: when active, restrict clients to the emergency profile's inbound tags.
+	// Falls back to normal clients if the user has no emergency inbounds enrolled.
+	if em, err := s.db.GetEmergencyStatus(); err == nil && em.Active {
+		w.Header().Set("X-Emergency-Mode", "active")
+		if em.Profile != nil && len(em.Profile.InboundTags) > 0 {
+			tagSet := make(map[string]bool, len(em.Profile.InboundTags))
+			for _, tag := range em.Profile.InboundTags {
+				tagSet[tag] = true
+			}
+			var emergency []models.UserClientFull
+			for _, c := range clients {
+				if tagSet[c.InboundTag] {
+					emergency = append(emergency, c)
+				}
+			}
+			if len(emergency) > 0 {
+				clients = emergency
+			}
+		}
 	}
 
 	// Optional filters allow exposing one protocol / inbound tag per subscription URL.

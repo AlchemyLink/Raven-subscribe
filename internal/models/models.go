@@ -90,6 +90,26 @@ type UserResponse struct {
 	SubURLs SubURLs `json:"sub_urls"`
 }
 
+// EmergencyProfile defines a named fallback inbound set used during a blocking event.
+// When activated, subscription endpoints serve only the listed inbound tags instead
+// of the user's normal inbounds.
+type EmergencyProfile struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	InboundTags []string  `json:"inbound_tags"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// EmergencyStatus is the current state of the emergency bypass mode.
+type EmergencyStatus struct {
+	Active      bool              `json:"active"`
+	ProfileID   *int64            `json:"profile_id,omitempty"`
+	Profile     *EmergencyProfile `json:"profile,omitempty"`
+	ActivatedAt *time.Time        `json:"activated_at,omitempty"`
+}
+
 // UserRouteRule describes a user-defined client routing rule.
 // OutboundTag is restricted to: direct, proxy, block.
 type UserRouteRule struct {
