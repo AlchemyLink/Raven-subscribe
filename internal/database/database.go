@@ -592,13 +592,14 @@ func (r UserClientForInbound) XrayClientEmail() string {
 
 // ListUserClientsByInboundTag returns all users with their stored config for the given inbound tag.
 // Used for restoring users to Xray API and syncing DB to config files.
+// Only returns entries where both the user account and the user_client are enabled.
 func (db *DB) ListUserClientsByInboundTag(tag string) ([]UserClientForInbound, error) {
 	rows, err := db.conn.Query(`
 		SELECT u.username, u.email, uc.client_config, ib.protocol
 		FROM user_clients uc
 		JOIN users u ON u.id = uc.user_id
 		JOIN inbounds ib ON ib.id = uc.inbound_id
-		WHERE ib.tag = ? AND uc.enabled = 1
+		WHERE ib.tag = ? AND uc.enabled = 1 AND u.enabled = 1
 		ORDER BY u.username
 	`, tag)
 	if err != nil {
