@@ -79,6 +79,8 @@ type SubURLs struct {
 	Compact     string `json:"compact"`
 	CompactText string `json:"compact_txt"`
 	CompactB64  string `json:"compact_b64"`
+	Singbox     string `json:"singbox,omitempty"`
+	Hysteria2   string `json:"hysteria2,omitempty"`
 }
 
 // UserResponse is the API response body returned when a user is created or fetched.
@@ -86,6 +88,26 @@ type UserResponse struct {
 	User    User    `json:"user"`
 	SubURL  string  `json:"sub_url"`
 	SubURLs SubURLs `json:"sub_urls"`
+}
+
+// EmergencyProfile defines a named fallback inbound set used during a blocking event.
+// When activated, subscription endpoints serve only the listed inbound tags instead
+// of the user's normal inbounds.
+type EmergencyProfile struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	InboundTags []string  `json:"inbound_tags"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// EmergencyStatus is the current state of the emergency bypass mode.
+type EmergencyStatus struct {
+	Active      bool              `json:"active"`
+	ProfileID   *int64            `json:"profile_id,omitempty"`
+	Profile     *EmergencyProfile `json:"profile,omitempty"`
+	ActivatedAt *time.Time        `json:"activated_at,omitempty"`
 }
 
 // UserRouteRule describes a user-defined client routing rule.

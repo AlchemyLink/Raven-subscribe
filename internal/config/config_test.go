@@ -146,6 +146,71 @@ func TestConfig_SubURL(t *testing.T) {
 	}
 }
 
+func TestConfig_IsXrayEnabled(t *testing.T) {
+	// nil pointer → default true
+	boolFalse := false
+	boolTrue := true
+	tests := []struct {
+		cfg  *Config
+		want bool
+	}{
+		{&Config{}, true},
+		{&Config{XrayEnabled: &boolTrue}, true},
+		{&Config{XrayEnabled: &boolFalse}, false},
+	}
+	for _, tt := range tests {
+		got := tt.cfg.IsXrayEnabled()
+		if got != tt.want {
+			t.Errorf("IsXrayEnabled: got %v, want %v", got, tt.want)
+		}
+	}
+}
+
+func TestConfig_IsSingboxEnabled(t *testing.T) {
+	boolFalse := false
+	boolTrue := true
+	tests := []struct {
+		cfg  *Config
+		want bool
+	}{
+		{&Config{}, false},
+		{&Config{SingboxConfig: "/etc/sing-box/config.json"}, true},
+		{&Config{SingboxConfig: "  "}, false},
+		{&Config{SingboxEnabled: &boolTrue}, true},
+		{&Config{SingboxEnabled: &boolFalse, SingboxConfig: "/path"}, false},
+	}
+	for _, tt := range tests {
+		got := tt.cfg.IsSingboxEnabled()
+		if got != tt.want {
+			t.Errorf("IsSingboxEnabled(singbox_config=%q, enabled=%v): got %v, want %v",
+				tt.cfg.SingboxConfig, tt.cfg.SingboxEnabled, got, tt.want)
+		}
+	}
+}
+
+func TestConfig_SubURLs(t *testing.T) {
+	cfg := &Config{BaseURL: "https://vpn.example.com"}
+	urls := cfg.SubURLs("mytoken")
+	if urls.Full != "https://vpn.example.com/sub/mytoken" {
+		t.Errorf("Full: got %q", urls.Full)
+	}
+	if urls.LinksText != "https://vpn.example.com/sub/mytoken/links.txt" {
+		t.Errorf("LinksText: got %q", urls.LinksText)
+	}
+	if urls.LinksB64 != "https://vpn.example.com/sub/mytoken/links.b64" {
+		t.Errorf("LinksB64: got %q", urls.LinksB64)
+	}
+	if urls.Compact != "https://vpn.example.com/c/mytoken" {
+		t.Errorf("Compact: got %q", urls.Compact)
+	}
+	if urls.Singbox != "https://vpn.example.com/sub/mytoken/singbox" {
+		t.Errorf("Singbox: got %q", urls.Singbox)
+	}
+	if urls.Hysteria2 != "https://vpn.example.com/sub/mytoken/hysteria2" {
+		t.Errorf("Hysteria2: got %q", urls.Hysteria2)
+	}
+}
+
 func TestLoad_XrayConfigFileMode(t *testing.T) {
 	tests := []struct {
 		raw      string
@@ -187,5 +252,33 @@ func TestLoad_XrayConfigFileMode(t *testing.T) {
 		if cfg.XrayConfigFilePerm() != tt.wantMode {
 			t.Errorf("raw %s: got mode %o, want %o", tt.raw, cfg.XrayConfigFilePerm(), tt.wantMode)
 		}
+	}
+}
+
+func TestLoad_VLESSClientEncryption_TrimsKeysAndValues(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	json := `{
+		"server_host": "vpn.example.com",
+		"admin_token": "x",
+		"vless_client_encryption": {
+			"  vless-reality-in  ": "  client-string-here  ",
+			"bad": "   ",
+			"  ": "skipped"
+		}
+	}`
+	if err := os.WriteFile(path, []byte(json), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got, ok := cfg.VLESSClientEncryption["vless-reality-in"]
+	if !ok || got != "client-string-here" {
+		t.Fatalf("VLESSClientEncryption: got %q ok=%v, want client-string-here", got, ok)
+	}
+	if len(cfg.VLESSClientEncryption) != 1 {
+		t.Errorf("expected 1 map entry after normalize, got %d", len(cfg.VLESSClientEncryption))
 	}
 }

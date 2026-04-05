@@ -46,23 +46,31 @@ func GetInboundByTag(dir, tag string) (*ParsedInbound, string, error) {
 
 // ParseConfigDir reads all JSON files from dir and returns parsed inbounds per file.
 // Client VLESS Encryption strings are not resolved; use ParseConfigDirWith for that.
+// Does not WARN when VLESS Encryption is enabled but no client map is supplied (internal use).
 func ParseConfigDir(dir string) (map[string][]ParsedInbound, error) {
-	return parseConfigDirWith(dir, nil)
+	return parseConfigDirWith(dir, nil, false)
 }
 
 // ParseConfigDirWith is like ParseConfigDir but resolves VLESS Encryption client strings.
 // clientEncMap maps inbound tag to the client-side VLESS Encryption string from config.
+// When a tag needs a client string but it is missing from the map (or map is nil), logs WARN.
 func ParseConfigDirWith(dir string, clientEncMap map[string]string) (map[string][]ParsedInbound, error) {
-	return parseConfigDirWith(dir, clientEncMap)
+	return parseConfigDirWith(dir, clientEncMap, true)
 }
 
-func parseConfigDirWith(dir string, clientEncMap map[string]string) (map[string][]ParsedInbound, error) {
+func parseConfigDirWith(dir string, clientEncMap map[string]string, warnVLESSClientEnc bool) (map[string][]ParsedInbound, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// config_dir absent means Xray is not installed or not yet configured — not an error.
+			return make(map[string][]ParsedInbound), nil
+		}
 		return nil, fmt.Errorf("read dir %s: %w", dir, err)
 	}
 
 	result := make(map[string][]ParsedInbound)
+	// One WARN per inbound tag per directory scan (same tag may appear in multiple JSON files).
+	vlessEncWarned := make(map[string]struct{})
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -72,7 +80,7 @@ func parseConfigDirWith(dir string, clientEncMap map[string]string) (map[string]
 			continue
 		}
 		fullPath := filepath.Join(dir, name)
-		inbounds, err := parseConfigFileWith(fullPath, clientEncMap)
+		inbounds, err := parseConfigFileWith(fullPath, clientEncMap, vlessEncWarned, warnVLESSClientEnc)
 		if err != nil {
 			// Log and continue; don't fail all due to one bad file
 			fmt.Fprintf(os.Stderr, "WARN: parse %s: %v\n", fullPath, err)
@@ -85,10 +93,12 @@ func parseConfigDirWith(dir string, clientEncMap map[string]string) (map[string]
 
 // ParseConfigFile parses a single xray server config JSON file.
 func ParseConfigFile(path string) ([]ParsedInbound, error) {
-	return parseConfigFileWith(path, nil)
+	return parseConfigFileWith(path, nil, nil, false)
 }
 
-func parseConfigFileWith(path string, clientEncMap map[string]string) ([]ParsedInbound, error) {
+// vlessEncWarned, when non-nil, suppresses duplicate VLESS Encryption WARN lines for the same inbound tag
+// across multiple files in one directory scan. nil = warn every time (single-file parse).
+func parseConfigFileWith(path string, clientEncMap map[string]string, vlessEncWarned map[string]struct{}, warnVLESSClientEnc bool) ([]ParsedInbound, error) {
 	// #nosec G304 -- path comes from configured xray config directory traversal.
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -121,7 +131,7 @@ func parseConfigFileWith(path string, clientEncMap map[string]string) ([]ParsedI
 			continue
 		}
 
-		clients, err := extractClients(si, clientEncMap)
+		clients, err := extractClients(si, clientEncMap, vlessEncWarned, warnVLESSClientEnc)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "WARN: extract clients for %s: %v\n", si.Tag, err)
 		}
@@ -158,13 +168,15 @@ func parsePort(raw json.RawMessage) (int, error) {
 
 // extractClients pulls all client credentials from an inbound.
 // clientEncMap maps inbound tag to the client-side VLESS Encryption string (may be nil).
-func extractClients(si ServerInbound, clientEncMap map[string]string) ([]ParsedClient, error) {
+// vlessEncWarned deduplicates VLESS Encryption warnings when scanning a directory; nil = no dedup.
+// warnVLESSClientEnc: when false, missing vless_client_encryption is not logged (ParseConfigDir / single-file tools).
+func extractClients(si ServerInbound, clientEncMap map[string]string, vlessEncWarned map[string]struct{}, warnVLESSClientEnc bool) ([]ParsedClient, error) {
 	proto := strings.ToLower(si.Protocol)
 	switch proto {
 	case "vmess":
 		return extractVMess(si)
 	case "vless":
-		return extractVLESS(si, clientEncMap)
+		return extractVLESS(si, clientEncMap, vlessEncWarned, warnVLESSClientEnc)
 	case "trojan":
 		return extractTrojan(si)
 	case "shadowsocks":
@@ -196,24 +208,35 @@ func extractVMess(si ServerInbound) ([]ParsedClient, error) {
 	return clients, nil
 }
 
-func extractVLESS(si ServerInbound, clientEncMap map[string]string) ([]ParsedClient, error) {
+func extractVLESS(si ServerInbound, clientEncMap map[string]string, vlessEncWarned map[string]struct{}, warnVLESSClientEnc bool) ([]ParsedClient, error) {
 	var s VLESSInboundSettings
 	if err := json.Unmarshal(si.Settings, &s); err != nil {
 		return nil, err
 	}
+
+	inboundTag := strings.TrimSpace(si.Tag)
 
 	// Determine client-side encryption string.
 	// The server's settings.decryption contains private keys and is NOT sent to clients.
 	// The client encryption string (public keys only) comes from vless_client_encryption config map.
 	clientEnc := "none"
 	if s.Decryption != "" && s.Decryption != "none" {
-		if enc, ok := clientEncMap[si.Tag]; ok && enc != "" {
+		if enc, ok := clientEncMap[inboundTag]; ok && enc != "" {
 			clientEnc = enc
-		} else {
-			fmt.Fprintf(os.Stderr,
-				"WARN: inbound %q uses VLESS Encryption but vless_client_encryption[%q] is not set; "+
-					"client outbound encryption will be \"none\" — clients will fail to connect\n",
-				si.Tag, si.Tag)
+		} else if warnVLESSClientEnc {
+			doWarn := vlessEncWarned == nil
+			if !doWarn {
+				if _, dup := vlessEncWarned[inboundTag]; !dup {
+					vlessEncWarned[inboundTag] = struct{}{}
+					doWarn = true
+				}
+			}
+			if doWarn {
+				fmt.Fprintf(os.Stderr,
+					"WARN: inbound %q uses VLESS Encryption but vless_client_encryption[%q] is not set; "+
+						"client outbound encryption will be \"none\" — clients will fail to connect\n",
+					inboundTag, inboundTag)
+			}
 		}
 	}
 

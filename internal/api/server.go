@@ -57,6 +57,14 @@ func (s *Server) Router() http.Handler {
 	r.HandleFunc("/c/{token}", s.handleCompactSubscription).Methods(http.MethodGet)
 	r.HandleFunc("/c/{token}/links.txt", s.handleCompactSubscriptionLinksText).Methods(http.MethodGet)
 	r.HandleFunc("/c/{token}/links.b64", s.handleCompactSubscriptionLinksB64).Methods(http.MethodGet)
+	// ── sing-box / Hysteria2 subscription endpoints ───────────────────────────
+	// /sub/{token}/singbox      → sing-box JSON with Hysteria2 outbounds only
+	// /sub/{token}/hysteria2    → hysteria2:// share links (plain text)
+	// /sub/{token}/hysteria2.b64 → hysteria2:// share links (base64)
+	r.HandleFunc("/sub/{token}/singbox", s.handleSingboxSubscription).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/hysteria2", s.handleHysteria2LinksText).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/hysteria2.b64", s.handleHysteria2LinksB64).Methods(http.MethodGet)
+
 	r.HandleFunc("/sub/{token}/vless", s.handleVLESSLinksText).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/vless.b64", s.handleVLESSLinksB64).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/vless/list", s.handleVLESSList).Methods(http.MethodGet)
@@ -109,6 +117,16 @@ func (s *Server) Router() http.Handler {
 	api.HandleFunc("/config/balancer", s.setBalancerConfig).Methods(http.MethodPut)
 	api.HandleFunc("/sync", s.triggerSync).Methods(http.MethodPost)
 
+	// ── Emergency config rotation ─────────────────────────────────────────────
+	api.HandleFunc("/emergency/status", s.getEmergencyStatus).Methods(http.MethodGet)
+	api.HandleFunc("/emergency/activate", s.activateEmergency).Methods(http.MethodPost)
+	api.HandleFunc("/emergency/deactivate", s.deactivateEmergency).Methods(http.MethodPost)
+	api.HandleFunc("/emergency/profiles", s.listEmergencyProfiles).Methods(http.MethodGet)
+	api.HandleFunc("/emergency/profiles", s.createEmergencyProfile).Methods(http.MethodPost)
+	api.HandleFunc("/emergency/profiles/{id:[0-9]+}", s.getEmergencyProfileByID).Methods(http.MethodGet)
+	api.HandleFunc("/emergency/profiles/{id:[0-9]+}", s.updateEmergencyProfile).Methods(http.MethodPut)
+	api.HandleFunc("/emergency/profiles/{id:[0-9]+}", s.deleteEmergencyProfile).Methods(http.MethodDelete)
+
 	// Health check
 	r.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		jsonOK(w, map[string]string{"status": "ok"})
@@ -147,9 +165,6 @@ func (s *Server) adminAuth(next http.Handler) http.Handler {
 			return
 		}
 		token := r.Header.Get("X-Admin-Token")
-		if token == "" {
-			token = r.URL.Query().Get("admin_token")
-		}
 		if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.AdminToken)) != 1 {
 			jsonError(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -184,6 +199,27 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ERROR get user clients for %s: %v", sanitizeLogField(user.Username), err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	// Emergency mode: when active, restrict clients to the emergency profile's inbound tags.
+	// Falls back to normal clients if the user has no emergency inbounds enrolled.
+	if em, err := s.db.GetEmergencyStatus(); err == nil && em.Active {
+		w.Header().Set("X-Emergency-Mode", "active")
+		if em.Profile != nil && len(em.Profile.InboundTags) > 0 {
+			tagSet := make(map[string]bool, len(em.Profile.InboundTags))
+			for _, tag := range em.Profile.InboundTags {
+				tagSet[tag] = true
+			}
+			var emergency []models.UserClientFull
+			for _, c := range clients {
+				if tagSet[c.InboundTag] {
+					emergency = append(emergency, c)
+				}
+			}
+			if len(emergency) > 0 {
+				clients = emergency
+			}
+		}
 	}
 
 	// Optional filters allow exposing one protocol / inbound tag per subscription URL.
@@ -229,6 +265,8 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 
 	cfg, err := xray.GenerateClientConfig(
 		s.cfg.ServerHost,
+		s.cfg.InboundHosts,
+		s.cfg.InboundPorts,
 		*user,
 		clients,
 		globalRoutesJSON,
@@ -587,13 +625,17 @@ func (s *Server) removeUserFromXray(userID int64, username string) {
 			if err := xray.RemoveUserFromInboundViaAPI(apiAddr, tag, username); err != nil {
 				logXrayUserInboundError("WARN: remove user %s from Xray inbound %s: %s", username, tag, err)
 			}
+			// Also remove from config file so the user does not re-appear after Xray restart.
+			if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username, s.cfg.XrayConfigFilePerm()); err != nil {
+				logXrayUserInboundError("WARN: remove user %s from Xray config %s: %s", username, tag, err)
+			}
 		} else {
 			if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username, s.cfg.XrayConfigFilePerm()); err != nil {
 				logXrayUserInboundError("WARN: remove user %s from Xray config %s: %s", username, tag, err)
 			}
 		}
 	}
-	if apiAddr == "" && len(clients) > 0 {
+	if len(clients) > 0 {
 		go func() { _ = s.syncer.Sync() }()
 	}
 }
@@ -628,12 +670,16 @@ func (s *Server) removeClientFromXray(username, tag string) {
 		if err := xray.RemoveUserFromInboundViaAPI(apiAddr, tag, username); err != nil {
 			logXrayUserInboundError("WARN: remove user %s from Xray inbound %s: %s", username, tag, err)
 		}
+		// Also remove from config file so the user does not re-appear after Xray restart.
+		if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username, s.cfg.XrayConfigFilePerm()); err != nil {
+			logXrayUserInboundError("WARN: remove user %s from Xray config %s: %s", username, tag, err)
+		}
 	} else {
 		if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username, s.cfg.XrayConfigFilePerm()); err != nil {
 			logXrayUserInboundError("WARN: remove user %s from Xray config %s: %s", username, tag, err)
 		}
-		go func() { _ = s.syncer.Sync() }()
 	}
+	go func() { _ = s.syncer.Sync() }()
 }
 
 // addUserToXray adds the user to all inbounds they have user_client for, using existing credentials from DB.
