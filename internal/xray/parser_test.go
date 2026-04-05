@@ -378,6 +378,69 @@ func TestParseConfigDirWith_DedupVLESSEncryptionWarn(t *testing.T) {
 	}
 }
 
+func TestExtractVLESSTestpre(t *testing.T) {
+	si := ServerInbound{
+		Tag:      "vless-v2",
+		Protocol: "vless",
+		Settings: json.RawMessage(`{
+			"testpre": 2,
+			"decryption": "none",
+			"clients": [
+				{"id": "aaaa-bbbb", "email": "user@test.com", "flow": "xtls-rprx-vision"}
+			]
+		}`),
+	}
+
+	clients, err := extractVLESS(si, nil, nil, false)
+	if err != nil {
+		t.Fatalf("extractVLESS: %v", err)
+	}
+	if len(clients) != 1 {
+		t.Fatalf("expected 1 client, got %d", len(clients))
+	}
+
+	var cred StoredClientConfig
+	if err := json.Unmarshal([]byte(clients[0].ConfigJSON), &cred); err != nil {
+		t.Fatalf("unmarshal StoredClientConfig: %v", err)
+	}
+	if cred.Testpre != 2 {
+		t.Fatalf("expected Testpre=2, got %d", cred.Testpre)
+	}
+}
+
+func TestExtractVLESSTestpreZeroOmitted(t *testing.T) {
+	si := ServerInbound{
+		Tag:      "vless-legacy",
+		Protocol: "vless",
+		Settings: json.RawMessage(`{
+			"decryption": "none",
+			"clients": [
+				{"id": "cccc-dddd", "email": "legacy@test.com"}
+			]
+		}`),
+	}
+
+	clients, err := extractVLESS(si, nil, nil, false)
+	if err != nil {
+		t.Fatalf("extractVLESS: %v", err)
+	}
+	if len(clients) != 1 {
+		t.Fatalf("expected 1 client, got %d", len(clients))
+	}
+
+	var cred StoredClientConfig
+	if err := json.Unmarshal([]byte(clients[0].ConfigJSON), &cred); err != nil {
+		t.Fatalf("unmarshal StoredClientConfig: %v", err)
+	}
+	if cred.Testpre != 0 {
+		t.Fatalf("expected Testpre=0 for legacy inbound, got %d", cred.Testpre)
+	}
+	// Ensure "testpre" is omitted from JSON when zero
+	if strings.Contains(clients[0].ConfigJSON, "testpre") {
+		t.Fatalf("expected testpre omitted from JSON when zero, got: %s", clients[0].ConfigJSON)
+	}
+}
+
 func TestStoredClientConfigUnmarshalAlterIDBackwardCompat(t *testing.T) {
 	t.Run("camelCase alterId", func(t *testing.T) {
 		var c StoredClientConfig
