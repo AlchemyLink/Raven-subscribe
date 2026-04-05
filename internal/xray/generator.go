@@ -15,7 +15,9 @@ import (
 
 // GenerateClientConfig produces a complete xray client JSON config for a user.
 // socksPort and httpPort are the local proxy ports in the generated config; 0 = use default (2080, 1081).
-func GenerateClientConfig(serverHost string, user models.User, clients []models.UserClientFull, globalRoutesJSON string, balancerStrategy string, balancerProbeURL string, balancerProbeInterval string, socksPort, httpPort int) (*ClientConfig, error) {
+// inboundHosts overrides serverHost per inbound tag; falls back to serverHost when tag is not listed.
+// inboundPorts overrides the port per inbound tag; falls back to the inbound's own port when tag is not listed.
+func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inboundPorts map[string]int, user models.User, clients []models.UserClientFull, globalRoutesJSON string, balancerStrategy string, balancerProbeURL string, balancerProbeInterval string, socksPort, httpPort int) (*ClientConfig, error) {
 	if socksPort <= 0 {
 		socksPort = 2080
 	}
@@ -38,7 +40,14 @@ func GenerateClientConfig(serverHost string, user models.User, clients []models.
 	// Build outbounds from each user client
 	var proxyTags []string
 	for i, uc := range clients {
-		ob, err := buildOutbound(serverHost, uc, i)
+		host := serverHost
+		if h, ok := inboundHosts[uc.InboundTag]; ok && strings.TrimSpace(h) != "" {
+			host = h
+		}
+		if p, ok := inboundPorts[uc.InboundTag]; ok && p > 0 {
+			uc.InboundPort = p
+		}
+		ob, err := buildOutbound(host, uc, i)
 		if err != nil {
 			log.Printf("WARN: build outbound for inbound %s: %v", uc.InboundTag, err)
 			continue
@@ -185,14 +194,17 @@ func buildOutbound(serverHost string, uc models.UserClientFull, index int) (*Out
 		return nil, fmt.Errorf("parse stored config: %w", err)
 	}
 
-	// Parse the server-side inbound raw JSON to get stream settings
-	var si ServerInbound
-	if err := json.Unmarshal([]byte(uc.InboundRaw), &si); err != nil {
-		return nil, fmt.Errorf("parse inbound raw: %w", err)
-	}
-
 	tag := fmt.Sprintf("%s-%d", sanitizeTag(uc.InboundTag), index)
 	proto := strings.ToLower(uc.InboundProtocol)
+
+	// Parse the server-side inbound raw JSON to get stream settings.
+	// Hysteria2 uses sing-box format — no Xray ServerInbound parsing needed.
+	var si ServerInbound
+	if proto != "hysteria2" {
+		if err := json.Unmarshal([]byte(uc.InboundRaw), &si); err != nil {
+			return nil, fmt.Errorf("parse inbound raw: %w", err)
+		}
+	}
 
 	var (
 		settings json.RawMessage
@@ -210,6 +222,8 @@ func buildOutbound(serverHost string, uc models.UserClientFull, index int) (*Out
 		settings, err = buildShadowsocksSettings(serverHost, uc.InboundPort, cred)
 	case "socks":
 		settings, err = buildSOCKSSettings(serverHost, uc.InboundPort, cred)
+	case "hysteria2":
+		settings, err = buildHysteria2Settings(serverHost, uc.InboundPort, tag, cred)
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", proto)
 	}
@@ -217,10 +231,13 @@ func buildOutbound(serverHost string, uc models.UserClientFull, index int) (*Out
 		return nil, err
 	}
 
-	// Convert server-side stream settings to client-side
-	clientStream, err := convertStreamSettings(si.StreamSettings, serverHost)
-	if err != nil {
-		return nil, fmt.Errorf("convert stream settings: %w", err)
+	// Hysteria2 uses sing-box format — no Xray stream settings.
+	var clientStream *StreamSettings
+	if proto != "hysteria2" {
+		clientStream, err = convertStreamSettings(si.StreamSettings, serverHost)
+		if err != nil {
+			return nil, fmt.Errorf("convert stream settings: %w", err)
+		}
 	}
 
 	ob := &Outbound{
@@ -230,8 +247,8 @@ func buildOutbound(serverHost string, uc models.UserClientFull, index int) (*Out
 		StreamSettings: clientStream,
 	}
 
-	// Enable Mux for compatible protocols (not XTLS/REALITY)
-	if shouldUseMux(proto, cred.Flow, clientStream) {
+	// Enable Mux for compatible protocols (not XTLS/REALITY / VLESS Encryption)
+	if shouldUseMux(proto, cred.Flow, cred.Encryption, clientStream) {
 		ob.Mux = &MuxConfig{Enabled: true, Concurrency: 8}
 	}
 
@@ -301,6 +318,34 @@ func buildShadowsocksSettings(host string, port int, cred StoredClientConfig) (j
 			Password: cred.Password,
 		}},
 	}
+	return json.Marshal(s)
+}
+
+func buildHysteria2Settings(host string, port int, tag string, cred StoredClientConfig) (json.RawMessage, error) {
+	serverName := cred.ServerName
+	if serverName == "" {
+		serverName = host
+	}
+	s := Hysteria2OutboundSettings{
+		Type:       "hysteria2",
+		Tag:        tag,
+		Server:     host,
+		ServerPort: port,
+		Password:   cred.Password,
+		UpMbps:     cred.UpMbps,
+		DownMbps:   cred.DownMbps,
+		TLS: &Hysteria2TLS{
+			Enabled:    true,
+			ServerName: serverName,
+		},
+	}
+	if cred.ObfsType != "" {
+		s.Obfs = &Hysteria2Obfs{
+			Type:     cred.ObfsType,
+			Password: cred.ObfsPassword,
+		}
+	}
+	// #nosec G117 -- password-like fields are expected in stored protocol credentials.
 	return json.Marshal(s)
 }
 
@@ -437,9 +482,13 @@ func convertXHTTPSettings(raw json.RawMessage, rs *RealitySettings) (json.RawMes
 	}
 	if host, ok := serverSettings["host"]; ok {
 		clientSettings["host"] = host
-	} else if rs != nil && rs.ServerName != "" {
-		// If host is missing, use serverName from realitySettings
-		clientSettings["host"] = rs.ServerName
+	} else if rs != nil {
+		// If host is missing, derive from realitySettings (server uses ServerNames[], client uses ServerName)
+		if rs.ServerName != "" {
+			clientSettings["host"] = rs.ServerName
+		} else if len(rs.ServerNames) > 0 {
+			clientSettings["host"] = rs.ServerNames[0]
+		}
 	}
 	if mode, ok := serverSettings["mode"]; ok {
 		clientSettings["mode"] = mode
@@ -490,9 +539,13 @@ func derivePublicKey(privateKeyB64 string) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(pubBytes), nil
 }
 
-func shouldUseMux(proto, flow string, ss *StreamSettings) bool {
+func shouldUseMux(proto, flow, encryption string, ss *StreamSettings) bool {
 	// xtls-rprx-vision is fundamentally incompatible with Mux regardless of security layer
 	if flow == "xtls-rprx-vision" {
+		return false
+	}
+	// VLESS Encryption (outbound encryption != none) must not use Mux
+	if strings.TrimSpace(encryption) != "" && strings.TrimSpace(encryption) != "none" {
 		return false
 	}
 	if proto == "vless" || proto == "trojan" {
