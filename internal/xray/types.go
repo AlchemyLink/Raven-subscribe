@@ -37,6 +37,7 @@ type VMessClient struct {
 type VLESSInboundSettings struct {
 	Clients    []VLESSClient `json:"clients"`
 	Decryption string        `json:"decryption,omitempty"`
+	Testpre    uint32        `json:"testpre,omitempty"`
 }
 
 // VLESSClient represents a single VLESS client credential entry.
@@ -307,6 +308,7 @@ type VLESSUser struct {
 	Encryption string `json:"encryption"`
 	Email      string `json:"email,omitempty"`
 	Level      int    `json:"level,omitempty"`
+	Testpre    uint32 `json:"testpre,omitempty"`
 }
 
 // TrojanOutboundSettings holds Trojan outbound server list for the client config.
@@ -426,6 +428,9 @@ type StoredClientConfig struct {
 	// For VLESS Encryption (PR #5067): client-side string from vless_client_encryption config map.
 	// Never stores the server-side decryption string (which contains private keys).
 	Encryption string `json:"encryption,omitempty"`
+	// Testpre instructs the client to maintain N pre-established TCP connections (0-RTT pool).
+	// Read from inbound settings.testpre; 0 means disabled (field omitted from client config).
+	Testpre uint32 `json:"testpre,omitempty"`
 	// Trojan/SS/SOCKS
 	Password string `json:"password,omitempty"`
 	Method   string `json:"method,omitempty"`
