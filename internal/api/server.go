@@ -625,13 +625,17 @@ func (s *Server) removeUserFromXray(userID int64, username string) {
 			if err := xray.RemoveUserFromInboundViaAPI(apiAddr, tag, username); err != nil {
 				logXrayUserInboundError("WARN: remove user %s from Xray inbound %s: %s", username, tag, err)
 			}
+			// Also remove from config file so the user does not re-appear after Xray restart.
+			if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username, s.cfg.XrayConfigFilePerm()); err != nil {
+				logXrayUserInboundError("WARN: remove user %s from Xray config %s: %s", username, tag, err)
+			}
 		} else {
 			if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username, s.cfg.XrayConfigFilePerm()); err != nil {
 				logXrayUserInboundError("WARN: remove user %s from Xray config %s: %s", username, tag, err)
 			}
 		}
 	}
-	if apiAddr == "" && len(clients) > 0 {
+	if len(clients) > 0 {
 		go func() { _ = s.syncer.Sync() }()
 	}
 }
@@ -666,12 +670,16 @@ func (s *Server) removeClientFromXray(username, tag string) {
 		if err := xray.RemoveUserFromInboundViaAPI(apiAddr, tag, username); err != nil {
 			logXrayUserInboundError("WARN: remove user %s from Xray inbound %s: %s", username, tag, err)
 		}
+		// Also remove from config file so the user does not re-appear after Xray restart.
+		if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username, s.cfg.XrayConfigFilePerm()); err != nil {
+			logXrayUserInboundError("WARN: remove user %s from Xray config %s: %s", username, tag, err)
+		}
 	} else {
 		if err := xray.RemoveUserFromInbound(s.cfg.ConfigDir, tag, username, s.cfg.XrayConfigFilePerm()); err != nil {
 			logXrayUserInboundError("WARN: remove user %s from Xray config %s: %s", username, tag, err)
 		}
-		go func() { _ = s.syncer.Sync() }()
 	}
+	go func() { _ = s.syncer.Sync() }()
 }
 
 // addUserToXray adds the user to all inbounds they have user_client for, using existing credentials from DB.
