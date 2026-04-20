@@ -248,6 +248,7 @@ func extractVLESS(si ServerInbound, clientEncMap map[string]string, vlessEncWarn
 			Flow:       c.Flow,
 			Email:      c.Email,
 			Encryption: clientEnc,
+			Testpre:    s.Testpre,
 		}
 		// #nosec G117 -- credentials are marshaled for internal DB storage.
 		b, _ := json.Marshal(cred)

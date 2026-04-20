@@ -280,6 +280,7 @@ func buildVLESSSettings(host string, port int, cred StoredClientConfig) (json.Ra
 		ID:         cred.ID,
 		Flow:       cred.Flow,
 		Encryption: encryption,
+		Testpre:    cred.Testpre,
 	}
 	if cred.Email != "" {
 		user.Email = cred.Email
