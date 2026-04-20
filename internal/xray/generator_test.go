@@ -2,6 +2,7 @@ package xray
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/alchemylink/raven-subscribe/internal/models"
@@ -571,6 +572,80 @@ func TestGenerateClientConfigPortParsing(t *testing.T) {
 
 	if vlessSettings.Vnext[0].Port != 443 {
 		t.Fatalf("expected port 443, got %d", vlessSettings.Vnext[0].Port)
+	}
+}
+
+// TestGenerateClientConfigVLESSTestpre verifies that testpre from StoredClientConfig
+// is propagated into the VLESS outbound user entry (for v2 inbounds).
+func TestGenerateClientConfigVLESSTestpre(t *testing.T) {
+	serverHost := "example.com"
+	user := models.User{Username: "testuser"}
+
+	// StoredClientConfig with testpre=2 (as stored after parsing a v2 inbound)
+	clients := []models.UserClientFull{
+		{
+			UserClient: models.UserClient{
+				ClientConfig: `{"protocol":"vless","id":"uuid-v2","flow":"xtls-rprx-vision","encryption":"none","testpre":2}`,
+			},
+			InboundTag:      "vless-reality-v2",
+			InboundProtocol: "vless",
+			InboundPort:     443,
+			InboundRaw:      `{"tag":"vless-reality-v2","protocol":"vless","port":443,"settings":{"testpre":2,"decryption":"none","clients":[{"id":"uuid-v2","email":"user@test.com","flow":"xtls-rprx-vision"}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"destination.com"}}}`,
+		},
+	}
+
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
+	if err != nil {
+		t.Fatalf("GenerateClientConfig error: %v", err)
+	}
+
+	if len(cfg.Outbounds) == 0 {
+		t.Fatal("expected at least one outbound")
+	}
+
+	var vlessSettings VLESSOutboundSettings
+	if err := json.Unmarshal(cfg.Outbounds[0].Settings, &vlessSettings); err != nil {
+		t.Fatalf("unmarshal VLESS settings: %v", err)
+	}
+	if len(vlessSettings.Vnext) != 1 || len(vlessSettings.Vnext[0].Users) != 1 {
+		t.Fatal("expected 1 vnext with 1 user")
+	}
+
+	u := vlessSettings.Vnext[0].Users[0]
+	if u.Testpre != 2 {
+		t.Fatalf("expected Testpre=2 in outbound user, got %d", u.Testpre)
+	}
+}
+
+// TestGenerateClientConfigVLESSTestpreZeroOmitted verifies that testpre=0 (legacy inbound)
+// does not appear in the outbound JSON.
+func TestGenerateClientConfigVLESSTestpreZeroOmitted(t *testing.T) {
+	serverHost := "example.com"
+	user := models.User{Username: "testuser"}
+
+	clients := []models.UserClientFull{
+		{
+			UserClient: models.UserClient{
+				ClientConfig: `{"protocol":"vless","id":"uuid-legacy","flow":"xtls-rprx-vision","encryption":"none"}`,
+			},
+			InboundTag:      "vless-reality",
+			InboundProtocol: "vless",
+			InboundPort:     443,
+			InboundRaw:      `{"tag":"vless-reality","protocol":"vless","port":443,"settings":{"decryption":"none","clients":[{"id":"uuid-legacy","email":"user@test.com","flow":"xtls-rprx-vision"}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"destination.com"}}}`,
+		},
+	}
+
+	cfg, err := GenerateClientConfig(serverHost, nil, nil, user, clients, "", "", "", "", 0, 0)
+	if err != nil {
+		t.Fatalf("GenerateClientConfig error: %v", err)
+	}
+
+	raw, err := json.Marshal(cfg.Outbounds[0].Settings)
+	if err != nil {
+		t.Fatalf("marshal settings: %v", err)
+	}
+	if strings.Contains(string(raw), "testpre") {
+		t.Fatalf("expected testpre omitted for legacy inbound, got: %s", raw)
 	}
 }
 
