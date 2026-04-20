@@ -4,6 +4,11 @@ build/
 *.db
 /config.json
 
+# Compiled binaries in repo root (go build output)
+/main
+/xray-subscription
+/xray-stats-exporter
+
 # If you prefer the allow list template instead of the deny list, see community template:
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
 #
