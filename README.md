@@ -7,6 +7,7 @@ Languages: **English** | [Русский](README.ru.md)
 [![Security Scan](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml/badge.svg)](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/alchemylink/raven-subscribe)](https://goreportcard.com/report/github.com/alchemylink/raven-subscribe)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/Status-Alpha%20Testing-orange)](https://github.com/AlchemyLink/Raven-subscribe)
 [![Stars](https://img.shields.io/github/stars/AlchemyLink/Raven-subscribe?style=flat)](https://github.com/AlchemyLink/Raven-subscribe/stargazers)
 [![Forks](https://img.shields.io/github/forks/AlchemyLink/Raven-subscribe?style=flat)](https://github.com/AlchemyLink/Raven-subscribe/network/members)
 [![Hits](https://hits.dwyl.com/AlchemyLink/Raven-subscribe.svg?style=flat)](https://hits.dwyl.com/AlchemyLink/Raven-subscribe)
@@ -14,6 +15,9 @@ Languages: **English** | [Русский](README.ru.md)
 **Self-hosted subscription server for [XTLS/Xray-core](https://github.com/XTLS/Xray-core) and [sing-box](https://github.com/SagerNet/sing-box).** Auto-discovers users from your Xray server configs and gives each one a personal subscription URL — so V2RayNG, NekoBox, Hiddify, and other VPN clients always fetch the latest connection settings automatically.
 
 Supports **VLESS, VMess, Trojan, Shadowsocks, Hysteria2**, transports **XHTTP/SplitHTTP, WebSocket, gRPC, REALITY**, and serves configs in Xray JSON, sing-box JSON, and share-link formats.
+
+> [!WARNING]
+> **Alpha Testing** — This project is under active development. APIs and config fields may change between versions. Please [report issues](https://github.com/AlchemyLink/Raven-subscribe/issues).
 
 ---
 
@@ -27,6 +31,7 @@ Supports **VLESS, VMess, Trojan, Shadowsocks, Hysteria2**, transports **XHTTP/Sp
 - [Subscription URLs](#subscription-urls)
 - [Admin API](#admin-api)
 - [Routing Rules](#routing-rules)
+- [Emergency Config Rotation](#emergency-config-rotation)
 - [Supported Protocols & Transports](#supported-protocols--transports)
 - [sing-box / Hysteria2](#sing-box--hysteria2)
 - [Docker](#docker)
@@ -361,6 +366,8 @@ Each user has several subscription endpoints:
 | `/sub/{token}/singbox` | sing-box JSON config with Hysteria2 outbounds. For Hysteria2 clients. |
 | `/sub/{token}/hysteria2` | Hysteria2 share links (`hysteria2://…`), plain text. |
 | `/sub/{token}/hysteria2.b64` | Hysteria2 share links, Base64-encoded. |
+| `/sub/{token}/links` | JSON map of all share-link URLs grouped by protocol and inbound tag. |
+| `/sub/{token}/protocol/{protocol}` | Share links filtered by protocol name (e.g. `vless`, `vmess`, `trojan`, `ss`, `hysteria2`). |
 
 ### `/c/{token}` — primary endpoint (recommended)
 
@@ -702,6 +709,99 @@ Content-Type: application/json
 ```
 
 `outboundTag` must be one of: `direct`, `proxy`, `block`.
+
+---
+
+## Emergency Config Rotation
+
+When a VPN blocking event (e.g. DPI detection) hits your main inbounds, emergency mode lets you instantly redirect **all subscriptions** to a pre-configured set of fallback inbounds — with a single API call. Clients that re-fetch their subscription URL automatically receive the fallback config.
+
+When emergency mode is active, subscription responses include an `X-Emergency-Mode: active` header. If a user is not enrolled in any of the profile's inbounds, their normal subscription is served as a fallback.
+
+### Workflow
+
+1. Create an emergency profile with the inbound tags of your fallback server
+2. When a block occurs: activate the profile
+3. Clients that refresh their subscription automatically switch to fallbacks
+4. When the block is resolved: deactivate — all clients revert to normal configs
+
+### Create an emergency profile
+
+```bash
+POST /api/emergency/profiles
+Content-Type: application/json
+
+{
+  "name": "CDN fallback",
+  "description": "XHTTP over CDN, active when main Reality is blocked",
+  "inbound_tags": ["vless-cdn-in", "vless-xhttp-v2-in"]
+}
+```
+
+```bash
+curl -X POST -H "X-Admin-Token: secret" -H "Content-Type: application/json" \
+  -d '{"name":"CDN fallback","description":"fallback via CDN","inbound_tags":["vless-cdn-in"]}' \
+  http://localhost:8080/api/emergency/profiles
+```
+
+Response:
+```json
+{"id": 1, "name": "CDN fallback", "description": "fallback via CDN", "inbound_tags": ["vless-cdn-in"]}
+```
+
+### Activate emergency mode
+
+```bash
+POST /api/emergency/activate
+Content-Type: application/json
+
+{"profile_id": 1}
+```
+
+```bash
+curl -X POST -H "X-Admin-Token: secret" -H "Content-Type: application/json" \
+  -d '{"profile_id":1}' http://localhost:8080/api/emergency/activate
+```
+
+Response:
+```json
+{
+  "active": true,
+  "profile_id": 1,
+  "profile": {"id": 1, "name": "CDN fallback", "inbound_tags": ["vless-cdn-in"]},
+  "activated_at": "2025-01-15T12:00:00Z"
+}
+```
+
+### Deactivate emergency mode
+
+```bash
+POST /api/emergency/deactivate
+```
+
+```bash
+curl -X POST -H "X-Admin-Token: secret" http://localhost:8080/api/emergency/deactivate
+```
+
+Response: `{"active": false}`
+
+### Check emergency status
+
+```bash
+GET /api/emergency/status
+```
+
+### Emergency profile management
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/emergency/profiles` | List all profiles |
+| `POST` | `/api/emergency/profiles` | Create profile |
+| `GET` | `/api/emergency/profiles/{id}` | Get profile by ID |
+| `PUT` | `/api/emergency/profiles/{id}` | Update profile |
+| `DELETE` | `/api/emergency/profiles/{id}` | Delete profile (not allowed if active) |
+
+> **Note:** You cannot delete a profile while it is the active emergency profile. Deactivate first.
 
 ---
 
