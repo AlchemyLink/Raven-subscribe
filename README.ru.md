@@ -7,6 +7,7 @@
 [![Security Scan](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml/badge.svg)](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/alchemylink/raven-subscribe)](https://goreportcard.com/report/github.com/alchemylink/raven-subscribe)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/Status-Alpha%20Testing-orange)](https://github.com/AlchemyLink/Raven-subscribe)
 [![Stars](https://img.shields.io/github/stars/AlchemyLink/Raven-subscribe?style=flat)](https://github.com/AlchemyLink/Raven-subscribe/stargazers)
 [![Forks](https://img.shields.io/github/forks/AlchemyLink/Raven-subscribe?style=flat)](https://github.com/AlchemyLink/Raven-subscribe/network/members)
 [![Hits](https://hits.dwyl.com/AlchemyLink/Raven-subscribe.svg?style=flat)](https://hits.dwyl.com/AlchemyLink/Raven-subscribe)
@@ -14,6 +15,9 @@
 **Self-hosted сервер подписок для [XTLS/Xray-core](https://github.com/XTLS/Xray-core) и [sing-box](https://github.com/SagerNet/sing-box).** Автоматически находит пользователей в конфигах вашего Xray-сервера и выдаёт каждому персональную ссылку — чтобы V2RayNG, NekoBox, Hiddify и другие VPN-клиенты всегда получали актуальные настройки подключения.
 
 Поддерживает **VLESS, VMess, Trojan, Shadowsocks, Hysteria2**, транспорты **XHTTP/SplitHTTP, WebSocket, gRPC, REALITY**, отдаёт конфиги в форматах Xray JSON, sing-box JSON и share-ссылках.
+
+> [!WARNING]
+> **Альфа-тестирование** — проект в активной разработке. API и поля конфига могут меняться между версиями. Пожалуйста, [сообщайте об ошибках](https://github.com/AlchemyLink/Raven-subscribe/issues).
 
 ---
 
@@ -27,6 +31,7 @@
 - [Ссылки подписки](#ссылки-подписки)
 - [Admin API](#admin-api)
 - [Правила маршрутизации](#правила-маршрутизации)
+- [Экстренная ротация конфигов](#экстренная-ротация-конфигов)
 - [Протоколы и транспорты](#протоколы-и-транспорты)
 - [sing-box / Hysteria2](#sing-box--hysteria2)
 - [Docker](#docker)
@@ -358,6 +363,8 @@ xray-subscription -config /etc/xray-subscription/config.json
 | `/sub/{token}/singbox` | sing-box JSON конфиг с Hysteria2 outbound-ами. Для Hysteria2-клиентов. |
 | `/sub/{token}/hysteria2` | Share-ссылки Hysteria2 (`hysteria2://…`), обычный текст. |
 | `/sub/{token}/hysteria2.b64` | Share-ссылки Hysteria2, Base64-кодировка. |
+| `/sub/{token}/links` | JSON-объект со всеми share-ссылками, сгруппированными по протоколу и тегу inbound. |
+| `/sub/{token}/protocol/{protocol}` | Share-ссылки только для указанного протокола (`vless`, `vmess`, `trojan`, `ss`, `hysteria2`). |
 
 ### `/c/{token}` — основной эндпоинт (рекомендуется)
 
@@ -699,6 +706,99 @@ Content-Type: application/json
 ```
 
 `outboundTag` должен быть одним из: `direct`, `proxy`, `block`.
+
+---
+
+## Экстренная ротация конфигов
+
+При блокировке основных inbound'ов (например, DPI-детекция) режим экстренной ротации позволяет **одним API-вызовом** мгновенно переключить **все подписки** на заранее настроенные резервные inbound'ы. Клиенты, обновившие подписку, автоматически получают резервный конфиг.
+
+Когда активен экстренный режим, ответы на запросы подписки содержат заголовок `X-Emergency-Mode: active`. Если у пользователя нет подключений к inbound'ам профиля — отдаётся обычная подписка.
+
+### Рабочий процесс
+
+1. Создайте экстренный профиль с тегами резервных inbound'ов
+2. При блокировке: активируйте профиль
+3. Клиенты при следующем обновлении подписки автоматически переключатся на резерв
+4. После устранения блокировки: деактивируйте — все клиенты возвращаются к нормальным конфигам
+
+### Создать экстренный профиль
+
+```bash
+POST /api/emergency/profiles
+Content-Type: application/json
+
+{
+  "name": "CDN fallback",
+  "description": "XHTTP через CDN, активен при блокировке основного Reality",
+  "inbound_tags": ["vless-cdn-in", "vless-xhttp-v2-in"]
+}
+```
+
+```bash
+curl -X POST -H "X-Admin-Token: secret" -H "Content-Type: application/json" \
+  -d '{"name":"CDN fallback","description":"резерв через CDN","inbound_tags":["vless-cdn-in"]}' \
+  http://localhost:8080/api/emergency/profiles
+```
+
+Ответ:
+```json
+{"id": 1, "name": "CDN fallback", "description": "резерв через CDN", "inbound_tags": ["vless-cdn-in"]}
+```
+
+### Активировать экстренный режим
+
+```bash
+POST /api/emergency/activate
+Content-Type: application/json
+
+{"profile_id": 1}
+```
+
+```bash
+curl -X POST -H "X-Admin-Token: secret" -H "Content-Type: application/json" \
+  -d '{"profile_id":1}' http://localhost:8080/api/emergency/activate
+```
+
+Ответ:
+```json
+{
+  "active": true,
+  "profile_id": 1,
+  "profile": {"id": 1, "name": "CDN fallback", "inbound_tags": ["vless-cdn-in"]},
+  "activated_at": "2025-01-15T12:00:00Z"
+}
+```
+
+### Деактивировать экстренный режим
+
+```bash
+POST /api/emergency/deactivate
+```
+
+```bash
+curl -X POST -H "X-Admin-Token: secret" http://localhost:8080/api/emergency/deactivate
+```
+
+Ответ: `{"active": false}`
+
+### Проверить статус
+
+```bash
+GET /api/emergency/status
+```
+
+### Управление профилями
+
+| Метод | Эндпоинт | Описание |
+|-------|----------|----------|
+| `GET` | `/api/emergency/profiles` | Список всех профилей |
+| `POST` | `/api/emergency/profiles` | Создать профиль |
+| `GET` | `/api/emergency/profiles/{id}` | Получить профиль по ID |
+| `PUT` | `/api/emergency/profiles/{id}` | Обновить профиль |
+| `DELETE` | `/api/emergency/profiles/{id}` | Удалить профиль (нельзя, если активен) |
+
+> **Важно:** Удалить активный профиль нельзя. Сначала деактивируйте экстренный режим.
 
 ---
 
