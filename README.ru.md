@@ -7,7 +7,6 @@
 [![Security Scan](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml/badge.svg)](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/alchemylink/raven-subscribe)](https://goreportcard.com/report/github.com/alchemylink/raven-subscribe)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Alpha%20Testing-orange)](https://github.com/AlchemyLink/Raven-subscribe)
 [![Stars](https://img.shields.io/github/stars/AlchemyLink/Raven-subscribe?style=flat)](https://github.com/AlchemyLink/Raven-subscribe/stargazers)
 [![Forks](https://img.shields.io/github/forks/AlchemyLink/Raven-subscribe?style=flat)](https://github.com/AlchemyLink/Raven-subscribe/network/members)
 [![Hits](https://hits.dwyl.com/AlchemyLink/Raven-subscribe.svg?style=flat)](https://hits.dwyl.com/AlchemyLink/Raven-subscribe)
@@ -15,9 +14,6 @@
 **Self-hosted сервер подписок для [XTLS/Xray-core](https://github.com/XTLS/Xray-core) и [sing-box](https://github.com/SagerNet/sing-box).** Автоматически находит пользователей в конфигах вашего Xray-сервера и выдаёт каждому персональную ссылку — чтобы V2RayNG, NekoBox, Hiddify и другие VPN-клиенты всегда получали актуальные настройки подключения.
 
 Поддерживает **VLESS, VMess, Trojan, Shadowsocks, Hysteria2**, транспорты **XHTTP/SplitHTTP, WebSocket, gRPC, REALITY**, отдаёт конфиги в форматах Xray JSON, sing-box JSON и share-ссылках.
-
-> [!WARNING]
-> **Альфа-тестирование** — проект в активной разработке. API и поля конфига могут меняться между версиями. Пожалуйста, [сообщайте об ошибках](https://github.com/AlchemyLink/Raven-subscribe/issues).
 
 ---
 

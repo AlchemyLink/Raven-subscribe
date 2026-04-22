@@ -7,7 +7,6 @@ Languages: **English** | [Русский](README.ru.md)
 [![Security Scan](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml/badge.svg)](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/alchemylink/raven-subscribe)](https://goreportcard.com/report/github.com/alchemylink/raven-subscribe)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Alpha%20Testing-orange)](https://github.com/AlchemyLink/Raven-subscribe)
 [![Stars](https://img.shields.io/github/stars/AlchemyLink/Raven-subscribe?style=flat)](https://github.com/AlchemyLink/Raven-subscribe/stargazers)
 [![Forks](https://img.shields.io/github/forks/AlchemyLink/Raven-subscribe?style=flat)](https://github.com/AlchemyLink/Raven-subscribe/network/members)
 [![Hits](https://hits.dwyl.com/AlchemyLink/Raven-subscribe.svg?style=flat)](https://hits.dwyl.com/AlchemyLink/Raven-subscribe)
@@ -15,9 +14,6 @@ Languages: **English** | [Русский](README.ru.md)
 **Self-hosted subscription server for [XTLS/Xray-core](https://github.com/XTLS/Xray-core) and [sing-box](https://github.com/SagerNet/sing-box).** Auto-discovers users from your Xray server configs and gives each one a personal subscription URL — so V2RayNG, NekoBox, Hiddify, and other VPN clients always fetch the latest connection settings automatically.
 
 Supports **VLESS, VMess, Trojan, Shadowsocks, Hysteria2**, transports **XHTTP/SplitHTTP, WebSocket, gRPC, REALITY**, and serves configs in Xray JSON, sing-box JSON, and share-link formats.
-
-> [!WARNING]
-> **Alpha Testing** — This project is under active development. APIs and config fields may change between versions. Please [report issues](https://github.com/AlchemyLink/Raven-subscribe/issues).
 
 ---
 
