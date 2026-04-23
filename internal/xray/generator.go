@@ -620,7 +620,6 @@ func defaultRouting() *Routing {
 		DomainStrategy: "IPOnDemand",
 		Rules: []RoutingRule{
 			{Type: "field", OutboundTag: "direct", Protocol: []string{"bittorrent"}},
-			{Type: "field", OutboundTag: "direct", Domain: []string{"geosite:category-ru"}},
 			{
 				Type:        "field",
 				OutboundTag: "block",
@@ -632,7 +631,6 @@ func defaultRouting() *Routing {
 			},
 			{Type: "field", OutboundTag: "direct", IP: []string{"geoip:private"}},
 			{Type: "field", OutboundTag: "direct", Domain: []string{"geosite:private"}},
-			{Type: "field", OutboundTag: "direct", IP: []string{"geoip:ru"}},
 		},
 	}
 }
