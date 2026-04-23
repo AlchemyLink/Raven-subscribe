@@ -161,7 +161,9 @@ func (s *Server) rateLimitWrap(next http.Handler) http.Handler {
 func (s *Server) adminAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.AdminToken == "" {
-			next.ServeHTTP(w, r)
+			// No token configured — lock the API entirely rather than opening it.
+			// Set admin_token in config.json to enable the admin API.
+			jsonError(w, "admin API disabled: admin_token not configured", http.StatusServiceUnavailable)
 			return
 		}
 		token := r.Header.Get("X-Admin-Token")
