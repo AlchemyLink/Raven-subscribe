@@ -611,10 +611,6 @@ func defaultDNS() *DNSConfig {
 			},
 			"1.1.1.1",
 			"8.8.4.4",
-			map[string]interface{}{
-				"address": "223.5.5.5",
-				"domains": []string{"geosite:cn"},
-			},
 		},
 	}
 }
@@ -623,30 +619,10 @@ func defaultRouting() *Routing {
 	return &Routing{
 		DomainStrategy: "IPOnDemand",
 		Rules: []RoutingRule{
-			{
-				Type:        "field",
-				OutboundTag: "direct",
-				Domain: []string{
-					".lamoda.ru:443",
-					"okko.sport",
-					"okko.tv",
-					"yandex.net",
-					"vk.com",
-					"yastatic.net",
-					"gencit.info",
-					"naydex.net",
-					"deepseek.com",
-					"yandex.cloud",
-					"yandexcloud.net",
-					"lizaalert.org",
-					"selcdn.net",
-					"lk.dobroservice.com",
-					"dobroservice.com",
-				},
-			},
 			{Type: "field", OutboundTag: "direct", Protocol: []string{"bittorrent"}},
 			{Type: "field", OutboundTag: "proxy", Domain: []string{"geosite:ru-blocked"}},
 			{Type: "field", OutboundTag: "proxy", IP: []string{"geoip:ru-blocked"}},
+			{Type: "field", OutboundTag: "direct", Domain: []string{"geosite:category-ru"}},
 			{
 				Type:        "field",
 				OutboundTag: "block",
