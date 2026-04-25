@@ -52,6 +52,19 @@ type Config struct {
 	// Example: {"vless-reality-in": 8444} — clients connect to relay:8444 instead of EU:443
 	InboundPorts map[string]int `json:"inbound_ports,omitempty"`
 
+	// ClientDNSServers overrides the DNS server list in generated client configs.
+	// Each entry is either a plain IP string or an object with Xray DNS server fields:
+	//   address      — IP or hostname (required)
+	//   domains      — resolve only these domains via this server (geosite:/domain: syntax)
+	//   skipFallback — when true, server is excluded from the fallback list (List 2);
+	//                  use with domain-specific servers to prevent them handling unmatched domains
+	//   expectIPs    — accept only responses whose IPs match these ranges (geoip: syntax);
+	//                  mismatches are discarded and the next server is tried (anti-spoofing)
+	// When empty or omitted, a default list (1.1.1.1, 8.8.8.8, 8.8.4.4) is used.
+	// Example:
+	//   [{"address":"77.88.8.8","domains":["geosite:ru-blocked"],"skipFallback":true,"expectIPs":["geoip:ru"]},"1.1.1.1","9.9.9.9"]
+	ClientDNSServers []interface{} `json:"client_dns_servers,omitempty"`
+
 	// VLESSClientEncryption maps VLESS inbound tag to its client-side VLESS Encryption string.
 	// Required when the inbound uses VLESS Encryption (decryption != "none").
 	// Generate both strings with: xray vlessenc
@@ -220,7 +233,16 @@ func (c *Config) SubURL(token string) string {
 	return fmt.Sprintf("%s/sub/%s", c.BaseURL, token)
 }
 
+// FallbackURL returns the fallback subscription URL for the given fallback token.
+func (c *Config) FallbackURL(fallbackToken string) string {
+	if fallbackToken == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/sub/fallback/%s", c.BaseURL, fallbackToken)
+}
+
 // SubURLs returns all subscription URL variants for the given user token.
+// If fallbackToken is non-empty, the Fallback field is populated.
 func (c *Config) SubURLs(token string) models.SubURLs {
 	sub := fmt.Sprintf("%s/sub/%s", c.BaseURL, token)
 	compact := fmt.Sprintf("%s/c/%s", c.BaseURL, token)
@@ -234,6 +256,13 @@ func (c *Config) SubURLs(token string) models.SubURLs {
 		Singbox:     sub + "/singbox",
 		Hysteria2:   sub + "/hysteria2",
 	}
+}
+
+// SubURLsWithFallback returns all subscription URL variants including the fallback URL.
+func (c *Config) SubURLsWithFallback(token, fallbackToken string) models.SubURLs {
+	urls := c.SubURLs(token)
+	urls.Fallback = c.FallbackURL(fallbackToken)
+	return urls
 }
 
 func normalizeBalancerStrategy(v string) string {

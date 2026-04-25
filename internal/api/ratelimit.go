@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -82,18 +83,25 @@ func rateLimitMiddleware(perMin int) func(http.Handler) http.Handler {
 	}
 }
 
+// clientIP returns the real client IP. Forwarding headers (X-Forwarded-For,
+// X-Real-IP) are only trusted when the TCP connection originates from a local
+// proxy (127.0.0.1 or ::1). Any other caller setting these headers is treated
+// as the client itself, preventing rate-limit bypass via header injection.
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// First IP is the client when behind a proxy.
-		for i, c := range xff {
-			if c == ',' || c == ' ' {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if host == "127.0.0.1" || host == "::1" {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			if i := strings.IndexAny(xff, ", "); i >= 0 {
 				return strings.TrimSpace(xff[:i])
 			}
+			return strings.TrimSpace(xff)
 		}
-		return strings.TrimSpace(xff)
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			return strings.TrimSpace(xri)
+		}
 	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
-	}
-	return r.RemoteAddr
+	return host
 }

@@ -240,7 +240,12 @@ xray-subscription -config /etc/xray-subscription/config.json
   },
   "inbound_ports": {
     "vless-reality-in": 8445
-  }
+  },
+  "client_dns_servers": [
+    "1.1.1.1",
+    "8.8.8.8",
+    { "address": "77.88.8.8", "domains": ["geosite:yandex"] }
+  ]
 }
 ```
 
@@ -284,6 +289,7 @@ xray-subscription -config /etc/xray-subscription/config.json
 |------|--------------|----------|
 | `socks_inbound_port` | `2080` | Порт локального SOCKS5-прокси в генерируемых конфигах. Используется клиентами для системного/прикладного прокси. |
 | `http_inbound_port` | `1081` | Порт локального HTTP-прокси в генерируемых конфигах. |
+| `client_dns_servers` | `["1.1.1.1","8.8.8.8","8.8.4.4"]` | Список DNS-серверов, подставляемых в генерируемые клиентские конфиги. Каждый элемент — строка с IP или объект с полями `address` и `domains` (формат DNS Xray). При пустом значении или отсутствии поля используется встроенный дефолт. Пример с domain-специфичным резолвером: `["1.1.1.1", {"address": "77.88.8.8", "domains": ["geosite:yandex"]}]`. |
 
 #### Ограничение частоты запросов
 

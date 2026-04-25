@@ -124,30 +124,49 @@ func (db *DB) migrate() error {
 	if _, err := db.conn.Exec(`UPDATE users SET email = username WHERE trim(COALESCE(email, '')) = ''`); err != nil {
 		return err
 	}
+	if _, err := db.conn.Exec(`ALTER TABLE users ADD COLUMN fallback_token TEXT DEFAULT NULL`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name: fallback_token") {
+			return err
+		}
+	}
+	if _, err := db.conn.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_fallback_token ON users(fallback_token)`); err != nil {
+		return err
+	}
+	if _, err := db.conn.Exec(`ALTER TABLE users ADD COLUMN fallback_accessed_at DATETIME DEFAULT NULL`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name: fallback_accessed_at") {
+			return err
+		}
+	}
 	return nil
 }
 
 // ─── Users ───────────────────────────────────────────────────────────────────
 
 // CreateUser inserts a new user. If email is empty, it is set to username (Xray client email / monitoring).
-func (db *DB) CreateUser(username, email, token string) (*models.User, error) {
+// fallbackToken should be a pre-generated secure token; pass empty string to leave NULL.
+func (db *DB) CreateUser(username, email, token, fallbackToken string) (*models.User, error) {
 	username = strings.TrimSpace(username)
 	email = strings.TrimSpace(email)
 	if email == "" {
 		email = username
 	}
+	fallbackToken = strings.TrimSpace(fallbackToken)
 	now := time.Now().UTC()
+	var fallbackArg interface{}
+	if fallbackToken != "" {
+		fallbackArg = fallbackToken
+	}
 	res, err := db.conn.Exec(
-		`INSERT INTO users (username, email, token, enabled, client_routes, created_at, updated_at)
-		 VALUES (?, ?, ?, 1, '[]', ?, ?)`,
-		username, email, token, now, now,
+		`INSERT INTO users (username, email, token, fallback_token, enabled, client_routes, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, 1, '[]', ?, ?)`,
+		username, email, token, fallbackArg, now, now,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
 	return &models.User{
-		ID: id, Username: username, Email: email, Token: token, Enabled: true,
+		ID: id, Username: username, Email: email, Token: token, FallbackToken: fallbackToken, Enabled: true,
 		CreatedAt: now, UpdatedAt: now,
 	}, nil
 }
@@ -155,21 +174,31 @@ func (db *DB) CreateUser(username, email, token string) (*models.User, error) {
 // GetUserByToken returns the user matching the given subscription token, or nil if not found.
 func (db *DB) GetUserByToken(token string) (*models.User, error) {
 	return db.scanUser(db.conn.QueryRow(
-		`SELECT id, username, email, token, enabled, client_routes, created_at, updated_at FROM users WHERE token = ?`, token,
+		`SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, created_at, updated_at FROM users WHERE token = ?`, token,
+	))
+}
+
+// GetUserByFallbackToken returns the user matching the given fallback token, or nil if not found.
+func (db *DB) GetUserByFallbackToken(token string) (*models.User, error) {
+	if token == "" {
+		return nil, nil
+	}
+	return db.scanUser(db.conn.QueryRow(
+		`SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, created_at, updated_at FROM users WHERE fallback_token = ?`, token,
 	))
 }
 
 // GetUserByUsername returns the user with the given username, or nil if not found.
 func (db *DB) GetUserByUsername(username string) (*models.User, error) {
 	return db.scanUser(db.conn.QueryRow(
-		`SELECT id, username, email, token, enabled, client_routes, created_at, updated_at FROM users WHERE username = ?`, username,
+		`SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, created_at, updated_at FROM users WHERE username = ?`, username,
 	))
 }
 
 // GetUserByID returns the user with the given ID, or nil if not found.
 func (db *DB) GetUserByID(id int64) (*models.User, error) {
 	return db.scanUser(db.conn.QueryRow(
-		`SELECT id, username, email, token, enabled, client_routes, created_at, updated_at FROM users WHERE id = ?`, id,
+		`SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, created_at, updated_at FROM users WHERE id = ?`, id,
 	))
 }
 
@@ -180,7 +209,7 @@ func (db *DB) ListUsers() ([]models.User, error) {
 
 // ListUsersPaginated returns users with pagination. limit/offset 0 = no limit.
 func (db *DB) ListUsersPaginated(limit, offset int) ([]models.User, error) {
-	query := `SELECT id, username, email, token, enabled, client_routes, created_at, updated_at FROM users ORDER BY created_at`
+	query := `SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, created_at, updated_at FROM users ORDER BY created_at`
 	var args []interface{}
 	if limit > 0 {
 		query += ` LIMIT ? OFFSET ?`
@@ -225,6 +254,52 @@ func (db *DB) UpdateUserToken(userID int64, token string) error {
 	return err
 }
 
+// UpdateFallbackToken replaces the fallback token for the specified user.
+func (db *DB) UpdateFallbackToken(userID int64, fallbackToken string) error {
+	_, err := db.conn.Exec(
+		`UPDATE users SET fallback_token = ?, updated_at = ? WHERE id = ?`,
+		fallbackToken, time.Now().UTC(), userID,
+	)
+	return err
+}
+
+// SetFallbackAccessedAt records the time the fallback subscription was accessed.
+func (db *DB) SetFallbackAccessedAt(userID int64, t time.Time) error {
+	_, err := db.conn.Exec(
+		`UPDATE users SET fallback_accessed_at = ? WHERE id = ?`,
+		t.UTC(), userID,
+	)
+	return err
+}
+
+// GetFallbackEnabled returns true if the fallback subscription endpoint is globally enabled.
+// Defaults to true when no setting is stored.
+func (db *DB) GetFallbackEnabled() (bool, error) {
+	var val string
+	err := db.conn.QueryRow(`SELECT value FROM app_settings WHERE key = 'fallback_enabled'`).Scan(&val)
+	if err == sql.ErrNoRows {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return val != "false", nil
+}
+
+// SetFallbackEnabled sets the global fallback subscription enabled/disabled flag.
+func (db *DB) SetFallbackEnabled(enabled bool) error {
+	val := "true"
+	if !enabled {
+		val = "false"
+	}
+	_, err := db.conn.Exec(
+		`INSERT INTO app_settings (key, value) VALUES ('fallback_enabled', ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		val,
+	)
+	return err
+}
+
 // SetUserEnabled enables or disables the user account.
 func (db *DB) SetUserEnabled(userID int64, enabled bool) error {
 	_, err := db.conn.Exec(
@@ -245,7 +320,9 @@ func (db *DB) scanUser(row interface {
 }) (*models.User, error) {
 	var u models.User
 	var enabled int
-	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.Token, &enabled, &u.ClientRoutes, &u.CreatedAt, &u.UpdatedAt)
+	var fallbackToken sql.NullString
+	var fallbackAccessedAt sql.NullTime
+	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.Token, &fallbackToken, &fallbackAccessedAt, &enabled, &u.ClientRoutes, &u.CreatedAt, &u.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -253,6 +330,13 @@ func (db *DB) scanUser(row interface {
 		return nil, err
 	}
 	u.Enabled = enabled == 1
+	if fallbackToken.Valid {
+		u.FallbackToken = fallbackToken.String
+	}
+	if fallbackAccessedAt.Valid {
+		t := fallbackAccessedAt.Time
+		u.FallbackAccessedAt = &t
+	}
 	if strings.TrimSpace(u.Email) == "" {
 		u.Email = u.Username
 	}

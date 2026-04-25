@@ -17,16 +17,20 @@ import (
 // socksPort and httpPort are the local proxy ports in the generated config; 0 = use default (2080, 1081).
 // inboundHosts overrides serverHost per inbound tag; falls back to serverHost when tag is not listed.
 // inboundPorts overrides the port per inbound tag; falls back to the inbound's own port when tag is not listed.
-func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inboundPorts map[string]int, user models.User, clients []models.UserClientFull, globalRoutesJSON string, balancerStrategy string, balancerProbeURL string, balancerProbeInterval string, socksPort, httpPort int) (*ClientConfig, error) {
+func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inboundPorts map[string]int, user models.User, clients []models.UserClientFull, globalRoutesJSON string, balancerStrategy string, balancerProbeURL string, balancerProbeInterval string, socksPort, httpPort int, dnsServers []interface{}) (*ClientConfig, error) {
 	if socksPort <= 0 {
 		socksPort = 2080
 	}
 	if httpPort <= 0 {
 		httpPort = 1081
 	}
+	dns := defaultDNS()
+	if len(dnsServers) > 0 {
+		dns = &DNSConfig{Servers: dnsServers}
+	}
 	cfg := &ClientConfig{
 		Log: &LogConfig{LogLevel: "warning"},
-		DNS: defaultDNS(),
+		DNS: dns,
 		Inbounds: []Inbound{
 			localSOCKS(socksPort),
 			localHTTP(httpPort),
@@ -605,16 +609,9 @@ func blackholeOutbound() Outbound {
 func defaultDNS() *DNSConfig {
 	return &DNSConfig{
 		Servers: []interface{}{
-			map[string]interface{}{
-				"address": "8.8.8.8",
-				"domains": []string{"geosite:google", "geosite:github"},
-			},
 			"1.1.1.1",
+			"8.8.8.8",
 			"8.8.4.4",
-			map[string]interface{}{
-				"address": "223.5.5.5",
-				"domains": []string{"geosite:cn"},
-			},
 		},
 	}
 }
@@ -623,30 +620,7 @@ func defaultRouting() *Routing {
 	return &Routing{
 		DomainStrategy: "IPOnDemand",
 		Rules: []RoutingRule{
-			{
-				Type:        "field",
-				OutboundTag: "direct",
-				Domain: []string{
-					".lamoda.ru:443",
-					"okko.sport",
-					"okko.tv",
-					"yandex.net",
-					"vk.com",
-					"yastatic.net",
-					"gencit.info",
-					"naydex.net",
-					"deepseek.com",
-					"yandex.cloud",
-					"yandexcloud.net",
-					"lizaalert.org",
-					"selcdn.net",
-					"lk.dobroservice.com",
-					"dobroservice.com",
-				},
-			},
 			{Type: "field", OutboundTag: "direct", Protocol: []string{"bittorrent"}},
-			{Type: "field", OutboundTag: "proxy", Domain: []string{"geosite:ru-blocked"}},
-			{Type: "field", OutboundTag: "proxy", IP: []string{"geoip:ru-blocked"}},
 			{
 				Type:        "field",
 				OutboundTag: "block",
@@ -658,6 +632,11 @@ func defaultRouting() *Routing {
 			},
 			{Type: "field", OutboundTag: "direct", IP: []string{"geoip:private"}},
 			{Type: "field", OutboundTag: "direct", Domain: []string{"geosite:private"}},
+			// Route blocked Russian domains/IPs through the proxy (runetfreedom geosets,
+			// bundled in V2RayNG / Hiddify / NekoBox). Must come before geoip:ru direct rule.
+			{Type: "field", OutboundTag: "proxy", Domain: []string{"geosite:ru-blocked"}},
+			{Type: "field", OutboundTag: "proxy", IP: []string{"geoip:ru-blocked"}},
+			// Unblocked Russian IPs go direct — reduces latency for domestic traffic.
 			{Type: "field", OutboundTag: "direct", IP: []string{"geoip:ru"}},
 		},
 	}

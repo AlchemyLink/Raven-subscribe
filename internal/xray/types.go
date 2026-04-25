@@ -237,6 +237,16 @@ type DNSConfig struct {
 	Servers []interface{} `json:"servers"`
 }
 
+// DNSServer is a structured DNS server entry for use in DNSConfig.Servers.
+// Plain string entries (IP addresses) are also valid; use this struct when
+// domain-specific routing, IP validation, or fallback control is needed.
+type DNSServer struct {
+	Address      string   `json:"address"`
+	Domains      []string `json:"domains,omitempty"`
+	SkipFallback bool     `json:"skipFallback,omitempty"`
+	ExpectIPs    []string `json:"expectIPs,omitempty"`
+}
+
 // Inbound (client local inbound - socks/http proxy)
 type Inbound struct {
 	Tag      string          `json:"tag"`

@@ -8,14 +8,16 @@ import (
 
 // User represents a subscription user stored in the database.
 type User struct {
-	ID        int64     `json:"id"`
-	Username  string    `json:"username"`
-	Email     string    `json:"-"` // Xray client email / monitoring; not exposed in API JSON (use username)
-	Token     string    `json:"token"`
-	Enabled   bool      `json:"enabled"`
-	ClientRoutes string `json:"-"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID              int64      `json:"id"`
+	Username        string     `json:"username"`
+	Email           string     `json:"-"` // Xray client email / monitoring; not exposed in API JSON (use username)
+	Token           string     `json:"token"`
+	FallbackToken   string     `json:"fallback_token"`
+	FallbackAccessedAt *time.Time `json:"fallback_accessed_at,omitempty"`
+	Enabled         bool       `json:"enabled"`
+	ClientRoutes    string     `json:"-"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 // ClientIdentity returns the Xray client "email" (API + JSON configs). Prefers Email when set.
@@ -81,6 +83,7 @@ type SubURLs struct {
 	CompactB64  string `json:"compact_b64"`
 	Singbox     string `json:"singbox,omitempty"`
 	Hysteria2   string `json:"hysteria2,omitempty"`
+	Fallback    string `json:"fallback,omitempty"`
 }
 
 // UserResponse is the API response body returned when a user is created or fetched.
