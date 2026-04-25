@@ -9,49 +9,47 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// handleFallbackSubscription serves /sub/fallback/{fallback_token}.
-// Returns the same content as the primary subscription endpoint but keyed on the fallback token.
-// Records the access time. Returns 404 when fallback is globally disabled or token is unknown.
-func (s *Server) handleFallbackSubscription(w http.ResponseWriter, r *http.Request) {
-	fallbackToken := mux.Vars(r)["token"]
-	if fallbackToken == "" {
-		jsonError(w, "missing token", http.StatusBadRequest)
-		return
-	}
-
-	enabled, err := s.db.GetFallbackEnabled()
-	if err != nil {
-		log.Printf("ERROR get fallback enabled: %v", err)
-		jsonError(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if !enabled {
-		jsonError(w, "fallback subscription disabled", http.StatusForbidden)
-		return
-	}
-
-	user, err := s.db.GetUserByFallbackToken(fallbackToken)
-	if err != nil || user == nil {
-		jsonError(w, "invalid token", http.StatusNotFound)
-		return
-	}
-	if !user.Enabled {
-		jsonError(w, "user disabled", http.StatusForbidden)
-		return
-	}
-
-	go func() {
-		if err := s.db.SetFallbackAccessedAt(user.ID, time.Now().UTC()); err != nil {
-			log.Printf("WARN set fallback_accessed_at for user %d: %v", user.ID, err) // #nosec G706 -- user.ID is int, err is internal db error
+// withFallbackAuth validates the fallback token and delegates to next using the primary token.
+// Shared by all /sub/fallback/* and /c/fallback/* routes.
+func (s *Server) withFallbackAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		fallbackToken := mux.Vars(r)["token"]
+		if fallbackToken == "" {
+			jsonError(w, "missing token", http.StatusBadRequest)
+			return
 		}
-	}()
 
-	w.Header().Set("X-Fallback-Token", "true")
+		enabled, err := s.db.GetFallbackEnabled()
+		if err != nil {
+			log.Printf("ERROR get fallback enabled: %v", err)
+			jsonError(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !enabled {
+			jsonError(w, "fallback subscription disabled", http.StatusForbidden)
+			return
+		}
 
-	// Delegate to the primary subscription handler using the user's primary token.
-	// Swap the {token} path variable so handleSubscription resolves the user correctly.
-	r = mux.SetURLVars(r, map[string]string{"token": user.Token})
-	s.handleSubscription(w, r)
+		user, err := s.db.GetUserByFallbackToken(fallbackToken)
+		if err != nil || user == nil {
+			jsonError(w, "invalid token", http.StatusNotFound)
+			return
+		}
+		if !user.Enabled {
+			jsonError(w, "user disabled", http.StatusForbidden)
+			return
+		}
+
+		go func() {
+			if err := s.db.SetFallbackAccessedAt(user.ID, time.Now().UTC()); err != nil {
+				log.Printf("WARN set fallback_accessed_at for user %d: %v", user.ID, err) // #nosec G706 -- user.ID is int, err is internal db error
+			}
+		}()
+
+		w.Header().Set("X-Fallback-Token", "true")
+		r = mux.SetURLVars(r, map[string]string{"token": user.Token})
+		next(w, r)
+	}
 }
 
 // regenerateFallbackToken generates a new fallback token for the user.

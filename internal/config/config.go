@@ -239,7 +239,7 @@ func (c *Config) SubURL(token string) string {
 	return fmt.Sprintf("%s/sub/%s", c.BaseURL, token)
 }
 
-// FallbackURL returns the fallback subscription URL for the given fallback token.
+// FallbackURL returns the base fallback subscription URL for the given fallback token.
 func (c *Config) FallbackURL(fallbackToken string) string {
 	if fallbackToken == "" {
 		return ""
@@ -248,7 +248,6 @@ func (c *Config) FallbackURL(fallbackToken string) string {
 }
 
 // SubURLs returns all subscription URL variants for the given user token.
-// If fallbackToken is non-empty, the Fallback field is populated.
 func (c *Config) SubURLs(token string) models.SubURLs {
 	sub := fmt.Sprintf("%s/sub/%s", c.BaseURL, token)
 	compact := fmt.Sprintf("%s/c/%s", c.BaseURL, token)
@@ -264,10 +263,20 @@ func (c *Config) SubURLs(token string) models.SubURLs {
 	}
 }
 
-// SubURLsWithFallback returns all subscription URL variants including the fallback URL.
+// SubURLsWithFallback returns all subscription URL variants including all fallback format variants.
 func (c *Config) SubURLsWithFallback(token, fallbackToken string) models.SubURLs {
 	urls := c.SubURLs(token)
-	urls.Fallback = c.FallbackURL(fallbackToken)
+	if fallbackToken == "" {
+		return urls
+	}
+	fsub := fmt.Sprintf("%s/sub/fallback/%s", c.BaseURL, fallbackToken)
+	fcp := fmt.Sprintf("%s/c/fallback/%s", c.BaseURL, fallbackToken)
+	urls.Fallback = fsub
+	urls.FallbackText = fsub + "/links.txt"
+	urls.FallbackB64 = fsub + "/links.b64"
+	urls.FallbackCompact = fcp
+	urls.FallbackCompactText = fcp + "/links.txt"
+	urls.FallbackCompactB64 = fcp + "/links.b64"
 	return urls
 }
 

@@ -44,8 +44,15 @@ func NewServer(cfg *config.Config, db *database.DB, syncer Syncer) *Server {
 func (s *Server) Router() http.Handler {
 	r := mux.NewRouter()
 
-	// ── Fallback subscription endpoint (public, stable token, never rotated) ─
-	r.HandleFunc("/sub/fallback/{token}", s.handleFallbackSubscription).Methods(http.MethodGet)
+	// ── Fallback subscription endpoints (stable token, never rotated) ────────
+	// Mirrors the primary /sub/* and /c/* route set, keyed on fallback_token.
+	fb := s.withFallbackAuth
+	r.HandleFunc("/sub/fallback/{token}", fb(s.handleSubscription)).Methods(http.MethodGet)
+	r.HandleFunc("/sub/fallback/{token}/links.txt", fb(s.handleSubscriptionLinksText)).Methods(http.MethodGet)
+	r.HandleFunc("/sub/fallback/{token}/links.b64", fb(s.handleSubscriptionLinksB64)).Methods(http.MethodGet)
+	r.HandleFunc("/c/fallback/{token}", fb(s.handleCompactSubscription)).Methods(http.MethodGet)
+	r.HandleFunc("/c/fallback/{token}/links.txt", fb(s.handleCompactSubscriptionLinksText)).Methods(http.MethodGet)
+	r.HandleFunc("/c/fallback/{token}/links.b64", fb(s.handleCompactSubscriptionLinksB64)).Methods(http.MethodGet)
 
 	// ── Subscription endpoint (public, authenticated by token) ──────────────
 	r.HandleFunc("/sub/{token}", s.handleSubscription).Methods(http.MethodGet)

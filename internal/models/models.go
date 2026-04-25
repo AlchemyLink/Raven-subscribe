@@ -83,7 +83,13 @@ type SubURLs struct {
 	CompactB64  string `json:"compact_b64"`
 	Singbox     string `json:"singbox,omitempty"`
 	Hysteria2   string `json:"hysteria2,omitempty"`
-	Fallback    string `json:"fallback,omitempty"`
+	// Fallback variants — keyed on fallback_token, never rotated with primary token.
+	Fallback            string `json:"fallback,omitempty"`
+	FallbackText        string `json:"fallback_txt,omitempty"`
+	FallbackB64         string `json:"fallback_b64,omitempty"`
+	FallbackCompact     string `json:"fallback_compact,omitempty"`
+	FallbackCompactText string `json:"fallback_compact_txt,omitempty"`
+	FallbackCompactB64  string `json:"fallback_compact_b64,omitempty"`
 }
 
 // UserResponse is the API response body returned when a user is created or fetched.
