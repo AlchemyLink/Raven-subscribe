@@ -248,17 +248,21 @@ sudo chown -R xray:xray /etc/xray/config.d
 
 ### Routing-правила
 
-Дефолтный набор правил (применяется для всех пользователей):
+Дефолтный набор правил (применяется для всех пользователей, **в порядке применения**):
 
-| Трафик | Куда |
-|--------|------|
-| `geosite:category-ads-all`, реклама | block |
-| `geoip:private`, `geosite:private` | direct |
-| `geosite:ru-blocked` | proxy |
-| `geoip:ru-blocked` | proxy |
-| `geoip:ru` | direct |
-| BitTorrent | direct |
-| Всё остальное | proxy |
+| # | Трафик | Куда |
+|---|--------|------|
+| 1 | BitTorrent | direct |
+| 2 | `geosite:category-ads-all`, реклама, публичные трекеры | block |
+| 3 | `geoip:private`, `geosite:private` | direct |
+| 4 | `geosite:ru-blocked` | proxy |
+| 5 | `geoip:ru-blocked` | proxy |
+| 6 | `geoip:ru` | direct |
+| 7 | Всё остальное | proxy |
+
+Правила применяются по первому совпадению. Порядок важен: `ru-blocked → proxy` стоит перед `geoip:ru → direct`, поэтому заблокированные домены всегда идут через VPN, даже если их IP входит в `geoip:ru`.
+
+`domainStrategy: IPOnDemand` — для правил по IP (строки 3, 6) Xray автоматически резолвит домен и сопоставляет IP с базой. Благодаря этому российские сайты (чьи IP входят в `geoip:ru`) идут напрямую без добавления явного правила по домену.
 
 **Добавить или переопределить правила** можно через raven-dashboard:
 
@@ -268,11 +272,13 @@ sudo chown -R xray:xray /etc/xray/config.d
 Пользовательские правила вставляются **перед** дефолтными и имеют приоритет над ними. Поддерживаемые форматы:
 
 ```
-geosite:category-ru     → direct   # весь российский сегмент
 geosite:ru-blocked      → proxy    # заблокированные в РФ домены
+geosite:category-ru     → direct   # весь российский сегмент (только с runetfreedom геофайлами)
 example.com             → direct   # конкретный домен
 1.2.3.4/24              → block    # IP-подсеть
 ```
+
+> **Примечание по `geosite:category-ru`:** тег доступен только если клиентское приложение использует runetfreedom-геофайлы (`geosite.dat` от runetfreedom). V2RayNG, NekoBox и Hiddify включают их по умолчанию. Стандартные геофайлы от v2fly/xtls этот тег не содержат.
 
 Разрешённые действия: `proxy`, `direct`, `block`.
 
