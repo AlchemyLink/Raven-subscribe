@@ -42,7 +42,7 @@ func (s *Server) handleFallbackSubscription(w http.ResponseWriter, r *http.Reque
 
 	go func() {
 		if err := s.db.SetFallbackAccessedAt(user.ID, time.Now().UTC()); err != nil {
-			log.Printf("WARN set fallback_accessed_at for user %d: %v", user.ID, err) //nolint:noctx // #nosec G706 -- user.ID is int, err is a db error
+			log.Printf("WARN set fallback_accessed_at for user %d: %v", user.ID, err) // #nosec G706 -- user.ID is int, err is internal db error
 		}
 	}()
 
