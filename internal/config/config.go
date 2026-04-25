@@ -52,6 +52,12 @@ type Config struct {
 	// Example: {"vless-reality-in": 8444} — clients connect to relay:8444 instead of EU:443
 	InboundPorts map[string]int `json:"inbound_ports,omitempty"`
 
+	// ClientBlackholeResponse sets the blackhole outbound response type in generated client configs.
+	// Accepted values: "http" (default, returns an HTTP error immediately so clients don't stall),
+	// "none" (drops the connection silently, no response sent).
+	// When empty, "http" is used.
+	ClientBlackholeResponse string `json:"client_blackhole_response,omitempty"`
+
 	// ClientDNSServers overrides the DNS server list in generated client configs.
 	// Each entry is either a plain IP string or an object with Xray DNS server fields:
 	//   address      — IP or hostname (required)

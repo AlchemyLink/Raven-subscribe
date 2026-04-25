@@ -288,6 +288,7 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		s.cfg.SocksInboundPort,
 		s.cfg.HTTPInboundPort,
 		s.cfg.ClientDNSServers,
+		s.cfg.ClientBlackholeResponse,
 	)
 	if err != nil {
 		// #nosec G706 -- username is sanitized before logging.
