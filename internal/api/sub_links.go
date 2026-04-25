@@ -325,6 +325,7 @@ func (s *Server) generateConfigForSubscriptionRequestWithForcedProtocol(r *http.
 		s.cfg.SocksInboundPort,
 		s.cfg.HTTPInboundPort,
 		s.cfg.ClientDNSServers,
+		s.cfg.ClientBlackholeResponse,
 	)
 	if err != nil {
 		return nil, "", fmt.Errorf("could not generate config: %s", err.Error())
