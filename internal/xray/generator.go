@@ -637,10 +637,12 @@ func defaultRouting() *Routing {
 			{Type: "field", OutboundTag: "direct", IP: []string{"geoip:private"}},
 			{Type: "field", OutboundTag: "direct", Domain: []string{"geosite:private"}},
 			// Route blocked Russian domains/IPs through the proxy (runetfreedom geosets,
-			// bundled in V2RayNG / Hiddify / NekoBox). Must come before geoip:ru direct rule.
+			// bundled in V2RayNG / Hiddify / NekoBox). Must come before category-ru/geoip:ru.
 			{Type: "field", OutboundTag: "proxy", Domain: []string{"geosite:ru-blocked"}},
 			{Type: "field", OutboundTag: "proxy", IP: []string{"geoip:ru-blocked"}},
-			// Unblocked Russian IPs go direct — reduces latency for domestic traffic.
+			// Unblocked Russian domains go direct without DNS resolution (faster than IPOnDemand).
+			{Type: "field", OutboundTag: "direct", Domain: []string{"geosite:category-ru"}},
+			// Fallback: unblocked Russian IPs without a domain match go direct.
 			{Type: "field", OutboundTag: "direct", IP: []string{"geoip:ru"}},
 		},
 	}
