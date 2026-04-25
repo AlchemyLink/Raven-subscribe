@@ -17,7 +17,7 @@ import (
 // socksPort and httpPort are the local proxy ports in the generated config; 0 = use default (2080, 1081).
 // inboundHosts overrides serverHost per inbound tag; falls back to serverHost when tag is not listed.
 // inboundPorts overrides the port per inbound tag; falls back to the inbound's own port when tag is not listed.
-func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inboundPorts map[string]int, user models.User, clients []models.UserClientFull, globalRoutesJSON string, balancerStrategy string, balancerProbeURL string, balancerProbeInterval string, socksPort, httpPort int, dnsServers []interface{}) (*ClientConfig, error) {
+func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inboundPorts map[string]int, user models.User, clients []models.UserClientFull, globalRoutesJSON string, balancerStrategy string, balancerProbeURL string, balancerProbeInterval string, socksPort, httpPort int, dnsServers []interface{}, blackholeResponse string) (*ClientConfig, error) {
 	if socksPort <= 0 {
 		socksPort = 2080
 	}
@@ -36,6 +36,10 @@ func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inb
 			localHTTP(httpPort),
 		},
 		Routing: defaultRouting(),
+	}
+	blackholeResp := strings.ToLower(strings.TrimSpace(blackholeResponse))
+	if blackholeResp != "none" {
+		blackholeResp = "http"
 	}
 	// Priority: user rules > global rules > defaults
 	applyUserRoutes(cfg, globalRoutesJSON)
@@ -67,7 +71,7 @@ func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inb
 	// Add system outbounds
 	cfg.Outbounds = append(cfg.Outbounds,
 		freedomOutbound(),
-		blackholeOutbound(),
+		blackholeOutbound(blackholeResp),
 	)
 
 	// Update routing: use balancer if multiple proxies, single proxy otherwise
@@ -601,8 +605,8 @@ func freedomOutbound() Outbound {
 	return Outbound{Tag: "direct", Protocol: "freedom", Settings: raw}
 }
 
-func blackholeOutbound() Outbound {
-	raw, _ := json.Marshal(map[string]interface{}{"response": map[string]string{"type": "http"}})
+func blackholeOutbound(responseType string) Outbound {
+	raw, _ := json.Marshal(map[string]interface{}{"response": map[string]string{"type": responseType}})
 	return Outbound{Tag: "block", Protocol: "blackhole", Settings: raw}
 }
 
