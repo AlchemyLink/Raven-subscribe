@@ -93,7 +93,6 @@ func (db *DB) migrate() error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_users_token ON users(token);
-	CREATE INDEX IF NOT EXISTS idx_users_fallback_token ON users(fallback_token);
 	CREATE INDEX IF NOT EXISTS idx_user_clients_user ON user_clients(user_id);
 
 	CREATE TABLE IF NOT EXISTS emergency_profiles (
@@ -125,10 +124,13 @@ func (db *DB) migrate() error {
 	if _, err := db.conn.Exec(`UPDATE users SET email = username WHERE trim(COALESCE(email, '')) = ''`); err != nil {
 		return err
 	}
-	if _, err := db.conn.Exec(`ALTER TABLE users ADD COLUMN fallback_token TEXT UNIQUE DEFAULT NULL`); err != nil {
+	if _, err := db.conn.Exec(`ALTER TABLE users ADD COLUMN fallback_token TEXT DEFAULT NULL`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column name: fallback_token") {
 			return err
 		}
+	}
+	if _, err := db.conn.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_fallback_token ON users(fallback_token)`); err != nil {
+		return err
 	}
 	if _, err := db.conn.Exec(`ALTER TABLE users ADD COLUMN fallback_accessed_at DATETIME DEFAULT NULL`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column name: fallback_accessed_at") {
