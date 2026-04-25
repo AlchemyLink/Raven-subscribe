@@ -163,7 +163,7 @@ func (n *noopSyncer) Sync() error { return nil }
 // createTestUserWithHysteria2 creates a user and adds a hysteria2 client to DB.
 func createTestUserWithHysteria2(t *testing.T, db *database.DB, username string) (token string) {
 	t.Helper()
-	user, err := db.CreateUser(username, username, "tok-"+username)
+	user, err := db.CreateUser(username, username, "tok-"+username, "fb-"+username)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}

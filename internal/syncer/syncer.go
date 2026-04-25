@@ -301,7 +301,8 @@ func (s *Syncer) syncClient(inboundID int64, client xray.ParsedClient) error {
 	if user == nil {
 		// Auto-create user with generated token
 		token := generateToken()
-		user, err = s.db.CreateUser(identity, identity, token)
+		fallbackToken := generateToken()
+		user, err = s.db.CreateUser(identity, identity, token, fallbackToken)
 		if err != nil {
 			return fmt.Errorf("create user %s: %w", identity, err)
 		}
