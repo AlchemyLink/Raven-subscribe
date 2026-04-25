@@ -10,7 +10,7 @@ func TestDB_CreateUser_GetUserByID_GetUserByToken(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	u, err := db.CreateUser("alice", "", "token-alice-123")
+	u, err := db.CreateUser("alice", "", "token-alice-123", "fallback-alice-123")
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestDB_DeleteUser(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	u, err := db.CreateUser("bob", "", "token-bob")
+	u, err := db.CreateUser("bob", "", "token-bob", "fallback-bob")
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -105,8 +105,8 @@ func TestDB_ListUsers_CountUsers(t *testing.T) {
 		t.Errorf("initial count: got %d, want 0", n)
 	}
 
-	_, _ = db.CreateUser("u1", "", "t1")
-	_, _ = db.CreateUser("u2", "", "t2")
+	_, _ = db.CreateUser("u1", "", "t1", "fb1")
+	_, _ = db.CreateUser("u2", "", "t2", "fb2")
 
 	users, err := db.ListUsers()
 	if err != nil {
@@ -162,7 +162,7 @@ func TestDB_UpsertUserClient_GetUserClients(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	u, _ := db.CreateUser("alice", "alice@example.com", "t-alice")
+	u, _ := db.CreateUser("alice", "alice@example.com", "t-alice", "fb-alice")
 	ibID, _ := db.UpsertInbound("vless-1", "vless", 443, "01.json", `{}`)
 
 	if err := db.UpsertUserClient(u.ID, ibID, `{"protocol":"vless","id":"uuid1","flow":"xtls-rprx-vision"}`); err != nil {
@@ -196,7 +196,7 @@ func TestDB_GetUserClientByUserAndInbound(t *testing.T) {
 	db, cleanup := testDB(t)
 	defer cleanup()
 
-	u, _ := db.CreateUser("alice", "", "t-alice")
+	u, _ := db.CreateUser("alice", "", "t-alice", "fb-alice2")
 	ibID, _ := db.UpsertInbound("vless-1", "vless", 443, "01.json", `{}`)
 	_ = db.UpsertUserClient(u.ID, ibID, `{"protocol":"vless","id":"uuid1"}`)
 

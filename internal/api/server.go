@@ -44,6 +44,9 @@ func NewServer(cfg *config.Config, db *database.DB, syncer Syncer) *Server {
 func (s *Server) Router() http.Handler {
 	r := mux.NewRouter()
 
+	// ── Fallback subscription endpoint (public, stable token, never rotated) ─
+	r.HandleFunc("/sub/fallback/{token}", s.handleFallbackSubscription).Methods(http.MethodGet)
+
 	// ── Subscription endpoint (public, authenticated by token) ──────────────
 	r.HandleFunc("/sub/{token}", s.handleSubscription).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/links", s.handleSubscriptionLinks).Methods(http.MethodGet)
@@ -116,6 +119,13 @@ func (s *Server) Router() http.Handler {
 	api.HandleFunc("/config/balancer", s.getBalancerConfig).Methods(http.MethodGet)
 	api.HandleFunc("/config/balancer", s.setBalancerConfig).Methods(http.MethodPut)
 	api.HandleFunc("/sync", s.triggerSync).Methods(http.MethodPost)
+
+	// ── Fallback management ───────────────────────────────────────────────────
+	api.HandleFunc("/users/{id}/fallback/token", s.regenerateFallbackToken).Methods(http.MethodPost)
+	api.HandleFunc("/fallback/status", s.getFallbackStatus).Methods(http.MethodGet)
+	api.HandleFunc("/fallback/enable", s.enableFallback).Methods(http.MethodPost)
+	api.HandleFunc("/fallback/disable", s.disableFallback).Methods(http.MethodPost)
+	api.HandleFunc("/fallback/accessed", s.listFallbackAccessedUsers).Methods(http.MethodGet)
 
 	// ── Emergency config rotation ─────────────────────────────────────────────
 	api.HandleFunc("/emergency/status", s.getEmergencyStatus).Methods(http.MethodGet)
@@ -277,6 +287,7 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		balancerProbeInterval,
 		s.cfg.SocksInboundPort,
 		s.cfg.HTTPInboundPort,
+		s.cfg.ClientDNSServers,
 	)
 	if err != nil {
 		// #nosec G706 -- username is sanitized before logging.
@@ -459,7 +470,7 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 		resp = append(resp, models.UserResponse{
 			User:    u,
 			SubURL:  s.cfg.SubURL(u.Token),
-			SubURLs: s.cfg.SubURLs(u.Token),
+			SubURLs: s.cfg.SubURLsWithFallback(u.Token, u.FallbackToken),
 		})
 	}
 
@@ -500,8 +511,9 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := generateToken()
+	fallbackToken := generateToken()
 	// Email in DB mirrors username for Xray; not accepted on create and not exposed in API JSON.
-	user, err := s.db.CreateUser(username, "", token)
+	user, err := s.db.CreateUser(username, "", token, fallbackToken)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -541,7 +553,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		go func() { _ = s.syncer.Sync() }()
 	}
 
-	jsonOK(w, models.UserResponse{User: *user, SubURL: s.cfg.SubURL(user.Token), SubURLs: s.cfg.SubURLs(user.Token)})
+	jsonOK(w, models.UserResponse{User: *user, SubURL: s.cfg.SubURL(user.Token), SubURLs: s.cfg.SubURLsWithFallback(user.Token, user.FallbackToken)})
 }
 
 // addUserToInbound adds a user to one inbound (Xray + DB). Used when creating users.
@@ -717,7 +729,7 @@ func (s *Server) getUser(w http.ResponseWriter, r *http.Request) {
 	if user == nil || err != nil {
 		return
 	}
-	jsonOK(w, models.UserResponse{User: *user, SubURL: s.cfg.SubURL(user.Token), SubURLs: s.cfg.SubURLs(user.Token)})
+	jsonOK(w, models.UserResponse{User: *user, SubURL: s.cfg.SubURL(user.Token), SubURLs: s.cfg.SubURLsWithFallback(user.Token, user.FallbackToken)})
 }
 
 func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
