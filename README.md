@@ -241,7 +241,12 @@ xray-subscription -config /etc/xray-subscription/config.json
   },
   "inbound_ports": {
     "vless-reality-in": 8445
-  }
+  },
+  "client_dns_servers": [
+    "1.1.1.1",
+    "8.8.8.8",
+    { "address": "77.88.8.8", "domains": ["geosite:yandex"] }
+  ]
 }
 ```
 
@@ -287,6 +292,7 @@ Used when your Xray config has multiple outbounds (e.g. several proxy nodes). Co
 |-------|---------|-------------|
 | `socks_inbound_port` | `2080` | Local SOCKS5 proxy port in generated client configs. Clients use this for system/app proxy. |
 | `http_inbound_port` | `1081` | Local HTTP proxy port in generated client configs. |
+| `client_dns_servers` | `["1.1.1.1","8.8.8.8","8.8.4.4"]` | DNS server list injected into generated client configs. Each entry is either a plain IP string or an object with `address` and `domains` fields (Xray DNS format). When omitted or empty, uses the built-in default. Example with per-domain resolver: `["1.1.1.1", {"address": "77.88.8.8", "domains": ["geosite:yandex"]}]`. |
 
 #### Rate limiting
 

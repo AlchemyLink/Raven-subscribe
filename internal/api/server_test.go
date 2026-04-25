@@ -163,7 +163,7 @@ func (n *noopSyncer) Sync() error { return nil }
 // createTestUserWithHysteria2 creates a user and adds a hysteria2 client to DB.
 func createTestUserWithHysteria2(t *testing.T, db *database.DB, username string) (token string) {
 	t.Helper()
-	user, err := db.CreateUser(username, username, "tok-"+username)
+	user, err := db.CreateUser(username, username, "tok-"+username, "fb-"+username)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -393,3 +393,38 @@ func TestBuildSingboxClientConfig_Structure(t *testing.T) {
 	}
 }
 
+
+func TestAdminAuth_EmptyToken_Returns503(t *testing.T) {
+	dir := t.TempDir()
+	db, err := database.New(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("database.New: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	srv := NewServer(&config.Config{
+		ServerHost: "test.example.com",
+		BaseURL:    "http://test.example.com",
+		AdminToken: "", // empty — should lock the API
+	}, db, &noopSyncer{})
+
+	endpoints := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/users"},
+		{http.MethodPost, "/api/users"},
+		{http.MethodGet, "/api/emergency/status"},
+		{http.MethodPost, "/api/emergency/activate"},
+		{http.MethodGet, "/api/inbounds"},
+	}
+
+	for _, e := range endpoints {
+		req := httptest.NewRequest(e.method, e.path, nil)
+		rec := httptest.NewRecorder()
+		srv.Router().ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s %s with empty token: got %d, want 503", e.method, e.path, rec.Code)
+		}
+	}
+}
