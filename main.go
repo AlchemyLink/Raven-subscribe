@@ -56,6 +56,12 @@ func main() {
 	// API server needs sync capability
 	srv := api.NewServer(cfg, db, sync)
 
+	// Apply current killswitch state to Xray inbounds via gRPC (idempotent).
+	// When killswitch is disabled but Xray loaded the fallback inbound from its
+	// config files on its own startup, this removes them so the listener state
+	// matches the DB flag. Safe no-op when xray_api_addr or fallback tags unset.
+	srv.ReconcileKillSwitchOnStartup()
+
 	// Start background sync
 	syncCtx, syncCancel := context.WithCancel(context.Background())
 	defer syncCancel()

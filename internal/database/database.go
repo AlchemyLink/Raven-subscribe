@@ -4,6 +4,7 @@ package database
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -478,6 +479,21 @@ func (db *DB) ListInboundsPaginated(limit, offset int) ([]models.Inbound, error)
 		inbounds = append(inbounds, ib)
 	}
 	return inbounds, rows.Err()
+}
+
+// GetInboundByTag returns the inbound row with the given tag, or nil if not found.
+func (db *DB) GetInboundByTag(tag string) (*models.Inbound, error) {
+	row := db.conn.QueryRow(
+		`SELECT id, tag, protocol, port, config_file, raw_config, updated_at
+		 FROM inbounds WHERE tag = ? LIMIT 1`, tag)
+	var ib models.Inbound
+	if err := row.Scan(&ib.ID, &ib.Tag, &ib.Protocol, &ib.Port, &ib.ConfigFile, &ib.RawConfig, &ib.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &ib, nil
 }
 
 // CountInbounds returns the total number of inbounds.

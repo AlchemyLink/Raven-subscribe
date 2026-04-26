@@ -13,6 +13,7 @@ import (
 	"github.com/xtls/xray-core/app/proxyman/command"
 	"github.com/xtls/xray-core/common/protocol"
 	cserial "github.com/xtls/xray-core/common/serial"
+	"github.com/xtls/xray-core/infra/conf/serial"
 	"github.com/xtls/xray-core/proxy/shadowsocks"
 	"github.com/xtls/xray-core/proxy/shadowsocks_2022"
 	"github.com/xtls/xray-core/proxy/trojan"
@@ -248,6 +249,81 @@ func AddClientToInboundViaAPI(apiAddr, configDir, inboundTag, username, protocol
 		return "", fmt.Errorf("client config: %w", err)
 	}
 	return clientConfigJSON, nil
+}
+
+// AddInboundFromJSONViaAPI adds an inbound to the running Xray instance via gRPC
+// HandlerService.AddInbound. inboundJSON must be the inbound object alone
+// (e.g., {"listen":...,"port":...,"protocol":...,"settings":...,"streamSettings":...,"tag":...});
+// it is wrapped into the {"inbounds": [...]} envelope expected by serial.LoadJSONConfig.
+//
+// "Already exists" errors are returned as-is; callers may treat them as benign on idempotent paths.
+func AddInboundFromJSONViaAPI(apiAddr, inboundJSON string) error {
+	if apiAddr == "" {
+		return fmt.Errorf("xray_api_addr required")
+	}
+	if strings.TrimSpace(inboundJSON) == "" {
+		return fmt.Errorf("inbound JSON required")
+	}
+
+	wrapped := `{"inbounds":[` + inboundJSON + `]}`
+	cfg, err := serial.LoadJSONConfig(strings.NewReader(wrapped))
+	if err != nil {
+		return fmt.Errorf("parse inbound JSON: %w", err)
+	}
+	if len(cfg.Inbound) == 0 {
+		return fmt.Errorf("no inbound parsed from JSON")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), apiDialTimeout)
+	defer cancel()
+
+	conn, err := dialXrayAPI(apiAddr)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+
+	client := command.NewHandlerServiceClient(conn)
+	_, err = client.AddInbound(ctx, &command.AddInboundRequest{
+		Inbound: cfg.Inbound[0],
+	})
+	if err != nil {
+		return fmt.Errorf("add inbound: %w", err)
+	}
+	return nil
+}
+
+// RemoveInboundViaAPI removes an inbound from the running Xray instance via gRPC
+// HandlerService.RemoveInbound. After this call Xray stops listening on the inbound's
+// port and active TCP connections to that port are severed on next packet.
+//
+// "Not found" / "no such handler" errors are returned as-is; callers may treat them as
+// benign for idempotent toggling.
+func RemoveInboundViaAPI(apiAddr, tag string) error {
+	if apiAddr == "" {
+		return fmt.Errorf("xray_api_addr required")
+	}
+	if strings.TrimSpace(tag) == "" {
+		return fmt.Errorf("tag required")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), apiDialTimeout)
+	defer cancel()
+
+	conn, err := dialXrayAPI(apiAddr)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+
+	client := command.NewHandlerServiceClient(conn)
+	_, err = client.RemoveInbound(ctx, &command.RemoveInboundRequest{
+		Tag: tag,
+	})
+	if err != nil {
+		return fmt.Errorf("remove inbound: %w", err)
+	}
+	return nil
 }
 
 // clientMapToProtocolUser converts a client map (from build*Client) to protocol.User.

@@ -5,9 +5,12 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
+
+	"github.com/alchemylink/raven-subscribe/internal/xray"
 )
 
 type ctxFallbackKey struct{}
@@ -85,24 +88,96 @@ func (s *Server) getFallbackStatus(w http.ResponseWriter, _ *http.Request) {
 	jsonOK(w, map[string]bool{"enabled": enabled})
 }
 
-// enableFallback enables the global fallback subscription endpoint.
+// enableFallback enables the global fallback subscription endpoint AND, when xray_api_addr
+// is configured and FallbackInboundTags is non-empty, dynamically re-adds the corresponding
+// Xray inbounds via gRPC HandlerService so that VPN traffic resumes immediately.
 // POST /api/fallback/enable
 func (s *Server) enableFallback(w http.ResponseWriter, _ *http.Request) {
 	if err := s.db.SetFallbackEnabled(true); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.applyKillSwitchInbounds(true)
 	jsonOK(w, map[string]bool{"enabled": true})
 }
 
-// disableFallback disables the global fallback subscription endpoint.
+// disableFallback disables the global fallback subscription endpoint AND, when xray_api_addr
+// is configured and FallbackInboundTags is non-empty, dynamically removes the corresponding
+// Xray inbounds via gRPC HandlerService so that the listener is torn down — active VPN
+// connections to fallback inbounds get severed on next packet.
 // POST /api/fallback/disable
 func (s *Server) disableFallback(w http.ResponseWriter, _ *http.Request) {
 	if err := s.db.SetFallbackEnabled(false); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.applyKillSwitchInbounds(false)
 	jsonOK(w, map[string]bool{"enabled": false})
+}
+
+// ReconcileKillSwitchOnStartup applies the current persisted killswitch state to the
+// Xray runtime via gRPC. Intended to be called once after server initialization.
+// When disabled, removes fallback inbounds from Xray (they may have been loaded from
+// /etc/xray/config.d/ on Xray's own startup); when enabled, no-op (Xray already has them).
+func (s *Server) ReconcileKillSwitchOnStartup() {
+	enabled, err := s.db.GetFallbackEnabled()
+	if err != nil {
+		log.Printf("WARN killswitch reconcile: read state: %v", err)
+		return
+	}
+	if enabled {
+		// Inbounds are expected to be live from Xray config; nothing to add.
+		return
+	}
+	s.applyKillSwitchInbounds(false)
+}
+
+// applyKillSwitchInbounds toggles fallback inbounds in the running Xray instance via
+// gRPC. Errors are logged but never propagated to the HTTP response — the DB flag is
+// already authoritative for subscription gating; gRPC failure means the inbound state
+// drifts (will reconcile on next toggle or process restart).
+//
+// No-op when XrayAPIAddr is empty or FallbackInboundTags is unset.
+func (s *Server) applyKillSwitchInbounds(enable bool) {
+	apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr)
+	if apiAddr == "" || len(s.cfg.FallbackInboundTags) == 0 {
+		return
+	}
+	for _, tag := range s.cfg.FallbackInboundTags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		if enable {
+			ib, err := s.db.GetInboundByTag(tag)
+			if err != nil {
+				log.Printf("WARN killswitch enable: get inbound %s: %v", sanitizeLogField(tag), err)
+				continue
+			}
+			if ib == nil {
+				log.Printf("WARN killswitch enable: inbound %s not in DB (synced from Xray config?)", sanitizeLogField(tag))
+				continue
+			}
+			if err := xray.AddInboundFromJSONViaAPI(apiAddr, ib.RawConfig); err != nil {
+				// "already exists" is benign — Xray may still hold the inbound from initial config load.
+				if strings.Contains(strings.ToLower(err.Error()), "exist") {
+					log.Printf("INFO killswitch enable: inbound %s already present (benign)", sanitizeLogField(tag))
+					continue
+				}
+				log.Printf("WARN killswitch enable: AddInbound %s: %v", sanitizeLogField(tag), err)
+			}
+			continue
+		}
+		// disable
+		if err := xray.RemoveInboundViaAPI(apiAddr, tag); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "not found") ||
+				strings.Contains(strings.ToLower(err.Error()), "no such") {
+				log.Printf("INFO killswitch disable: inbound %s already absent (benign)", sanitizeLogField(tag))
+				continue
+			}
+			log.Printf("WARN killswitch disable: RemoveInbound %s: %v", sanitizeLogField(tag), err)
+		}
+	}
 }
 
 // listFallbackAccessedUsers returns all users who have accessed their fallback subscription,
