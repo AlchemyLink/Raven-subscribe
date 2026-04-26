@@ -19,6 +19,11 @@ type Config struct {
 	DBPath            string `json:"db_path"`
 	SyncInterval      int    `json:"sync_interval_seconds"`
 	BaseURL           string `json:"base_url"`
+	// FallbackBaseURL overrides BaseURL for fallback subscription URLs (/sub/fallback/*).
+	// When set, fallback tokens point to this domain (e.g. "https://sub.example.com" — EU direct,
+	// bypassing RU relay). Allows fallback URLs to remain reachable even when RU VPS is down.
+	// When empty, falls back to BaseURL.
+	FallbackBaseURL string `json:"fallback_base_url,omitempty"`
 	AdminToken        string `json:"admin_token"`
 	BalancerStrategy  string `json:"balancer_strategy"`
 	BalancerProbeURL  string `json:"balancer_probe_url"`
@@ -244,7 +249,11 @@ func (c *Config) FallbackURL(fallbackToken string) string {
 	if fallbackToken == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s/sub/fallback/%s", c.BaseURL, fallbackToken)
+	base := c.BaseURL
+	if c.FallbackBaseURL != "" {
+		base = c.FallbackBaseURL
+	}
+	return fmt.Sprintf("%s/sub/fallback/%s", base, fallbackToken)
 }
 
 // SubURLs returns all subscription URL variants for the given user token.
@@ -269,8 +278,12 @@ func (c *Config) SubURLsWithFallback(token, fallbackToken string) models.SubURLs
 	if fallbackToken == "" {
 		return urls
 	}
-	fsub := fmt.Sprintf("%s/sub/fallback/%s", c.BaseURL, fallbackToken)
-	fcp := fmt.Sprintf("%s/c/fallback/%s", c.BaseURL, fallbackToken)
+	fbase := c.BaseURL
+	if c.FallbackBaseURL != "" {
+		fbase = c.FallbackBaseURL
+	}
+	fsub := fmt.Sprintf("%s/sub/fallback/%s", fbase, fallbackToken)
+	fcp := fmt.Sprintf("%s/c/fallback/%s", fbase, fallbackToken)
 	urls.Fallback = fsub
 	urls.FallbackText = fsub + "/links.txt"
 	urls.FallbackB64 = fsub + "/links.b64"
