@@ -545,14 +545,3 @@ func firstNonEmptyString(values ...string) string {
 	}
 	return ""
 }
-
-func excludeProtocol(clients []models.UserClientFull, protocol string) []models.UserClientFull {
-	filtered := clients[:0]
-	for _, c := range clients {
-		if !strings.EqualFold(c.InboundProtocol, protocol) {
-			filtered = append(filtered, c)
-		}
-	}
-	return filtered
-}
-
