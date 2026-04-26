@@ -48,13 +48,13 @@ func (s *Server) handleSingboxSubscription(w http.ResponseWriter, r *http.Reques
 		}
 		serverName := cred.ServerName
 		if serverName == "" {
-			serverName = s.cfg.ServerHost
+			serverName = s.effectiveHost(r)
 		}
 		tag := strings.NewReplacer(" ", "-", "/", "-", "\\", "-").Replace(c.InboundTag)
 		ob := xray.Hysteria2OutboundSettings{
 			Type:       "hysteria2",
 			Tag:        fmt.Sprintf("%s-%d", tag, i),
-			Server:     s.cfg.ServerHost,
+			Server:     s.effectiveHost(r),
 			ServerPort: c.InboundPort,
 			Password:   cred.Password,
 			UpMbps:     cred.UpMbps,

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"sort"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/gorilla/mux"
 )
+
+type ctxFallbackKey struct{}
 
 // withFallbackAuth validates the fallback token and delegates to next using the primary token.
 // Shared by all /sub/fallback/* and /c/fallback/* routes.
@@ -48,6 +51,7 @@ func (s *Server) withFallbackAuth(next http.HandlerFunc) http.HandlerFunc {
 
 		w.Header().Set("X-Fallback-Token", "true")
 		r = mux.SetURLVars(r, map[string]string{"token": user.Token})
+		r = r.WithContext(context.WithValue(r.Context(), ctxFallbackKey{}, true))
 		next(w, r)
 	}
 }

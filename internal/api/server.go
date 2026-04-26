@@ -192,6 +192,20 @@ func (s *Server) adminAuth(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) effectiveHost(r *http.Request) string {
+	if r.Context().Value(ctxFallbackKey{}) == true && s.cfg.FallbackServerHost != "" {
+		return s.cfg.FallbackServerHost
+	}
+	return s.cfg.ServerHost
+}
+
+func (s *Server) effectiveInboundHosts(r *http.Request) map[string]string {
+	if r.Context().Value(ctxFallbackKey{}) == true && s.cfg.FallbackInboundHosts != nil {
+		return s.cfg.FallbackInboundHosts
+	}
+	return s.cfg.InboundHosts
+}
+
 // ─── Subscription endpoint ────────────────────────────────────────────────────
 
 // handleSubscription returns a complete xray client config JSON for the user
@@ -283,8 +297,8 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg, err := xray.GenerateClientConfig(
-		s.cfg.ServerHost,
-		s.cfg.InboundHosts,
+		s.effectiveHost(r),
+		s.effectiveInboundHosts(r),
 		s.cfg.InboundPorts,
 		*user,
 		clients,

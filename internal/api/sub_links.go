@@ -313,8 +313,8 @@ func (s *Server) generateConfigForSubscriptionRequestWithForcedProtocol(r *http.
 		return nil, "", fmt.Errorf("internal error")
 	}
 	cfg, err := xray.GenerateClientConfig(
-		s.cfg.ServerHost,
-		s.cfg.InboundHosts,
+		s.effectiveHost(r),
+		s.effectiveInboundHosts(r),
 		s.cfg.InboundPorts,
 		*user,
 		clients,
@@ -588,7 +588,7 @@ func (s *Server) handleHysteria2LinksByFormat(w http.ResponseWriter, r *http.Req
 		}
 		serverName := cred.ServerName
 		if serverName == "" {
-			serverName = s.cfg.ServerHost
+			serverName = s.effectiveHost(r)
 		}
 		tag := strings.NewReplacer(" ", "-", "/", "-", "\\", "-").Replace(c.InboundTag)
 		tag = fmt.Sprintf("%s-%d", tag, i)
@@ -605,7 +605,7 @@ func (s *Server) handleHysteria2LinksByFormat(w http.ResponseWriter, r *http.Req
 		}
 		params.Set("insecure", "0")
 		link := fmt.Sprintf("hysteria2://%s@%s:%d?%s#%s",
-			url.QueryEscape(cred.Password), s.cfg.ServerHost, c.InboundPort, params.Encode(), url.QueryEscape(tag))
+			url.QueryEscape(cred.Password), s.effectiveHost(r), c.InboundPort, params.Encode(), url.QueryEscape(tag))
 		links = append(links, link)
 	}
 

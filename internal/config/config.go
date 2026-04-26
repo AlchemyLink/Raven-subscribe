@@ -24,6 +24,13 @@ type Config struct {
 	// bypassing RU relay). Allows fallback URLs to remain reachable even when RU VPS is down.
 	// When empty, falls back to BaseURL.
 	FallbackBaseURL string `json:"fallback_base_url,omitempty"`
+	// FallbackServerHost overrides ServerHost in VPN links served via /sub/fallback/*.
+	// Set to EU VPS IP or EU-direct domain so fallback configs bypass RU relay.
+	// When empty, ServerHost is used (same server address as primary subscription).
+	FallbackServerHost   string            `json:"fallback_server_host,omitempty"`
+	// FallbackInboundHosts overrides InboundHosts for fallback subscription requests.
+	// When nil, InboundHosts is used.
+	FallbackInboundHosts map[string]string `json:"fallback_inbound_hosts,omitempty"`
 	AdminToken        string `json:"admin_token"`
 	BalancerStrategy  string `json:"balancer_strategy"`
 	BalancerProbeURL  string `json:"balancer_probe_url"`
