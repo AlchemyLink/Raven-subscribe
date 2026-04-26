@@ -67,14 +67,6 @@ func (s *Server) Router() http.Handler {
 	r.HandleFunc("/c/{token}", s.handleCompactSubscription).Methods(http.MethodGet)
 	r.HandleFunc("/c/{token}/links.txt", s.handleCompactSubscriptionLinksText).Methods(http.MethodGet)
 	r.HandleFunc("/c/{token}/links.b64", s.handleCompactSubscriptionLinksB64).Methods(http.MethodGet)
-	// ── sing-box / Hysteria2 subscription endpoints ───────────────────────────
-	// /sub/{token}/singbox      → sing-box JSON with Hysteria2 outbounds only
-	// /sub/{token}/hysteria2    → hysteria2:// share links (plain text)
-	// /sub/{token}/hysteria2.b64 → hysteria2:// share links (base64)
-	r.HandleFunc("/sub/{token}/singbox", s.handleSingboxSubscription).Methods(http.MethodGet)
-	r.HandleFunc("/sub/{token}/hysteria2", s.handleHysteria2LinksText).Methods(http.MethodGet)
-	r.HandleFunc("/sub/{token}/hysteria2.b64", s.handleHysteria2LinksB64).Methods(http.MethodGet)
-
 	r.HandleFunc("/sub/{token}/vless", s.handleVLESSLinksText).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/vless.b64", s.handleVLESSLinksB64).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/vless/list", s.handleVLESSList).Methods(http.MethodGet)
@@ -232,6 +224,28 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		log.Printf("ERROR get user clients for %s: %v", sanitizeLogField(user.Username), err)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	// FallbackInboundTags is symmetric:
+	//   - On /sub/fallback/* : whitelist (only these tags are returned)
+	//   - On primary /sub/*  : blacklist (these tags are excluded — fallback inbounds
+	//                          must NEVER appear in primary subscription to keep them isolated)
+	if len(s.cfg.FallbackInboundTags) > 0 {
+		tagSet := make(map[string]bool, len(s.cfg.FallbackInboundTags))
+		for _, tag := range s.cfg.FallbackInboundTags {
+			tagSet[tag] = true
+		}
+		isFallback := r.Context().Value(ctxFallbackKey{}) == true
+		filtered := make([]models.UserClientFull, 0, len(clients))
+		for _, c := range clients {
+			inFallback := tagSet[c.InboundTag]
+			if isFallback && inFallback {
+				filtered = append(filtered, c)
+			} else if !isFallback && !inFallback {
+				filtered = append(filtered, c)
+			}
+		}
+		clients = filtered
 	}
 
 	// Emergency mode: when active, restrict clients to the emergency profile's inbound tags.

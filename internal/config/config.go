@@ -31,6 +31,11 @@ type Config struct {
 	// FallbackInboundHosts overrides InboundHosts for fallback subscription requests.
 	// When nil, InboundHosts is used.
 	FallbackInboundHosts map[string]string `json:"fallback_inbound_hosts,omitempty"`
+	// FallbackInboundTags restricts /sub/fallback/* responses to outbounds whose
+	// inbound tag is in this list. Empty/nil means no filtering (all user inbounds returned).
+	// Use to expose only an isolated fallback inbound (e.g. ["vless-fallback-in"])
+	// while primary subscription continues to serve all primary inbounds.
+	FallbackInboundTags []string `json:"fallback_inbound_tags,omitempty"`
 	AdminToken        string `json:"admin_token"`
 	BalancerStrategy  string `json:"balancer_strategy"`
 	BalancerProbeURL  string `json:"balancer_probe_url"`
@@ -88,16 +93,9 @@ type Config struct {
 	// Generate both strings with: xray vlessenc
 	// Example: {"vless-reality-in": "mlkem768x25519plus.native.0rtt.(X25519 Password).(ML-KEM-768 Client)"}
 	VLESSClientEncryption map[string]string `json:"vless_client_encryption,omitempty"`
-	// SingboxConfig is an optional path to a sing-box server config file (e.g. /etc/sing-box/config.json).
-	// When set, Raven additionally parses sing-box inbounds (currently hysteria2) and syncs their users to DB.
-	// Xray config_dir sync is unaffected.
-	SingboxConfig string `json:"singbox_config,omitempty"`
 	// XrayEnabled controls whether Xray config_dir sync is active. Default true.
 	// Set to false when Xray is not installed — suppresses "directory not found" warnings.
 	XrayEnabled *bool `json:"xray_enabled,omitempty"`
-	// SingboxEnabled controls whether sing-box config sync is active. Default: true if singbox_config is set.
-	// Set to false to temporarily disable sing-box sync without removing singbox_config.
-	SingboxEnabled *bool `json:"singbox_enabled,omitempty"`
 
 	xrayFilePerm os.FileMode `json:"-"`
 }
@@ -228,15 +226,6 @@ func (c *Config) IsXrayEnabled() bool {
 	return *c.XrayEnabled
 }
 
-// IsSingboxEnabled returns true if sing-box sync is enabled.
-// Defaults to true when singbox_config is set, false otherwise.
-func (c *Config) IsSingboxEnabled() bool {
-	if c.SingboxEnabled != nil {
-		return *c.SingboxEnabled
-	}
-	return strings.TrimSpace(c.SingboxConfig) != ""
-}
-
 // HostForInbound returns the server host for a given inbound tag.
 // Falls back to ServerHost if the tag is not in InboundHosts.
 func (c *Config) HostForInbound(tag string) string {
@@ -274,8 +263,6 @@ func (c *Config) SubURLs(token string) models.SubURLs {
 		Compact:     compact,
 		CompactText: compact + "/links.txt",
 		CompactB64:  compact + "/links.b64",
-		Singbox:     sub + "/singbox",
-		Hysteria2:   sub + "/hysteria2",
 	}
 }
 

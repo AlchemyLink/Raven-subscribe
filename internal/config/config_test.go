@@ -166,28 +166,6 @@ func TestConfig_IsXrayEnabled(t *testing.T) {
 	}
 }
 
-func TestConfig_IsSingboxEnabled(t *testing.T) {
-	boolFalse := false
-	boolTrue := true
-	tests := []struct {
-		cfg  *Config
-		want bool
-	}{
-		{&Config{}, false},
-		{&Config{SingboxConfig: "/etc/sing-box/config.json"}, true},
-		{&Config{SingboxConfig: "  "}, false},
-		{&Config{SingboxEnabled: &boolTrue}, true},
-		{&Config{SingboxEnabled: &boolFalse, SingboxConfig: "/path"}, false},
-	}
-	for _, tt := range tests {
-		got := tt.cfg.IsSingboxEnabled()
-		if got != tt.want {
-			t.Errorf("IsSingboxEnabled(singbox_config=%q, enabled=%v): got %v, want %v",
-				tt.cfg.SingboxConfig, tt.cfg.SingboxEnabled, got, tt.want)
-		}
-	}
-}
-
 func TestConfig_SubURLs(t *testing.T) {
 	cfg := &Config{BaseURL: "https://vpn.example.com"}
 	urls := cfg.SubURLs("mytoken")
@@ -202,12 +180,6 @@ func TestConfig_SubURLs(t *testing.T) {
 	}
 	if urls.Compact != "https://vpn.example.com/c/mytoken" {
 		t.Errorf("Compact: got %q", urls.Compact)
-	}
-	if urls.Singbox != "https://vpn.example.com/sub/mytoken/singbox" {
-		t.Errorf("Singbox: got %q", urls.Singbox)
-	}
-	if urls.Hysteria2 != "https://vpn.example.com/sub/mytoken/hysteria2" {
-		t.Errorf("Hysteria2: got %q", urls.Hysteria2)
 	}
 }
 

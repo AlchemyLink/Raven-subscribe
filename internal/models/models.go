@@ -81,8 +81,6 @@ type SubURLs struct {
 	Compact     string `json:"compact"`
 	CompactText string `json:"compact_txt"`
 	CompactB64  string `json:"compact_b64"`
-	Singbox     string `json:"singbox,omitempty"`
-	Hysteria2   string `json:"hysteria2,omitempty"`
 	// Fallback variants — keyed on fallback_token, never rotated with primary token.
 	Fallback            string `json:"fallback,omitempty"`
 	FallbackText        string `json:"fallback_txt,omitempty"`
