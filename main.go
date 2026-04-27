@@ -45,6 +45,17 @@ func main() {
 
 	// ── Syncer ──────────────────────────────────────────────────────────────
 	sync := syncer.New(cfg, db)
+
+	// Verify we can actually write into config.d before claiming we're
+	// healthy. A failure here means every periodic SyncDBToConfig will fail
+	// the same way and newly-created users will silently never reach xray
+	// — surface it loudly so monitoring/admins notice on day zero rather
+	// than after a user complaint.
+	sync.Probe()
+	if status := sync.Status(); !status.ProbeOK {
+		log.Printf("ERROR: config.d write probe failed: %s — newly-created users will not reach xray until fixed", status.ProbeError)
+	}
+
 	log.Println("Running initial sync...")
 	if err := sync.Sync(); err != nil {
 		log.Printf("Initial sync warning: %v", err)

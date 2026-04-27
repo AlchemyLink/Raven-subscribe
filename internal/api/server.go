@@ -20,12 +20,16 @@ import (
 	"github.com/alchemylink/raven-subscribe/internal/config"
 	"github.com/alchemylink/raven-subscribe/internal/database"
 	"github.com/alchemylink/raven-subscribe/internal/models"
+	"github.com/alchemylink/raven-subscribe/internal/syncer"
 	"github.com/alchemylink/raven-subscribe/internal/xray"
 )
 
-// Syncer interface so we don't import the syncer package (avoid circular deps)
+// Syncer is the subset of *syncer.Syncer the api package needs. We import
+// the syncer package only for the SyncStatus type, which lets the health
+// endpoint forward state without redefining a parallel struct.
 type Syncer interface {
 	Sync() error
+	Status() syncer.SyncStatus
 }
 
 // Server is the HTTP API server holding shared dependencies.
@@ -118,6 +122,7 @@ func (s *Server) Router() http.Handler {
 	api.HandleFunc("/config/balancer", s.getBalancerConfig).Methods(http.MethodGet)
 	api.HandleFunc("/config/balancer", s.setBalancerConfig).Methods(http.MethodPut)
 	api.HandleFunc("/sync", s.triggerSync).Methods(http.MethodPost)
+	api.HandleFunc("/sync/status", s.handleSyncStatus).Methods(http.MethodGet)
 
 	// ── Fallback management ───────────────────────────────────────────────────
 	api.HandleFunc("/users/{id}/fallback/token", s.regenerateFallbackToken).Methods(http.MethodPost)
@@ -1509,6 +1514,16 @@ func (s *Server) triggerSync(w http.ResponseWriter, _ *http.Request) {
 		}
 	}()
 	jsonOK(w, map[string]string{"status": "sync started"})
+}
+
+// handleSyncStatus returns the diagnostic snapshot used by dashboards and
+// scripts to detect drift between the DB and xray's on-disk config. The
+// dashboard polls this on every "Add user" call so admins find out
+// immediately when their newly-created users won't actually connect.
+//
+// GET /api/sync/status
+func (s *Server) handleSyncStatus(w http.ResponseWriter, _ *http.Request) {
+	jsonOK(w, s.syncer.Status())
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import (
 
 	"github.com/alchemylink/raven-subscribe/internal/config"
 	"github.com/alchemylink/raven-subscribe/internal/database"
+	"github.com/alchemylink/raven-subscribe/internal/syncer"
 )
 
 func TestAPI_Health(t *testing.T) {
@@ -152,7 +153,8 @@ func testServer(t *testing.T) (*Server, func()) {
 
 type noopSyncer struct{}
 
-func (n *noopSyncer) Sync() error { return nil }
+func (n *noopSyncer) Sync() error              { return nil }
+func (n *noopSyncer) Status() syncer.SyncStatus { return syncer.SyncStatus{ProbeOK: true} }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

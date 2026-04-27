@@ -37,18 +37,36 @@ func RestoreUsersToXray(apiAddr, inboundTag string, users []struct {
 	}
 }
 
+// SyncResult is the outcome of a single SyncDBToConfig call.
+type SyncResult struct {
+	// Added is the number of users successfully appended to the inbound's
+	// on-disk config in this pass.
+	Added int
+	// FailedUsers is the list of usernames whose config write failed. The
+	// caller (typically the Syncer) records these for the /api/sync/status
+	// drift list so admins can see who's broken without grepping logs.
+	FailedUsers []string
+	// FirstError is the first underlying error message encountered. Useful
+	// for surfacing a representative reason in the health endpoint without
+	// overwhelming the response.
+	FirstError string
+}
+
 // SyncDBToConfig writes users from DB to config file if they are not already present.
 // Call periodically when xray_api_addr is set, to persist API-created users to disk.
+//
+// Returns a SyncResult so the caller can surface per-user failures (e.g. a
+// permission error on config.d that silently dropped 11 users on prod 2026-04-27).
 func SyncDBToConfig(configDir, inboundTag string, users []struct {
 	Username     string
 	ClientConfig string
 	Protocol     string
-}, existingIdentities map[string]bool, filePerm os.FileMode) error {
+}, existingIdentities map[string]bool, filePerm os.FileMode) SyncResult {
+	var res SyncResult
 	if configDir == "" || inboundTag == "" {
-		return nil
+		return res
 	}
 
-	added := 0
 	for _, u := range users {
 		username := strings.TrimSpace(u.Username)
 		if username == "" {
@@ -59,15 +77,19 @@ func SyncDBToConfig(configDir, inboundTag string, users []struct {
 		}
 		if err := AddExistingClientToInbound(configDir, inboundTag, username, u.ClientConfig, filePerm); err != nil {
 			log.Printf("WARN: sync user %s to config: %v", username, err)
+			res.FailedUsers = append(res.FailedUsers, username)
+			if res.FirstError == "" {
+				res.FirstError = err.Error()
+			}
 			continue
 		}
-		added++
+		res.Added++
 		existingIdentities[username] = true
 	}
-	if added > 0 {
-		log.Printf("Synced %d users from DB to config", added)
+	if res.Added > 0 {
+		log.Printf("Synced %d users from DB to config", res.Added)
 	}
-	return nil
+	return res
 }
 
 // GetExistingIdentitiesInInbound returns the set of client identities (email/id) in the config for the given inbound.

@@ -16,8 +16,9 @@ import (
 
 // Syncer watches /etc/xray/config.d and keeps the DB up-to-date
 type Syncer struct {
-	cfg *config.Config
-	db  *database.DB
+	cfg    *config.Config
+	db     *database.DB
+	status statusState
 }
 
 // New creates a Syncer that watches cfg.ConfigDir and updates db on changes.
@@ -219,6 +220,12 @@ func (s *Syncer) syncXray() error {
 	}
 
 	// Sync DB users to config when using Xray API (persist API-created users to disk)
+	var (
+		drift          []DriftEntry
+		firstSyncErr   string
+		dbUserTotal    int
+		configUserHits int
+	)
 	if strings.TrimSpace(s.cfg.XrayAPIAddr) != "" {
 		allInbounds, _ := s.db.ListInbounds()
 		for _, ib := range allInbounds {
@@ -226,10 +233,15 @@ func (s *Syncer) syncXray() error {
 			if len(users) == 0 {
 				continue
 			}
+			dbUserTotal += len(users)
 			idents, err := xray.GetExistingIdentitiesInInbound(s.cfg.ConfigDir, ib.Tag)
 			if err != nil {
+				if firstSyncErr == "" {
+					firstSyncErr = fmt.Sprintf("inbound %s: %v", ib.Tag, err)
+				}
 				continue
 			}
+			configUserHits += len(idents)
 			ucs := make([]struct {
 				Username     string
 				ClientConfig string
@@ -242,9 +254,18 @@ func (s *Syncer) syncXray() error {
 					Protocol     string
 				}{u.XrayClientEmail(), u.ClientConfig, u.Protocol}
 			}
-			_ = xray.SyncDBToConfig(s.cfg.ConfigDir, ib.Tag, ucs, idents, s.cfg.XrayConfigFilePerm())
+			res := xray.SyncDBToConfig(s.cfg.ConfigDir, ib.Tag, ucs, idents, s.cfg.XrayConfigFilePerm())
+			for _, u := range res.FailedUsers {
+				drift = append(drift, DriftEntry{Username: u, InboundTag: ib.Tag})
+			}
+			if res.FirstError != "" && firstSyncErr == "" {
+				firstSyncErr = fmt.Sprintf("inbound %s: %s", ib.Tag, res.FirstError)
+			}
 		}
 	}
+
+	ok := firstSyncErr == "" && len(drift) == 0
+	s.status.record(time.Now(), ok, firstSyncErr, dbUserTotal, configUserHits, drift)
 
 	log.Printf("Xray sync complete: %d inbounds, %d client entries", totalInbounds, totalClients)
 	return nil
