@@ -31,10 +31,12 @@ func TestProbe_ReadOnlyDirFails(t *testing.T) {
 		t.Skip("running as root — perms checks are bypassed")
 	}
 	dir := t.TempDir()
-	if err := os.Chmod(dir, 0o555); err != nil {
+	// Deliberately drop write so the probe hits EACCES; cleanup restores
+	// owner-rwx so t.TempDir() can rm the path.
+	if err := os.Chmod(dir, 0o500); err != nil { //nolint:gosec // intentionally restrictive to exercise EACCES path
 		t.Fatalf("chmod: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // restore rwx-owner only, still tighter than the surrounding test infra
 
 	s := New(&config.Config{ConfigDir: dir}, nil)
 	s.Probe()
