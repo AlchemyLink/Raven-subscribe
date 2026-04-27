@@ -613,6 +613,48 @@ POST /api/sync
 ```
 Forces an immediate re-scan of `config_dir`. Useful after editing Xray configs.
 
+#### Sync health (drift detection)
+```bash
+GET /api/sync/status
+```
+Returns a diagnostic snapshot:
+
+```json
+{
+  "last_sync_at": "2026-04-27T11:50:18Z",
+  "last_sync_ok": true,
+  "last_error": "",
+  "errors_last_hour": 0,
+  "db_users": 62,
+  "config_users": 62,
+  "drift": [],
+  "probe_ok": true
+}
+```
+
+The endpoint exists to make a specific class of silent failure loud:
+**users get added to the DB and look healthy in admin UI, but xray's
+running config never gains their UUIDs**, so VPN connection is rejected
+with `proxy/vless/encoding: invalid request user id`. Common causes:
+
+- `/etc/xray/config.d/` owned by root instead of `xrayuser` →
+  `SyncDBToConfig` fails to write `*.raven.tmp` → drift accumulates
+  every minute (each one logs WARN, but no admin watches WARN).
+- gRPC `HandlerService.AlterInbound` failures.
+
+**Two surfaces:**
+- **`probe_ok`**: at startup the daemon writes/reads/removes a probe
+  file in `config_dir`. EACCES → `probe_ok=false` + ERROR in main.go
+  log. Catches the perms regression at boot, not at first user add.
+- **`drift[]`**: per-iteration list of `{username, inbound_tag}` pairs
+  where the DB has the user but the on-disk config does not. Empty
+  when in sync.
+
+The `Raven Dashboard` polls this endpoint and surfaces it as:
+- A persistent green/yellow/red health card on the Settings page.
+- An inline error in the "Add User" flow (3-second delayed verify
+  catches the new user landing in the drift list).
+
 ### Balancer
 
 #### Get balancer config
