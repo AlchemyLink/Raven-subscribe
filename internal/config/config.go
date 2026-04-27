@@ -84,8 +84,16 @@ type Config struct {
 	//   expectIPs    — accept only responses whose IPs match these ranges (geoip: syntax);
 	//                  mismatches are discarded and the next server is tried (anti-spoofing)
 	// When empty or omitted, a default list (1.1.1.1, 8.8.8.8, 8.8.4.4) is used.
-	// Example:
-	//   [{"address":"77.88.8.8","domains":["geosite:ru-blocked"],"skipFallback":true,"expectIPs":["geoip:ru"]},"1.1.1.1","9.9.9.9"]
+	//
+	// Example RU split — resolves allowed RU services via Yandex DNS (defeats VPN
+	// detection by geo-mismatch) while blocked domains stay on foreign DNS through
+	// the proxy:
+	//   [{"address":"77.88.8.8","domains":["geosite:category-ru","domain:ru","domain:su","domain:рф"],"skipFallback":true,"expectIPs":["geoip:ru"]},"1.1.1.1","9.9.9.9"]
+	//
+	// SECURITY: never list `geosite:ru-blocked` (or any Roskomnadzor blocklist
+	// selector) under a Russian resolver — Yandex DNS is RU-jurisdiction (374-ФЗ
+	// "Yarovaya" + СОРМ-3) and logs query metadata available to FSB, which would
+	// tie each subscriber's residential IP to every blocked site they query.
 	ClientDNSServers []interface{} `json:"client_dns_servers,omitempty"`
 
 	// VLESSClientEncryption maps VLESS inbound tag to its client-side VLESS Encryption string.

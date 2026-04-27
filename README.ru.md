@@ -242,7 +242,7 @@ xray-subscription -config /etc/xray-subscription/config.json
     "vless-reality-in": 8445
   },
   "client_dns_servers": [
-    { "address": "77.88.8.8", "domains": ["geosite:ru-blocked"], "skipFallback": true, "expectIPs": ["geoip:ru"] },
+    { "address": "77.88.8.8", "domains": ["geosite:category-ru","domain:ru","domain:su","domain:рф"], "skipFallback": true, "expectIPs": ["geoip:ru"] },
     "1.1.1.1",
     "9.9.9.9"
   ]
@@ -289,7 +289,7 @@ xray-subscription -config /etc/xray-subscription/config.json
 |------|--------------|----------|
 | `socks_inbound_port` | `2080` | Порт локального SOCKS5-прокси в генерируемых конфигах. Используется клиентами для системного/прикладного прокси. |
 | `http_inbound_port` | `1081` | Порт локального HTTP-прокси в генерируемых конфигах. |
-| `client_dns_servers` | `["1.1.1.1","8.8.8.8","8.8.4.4"]` | Список DNS-серверов, подставляемых в генерируемые клиентские конфиги. Каждый элемент — строка с IP или объект с полями Xray DNS: `address` (обязательно), `domains` (фильтр доменов), `skipFallback` (исключить из fallback-списка), `expectIPs` (отбрасывать ответы с IP вне диапазона — защита от спуфинга). При пустом значении или отсутствии поля используется встроенный дефолт. Пример: `[{"address":"77.88.8.8","domains":["geosite:ru-blocked"],"skipFallback":true,"expectIPs":["geoip:ru"]},"1.1.1.1","9.9.9.9"]`. |
+| `client_dns_servers` | `["1.1.1.1","8.8.8.8","8.8.4.4"]` | Список DNS-серверов, подставляемых в генерируемые клиентские конфиги. Каждый элемент — строка с IP или объект с полями Xray DNS: `address` (обязательно), `domains` (фильтр доменов), `skipFallback` (исключить из fallback-списка), `expectIPs` (отбрасывать ответы с IP вне диапазона — защита от спуфинга). При пустом значении или отсутствии поля используется встроенный дефолт. Пример RU-сплита, который резолвит разрешённые RU-сервисы через Yandex (закрывает VPN-detection по geo-mismatch), а заблокированные домены оставляет на зарубежном DNS через прокси: `[{"address":"77.88.8.8","domains":["geosite:category-ru","domain:ru","domain:su","domain:рф"],"skipFallback":true,"expectIPs":["geoip:ru"]},"1.1.1.1","9.9.9.9"]`. **Никогда не направляйте `geosite:ru-blocked` на российский резолвер — Yandex DNS логируется по СОРМ и свяжет каждого подписчика с заблокированными сайтами, которые он запрашивает.** |
 
 #### Ограничение частоты запросов
 

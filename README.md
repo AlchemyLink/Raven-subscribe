@@ -243,7 +243,7 @@ xray-subscription -config /etc/xray-subscription/config.json
     "vless-reality-in": 8445
   },
   "client_dns_servers": [
-    { "address": "77.88.8.8", "domains": ["geosite:ru-blocked"], "skipFallback": true, "expectIPs": ["geoip:ru"] },
+    { "address": "77.88.8.8", "domains": ["geosite:category-ru","domain:ru","domain:su","domain:рф"], "skipFallback": true, "expectIPs": ["geoip:ru"] },
     "1.1.1.1",
     "9.9.9.9"
   ]
@@ -292,7 +292,7 @@ Used when your Xray config has multiple outbounds (e.g. several proxy nodes). Co
 |-------|---------|-------------|
 | `socks_inbound_port` | `2080` | Local SOCKS5 proxy port in generated client configs. Clients use this for system/app proxy. |
 | `http_inbound_port` | `1081` | Local HTTP proxy port in generated client configs. |
-| `client_dns_servers` | `["1.1.1.1","8.8.8.8","8.8.4.4"]` | DNS server list injected into generated client configs. Each entry is a plain IP string or an object with Xray DNS fields: `address` (required), `domains` (domain filter), `skipFallback` (exclude from fallback list), `expectIPs` (discard responses not matching IP range — anti-spoofing). When omitted or empty, uses built-in default. Example: `[{"address":"77.88.8.8","domains":["geosite:ru-blocked"],"skipFallback":true,"expectIPs":["geoip:ru"]},"1.1.1.1","9.9.9.9"]`. |
+| `client_dns_servers` | `["1.1.1.1","8.8.8.8","8.8.4.4"]` | DNS server list injected into generated client configs. Each entry is a plain IP string or an object with Xray DNS fields: `address` (required), `domains` (domain filter), `skipFallback` (exclude from fallback list), `expectIPs` (discard responses not matching IP range — anti-spoofing). When omitted or empty, uses built-in default. Example for an RU split that resolves allowed RU services through Yandex (defeats VPN-detection geo-mismatch) while keeping blocked domains on foreign DNS via the proxy: `[{"address":"77.88.8.8","domains":["geosite:category-ru","domain:ru","domain:su","domain:рф"],"skipFallback":true,"expectIPs":["geoip:ru"]},"1.1.1.1","9.9.9.9"]`. **Never put `geosite:ru-blocked` under a Russian resolver — Yandex DNS is СОРМ-logged and would tie each subscriber to the blocked sites they query.** |
 
 #### Rate limiting
 
