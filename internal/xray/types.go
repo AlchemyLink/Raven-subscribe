@@ -118,7 +118,14 @@ type TLSSettings struct {
 	Fingerprint   string      `json:"fingerprint,omitempty"`
 	ALPN          []string    `json:"alpn,omitempty"`
 	AllowInsecure bool        `json:"allowInsecure,omitempty"`
-	Certificates  interface{} `json:"certificates,omitempty"` // server-side only
+	// PinnedPeerCertSha256 lists allowed leaf/CA SHA-256 fingerprints. Replaces
+	// allowInsecure as the safe alternative after Xray-core v26.2.6 (auto-disable
+	// of allowInsecure on UTC 2026-06-01). Shared via URI param `pcs`.
+	PinnedPeerCertSha256 []string `json:"pinnedPeerCertSha256,omitempty"`
+	// VerifyPeerCertByName accepts a server name to validate the leaf certificate
+	// against, decoupled from SNI. Shared via URI param `vcn`.
+	VerifyPeerCertByName string      `json:"verifyPeerCertByName,omitempty"`
+	Certificates         interface{} `json:"certificates,omitempty"` // server-side only
 }
 
 // RealitySettings holds REALITY security configuration (server and client fields).

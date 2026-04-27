@@ -383,10 +383,12 @@ func convertTLS(tls *TLSSettings, serverHost string) *TLSSettings {
 		return &TLSSettings{ServerName: serverHost}
 	}
 	return &TLSSettings{
-		ServerName:    tls.ServerName,
-		Fingerprint:   firstNonEmpty(tls.Fingerprint, "chrome"),
-		ALPN:          tls.ALPN,
-		AllowInsecure: tls.AllowInsecure,
+		ServerName:           tls.ServerName,
+		Fingerprint:          firstNonEmpty(tls.Fingerprint, "chrome"),
+		ALPN:                 tls.ALPN,
+		AllowInsecure:        tls.AllowInsecure,
+		PinnedPeerCertSha256: tls.PinnedPeerCertSha256,
+		VerifyPeerCertByName: tls.VerifyPeerCertByName,
 		// Strip Certificates — client doesn't need server's certs
 	}
 }

@@ -387,7 +387,13 @@ func buildVLESSLink(ob xray.Outbound) string {
 				params.Set("pqv", rs.MLDSA65Verify)
 			}
 		}
+		if ob.StreamSettings.Security == "tls" && ob.StreamSettings.TLSSettings != nil {
+			applyTLSCertParams(params, ob.StreamSettings.TLSSettings)
+		}
 		applyTransportParams(params, ob.StreamSettings)
+	}
+	if fm := extractFinalmask(ob.Settings); fm != "" {
+		params.Set("fm", fm)
 	}
 	return fmt.Sprintf("vless://%s@%s:%d?%s#%s",
 		url.QueryEscape(u.ID), vn.Address, vn.Port, params.Encode(), url.QueryEscape(ob.Tag))
@@ -457,8 +463,12 @@ func buildTrojanLink(ob xray.Outbound) string {
 			if ob.StreamSettings.TLSSettings.Fingerprint != "" {
 				params.Set("fp", ob.StreamSettings.TLSSettings.Fingerprint)
 			}
+			applyTLSCertParams(params, ob.StreamSettings.TLSSettings)
 		}
 		applyTransportParams(params, ob.StreamSettings)
+	}
+	if fm := extractFinalmask(ob.Settings); fm != "" {
+		params.Set("fm", fm)
 	}
 	return fmt.Sprintf("trojan://%s@%s:%d?%s#%s",
 		url.QueryEscape(sv.Password), sv.Address, sv.Port, params.Encode(), url.QueryEscape(ob.Tag))
@@ -534,6 +544,44 @@ func applyVMessTransport(item map[string]string, ss *xray.StreamSettings) {
 				item["path"] = v
 			}
 		}
+	}
+}
+
+// extractFinalmask returns the JSON of outbound.settings.finalmask for the URI
+// `fm` parameter (Xray share-link standard, v26.2.6+). When the field is absent
+// or settings cannot be parsed, returns an empty string and no `fm` is emitted.
+func extractFinalmask(settings json.RawMessage) string {
+	if len(settings) == 0 {
+		return ""
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(settings, &m); err != nil {
+		return ""
+	}
+	fm, ok := m["finalmask"]
+	if !ok {
+		return ""
+	}
+	trimmed := strings.TrimSpace(string(fm))
+	if trimmed == "" || trimmed == "null" || trimmed == "{}" {
+		return ""
+	}
+	return trimmed
+}
+
+// applyTLSCertParams emits the `pcs` (pinnedPeerCertSha256) and `vcn`
+// (verifyPeerCertByName) URI parameters introduced by Xray v26.1.18+ as the
+// safe replacement for `allowInsecure` (which auto-disables 2026-06-01 UTC).
+// Multiple SHA-256 fingerprints are joined by comma.
+func applyTLSCertParams(params url.Values, tls *xray.TLSSettings) {
+	if tls == nil {
+		return
+	}
+	if len(tls.PinnedPeerCertSha256) > 0 {
+		params.Set("pcs", strings.Join(tls.PinnedPeerCertSha256, ","))
+	}
+	if tls.VerifyPeerCertByName != "" {
+		params.Set("vcn", tls.VerifyPeerCertByName)
 	}
 }
 
