@@ -388,6 +388,11 @@ type composeTestEnv struct {
 	// Empty falls back to testdata/xray/config.d (multi-protocol legacy fixture
 	// that crash-loops without TLS certs but is fine for read-only API tests).
 	xrayConfigDir string
+	// vlessClientEncryption populates raven-subscribe's vless_client_encryption
+	// map: {<inbound_tag>: <client-side encryption string>}. Required when an
+	// inbound has decryption != "none" so generated client URLs include the
+	// matching encryption param.
+	vlessClientEncryption map[string]string
 }
 
 func (e *composeTestEnv) prepare(ctx context.Context, t *testing.T) {
@@ -405,20 +410,26 @@ func (e *composeTestEnv) prepare(ctx context.Context, t *testing.T) {
 		t.Fatalf("build app binary failed: %v\n%s", err, out)
 	}
 
-	appConfig := fmt.Sprintf(`{
-  "listen_addr": ":8080",
-  "server_host": "127.0.0.1",
-  "config_dir": "/etc/xray/config.d",
-  "db_path": "/var/lib/xray-subscription/db.sqlite",
-  "sync_interval_seconds": 60,
-  "base_url": "http://127.0.0.1:%d",
-  "admin_token": "%s",
-  "balancer_strategy": "leastPing",
-  "balancer_probe_url": "https://www.gstatic.com/generate_204",
-  "balancer_probe_interval": "30s"
-}
-`, e.appPort, adminToken)
-	if err := os.WriteFile(e.appConfigPath, []byte(appConfig), 0o600); err != nil {
+	appCfg := map[string]interface{}{
+		"listen_addr":             ":8080",
+		"server_host":             "127.0.0.1",
+		"config_dir":              "/etc/xray/config.d",
+		"db_path":                 "/var/lib/xray-subscription/db.sqlite",
+		"sync_interval_seconds":   60,
+		"base_url":                fmt.Sprintf("http://127.0.0.1:%d", e.appPort),
+		"admin_token":             adminToken,
+		"balancer_strategy":       "leastPing",
+		"balancer_probe_url":      "https://www.gstatic.com/generate_204",
+		"balancer_probe_interval": "30s",
+	}
+	if len(e.vlessClientEncryption) > 0 {
+		appCfg["vless_client_encryption"] = e.vlessClientEncryption
+	}
+	appCfgBytes, err := json.MarshalIndent(appCfg, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal app config: %v", err)
+	}
+	if err := os.WriteFile(e.appConfigPath, appCfgBytes, 0o600); err != nil {
 		t.Fatalf("write app config: %v", err)
 	}
 

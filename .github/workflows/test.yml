@@ -174,6 +174,44 @@ jobs:
       - name: Run Docker E2E tests
         run: E2E_DOCKER=1 go test ./integration/... -count=1 -timeout 10m -v
 
+  user-connection-e2e:
+    # Tier 3 user-connection E2E (real xray client → raven-generated config →
+    # traffic flow). Matrix runs each inbound variant in a separate job so a
+    # single shape regressing surfaces cleanly. bridge-chain currently skips
+    # (not implemented); Reality variants need outbound internet from docker
+    # containers and skip gracefully when blocked.
+    name: User-Connection E2E (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [lint, test, vet, staticcheck, mod-tidy-check, gosec, govulncheck]
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - vless-tcp
+          - reality-vision
+          - xhttp
+          - reality-vision-vlessenc
+          - bridge-chain
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Go environment
+        uses: ./.github/actions/setup-go-env
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          download-modules: "false"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Run Tier 3 user-connection E2E
+        env:
+          E2E_USER_CONNECTION: "1"
+          USER_CONNECTION_VARIANT: ${{ matrix.variant }}
+        run: go test ./integration/... -count=1 -timeout 12m -v -run TestUserConnectionE2E
+
   build:
     name: Build
     runs-on: ubuntu-latest
