@@ -865,7 +865,7 @@ func TestGenerateClientConfig_XHTTPOutboundFirst(t *testing.T) {
 		InboundPort:     4444,
 		InboundRaw:      `{"tag":"vless-reality-v2-in","protocol":"vless","port":4444,"settings":{"clients":[{"id":"uuid-tcp","email":"u@t.com","flow":"xtls-rprx-vision"}],"decryption":"none"},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"destination.com"}}}`,
 	}
-	tcpClient.UserClient.ClientConfig = `{"protocol":"vless","id":"uuid-tcp","flow":"xtls-rprx-vision","encryption":"none"}`
+	tcpClient.ClientConfig = `{"protocol":"vless","id":"uuid-tcp","flow":"xtls-rprx-vision","encryption":"none"}`
 
 	xhttpClient := models.UserClientFull{
 		InboundTag:      "vless-xhttp-v2-in",
@@ -873,7 +873,7 @@ func TestGenerateClientConfig_XHTTPOutboundFirst(t *testing.T) {
 		InboundPort:     2054,
 		InboundRaw:      `{"tag":"vless-xhttp-v2-in","protocol":"vless","port":2054,"settings":{"clients":[{"id":"uuid-xhttp","email":"u@t.com"}],"decryption":"none"},"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"serverName":"addons.mozilla.org"},"xhttpSettings":{"path":"/p"}}}`,
 	}
-	xhttpClient.UserClient.ClientConfig = `{"protocol":"vless","id":"uuid-xhttp","encryption":"none"}`
+	xhttpClient.ClientConfig = `{"protocol":"vless","id":"uuid-xhttp","encryption":"none"}`
 
 	// DB returns tcp first, xhttp second — order before sorting
 	cfg, err := GenerateClientConfig("example.com", nil, nil, models.User{Username: "u"},
