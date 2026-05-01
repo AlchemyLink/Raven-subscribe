@@ -263,7 +263,10 @@ func buildVariantConfigDir(t *testing.T, srcInboundFile, decryptionOverride stri
 	}
 
 	dir := filepath.Join(t.TempDir(), "config.d")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// 0o755 so the container's xray user (different uid than host) can
+	// traverse into the bind-mounted dir; contents are non-secret test
+	// fixtures.
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec
 		t.Fatalf("mkdir config.d: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "01_inbound.json"), out, 0o644); err != nil { //nolint:gosec
@@ -461,7 +464,10 @@ func buildBridgeChainConfigs(t *testing.T) (string, string, string) {
 	euDir := filepath.Join(base, "eu-config.d")
 	bridgeDir := filepath.Join(base, "bridge-config.d")
 	for _, d := range []string{euDir, bridgeDir} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
+		// 0o755 so the container's xray user (different uid than host) can
+		// traverse into the bind-mounted dir; contents are non-secret test
+		// fixtures.
+		if err := os.MkdirAll(d, 0o755); err != nil { //nolint:gosec
 			t.Fatalf("mkdir %s: %v", d, err)
 		}
 	}
