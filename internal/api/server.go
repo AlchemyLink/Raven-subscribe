@@ -103,6 +103,7 @@ func (s *Server) Router() http.Handler {
 	api.HandleFunc("/users", s.listUsers).Methods(http.MethodGet)
 	api.HandleFunc("/users", s.createUser).Methods(http.MethodPost)
 	api.HandleFunc("/users/{id}", s.getUser).Methods(http.MethodGet)
+	api.HandleFunc("/users/by-token/{token}", s.getUserByTokenHandler).Methods(http.MethodGet)
 	api.HandleFunc("/users/{id}", s.deleteUser).Methods(http.MethodDelete)
 	api.HandleFunc("/users/{id}/enable", s.enableUser).Methods(http.MethodPut)
 	api.HandleFunc("/users/{id}/disable", s.disableUser).Methods(http.MethodPut)
@@ -776,6 +777,33 @@ func (s *Server) getUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, models.UserResponse{User: *user, SubURL: s.cfg.SubURL(user.Token), SubURLs: s.cfg.SubURLsWithFallback(user.Token, user.FallbackToken)})
+}
+
+// getUserByTokenHandler resolves a sub_token (the user-facing subscription
+// token, NOT the admin token) into a user record. Used by the Phase 0
+// onboarding portal in raven-dashboard: the dashboard receives a request
+// at /u/{token}, calls this endpoint with the admin header, and returns
+// scoped user info to the Vue SPA without exposing the admin API.
+func (s *Server) getUserByTokenHandler(w http.ResponseWriter, r *http.Request) {
+	token := mux.Vars(r)["token"]
+	if strings.TrimSpace(token) == "" {
+		jsonError(w, "token required", http.StatusBadRequest)
+		return
+	}
+	user, err := s.db.GetUserByToken(token)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if user == nil {
+		jsonError(w, "user not found", http.StatusNotFound)
+		return
+	}
+	jsonOK(w, models.UserResponse{
+		User:    *user,
+		SubURL:  s.cfg.SubURL(user.Token),
+		SubURLs: s.cfg.SubURLsWithFallback(user.Token, user.FallbackToken),
+	})
 }
 
 func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {

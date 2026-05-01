@@ -118,6 +118,82 @@ func TestAPI_ListUsers_CreateUser_GetUser_DeleteUser_ByID(t *testing.T) {
 	}
 }
 
+func TestAPI_GetUserByToken_Lookup(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	// Create user to obtain a real token
+	createBody := `{"username":"portaluser"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/users", bytes.NewReader([]byte(createBody)))
+	req.Header.Set("X-Admin-Token", "admin-secret")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create user: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		User struct {
+			ID       int64  `json:"id"`
+			Username string `json:"username"`
+			Token    string `json:"token"`
+		} `json:"user"`
+		SubURL string `json:"sub_url"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	if created.User.Token == "" {
+		t.Fatal("token empty")
+	}
+
+	// Lookup by token returns the same user record + sub_url
+	req = httptest.NewRequest(http.MethodGet, "/api/users/by-token/"+created.User.Token, nil)
+	req.Header.Set("X-Admin-Token", "admin-secret")
+	rec = httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("by-token lookup: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		User struct {
+			ID       int64  `json:"id"`
+			Username string `json:"username"`
+			Token    string `json:"token"`
+		} `json:"user"`
+		SubURL string `json:"sub_url"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode lookup: %v", err)
+	}
+	if resp.User.ID != created.User.ID {
+		t.Errorf("id: got %d, want %d", resp.User.ID, created.User.ID)
+	}
+	if resp.User.Username != "portaluser" {
+		t.Errorf("username: got %q, want portaluser", resp.User.Username)
+	}
+	if resp.SubURL == "" {
+		t.Error("sub_url should be populated")
+	}
+
+	// Unknown token → 404
+	req = httptest.NewRequest(http.MethodGet, "/api/users/by-token/nonexistent-token-xyz", nil)
+	req.Header.Set("X-Admin-Token", "admin-secret")
+	rec = httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown token: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// No admin token → 401
+	req = httptest.NewRequest(http.MethodGet, "/api/users/by-token/"+created.User.Token, nil)
+	rec = httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("no admin token: %d", rec.Code)
+	}
+}
+
 func TestAPI_InvalidID_ReturnsBadRequest(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
