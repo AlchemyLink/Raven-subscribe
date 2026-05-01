@@ -217,8 +217,13 @@ func (s *Server) applyKillSwitchInboundsLocked(enable bool) {
 		}
 		// disable
 		if err := xray.RemoveInboundViaAPI(apiAddr, tag); err != nil {
-			if strings.Contains(strings.ToLower(err.Error()), "not found") ||
-				strings.Contains(strings.ToLower(err.Error()), "no such") {
+			// xray-core surfaces "no such handler" via several error idioms depending
+			// on which dispatcher path the RemoveInbound RPC takes; treat all of them
+			// as benign because the desired post-condition (handler absent) holds.
+			lower := strings.ToLower(err.Error())
+			if strings.Contains(lower, "not found") ||
+				strings.Contains(lower, "no such") ||
+				strings.Contains(lower, "not enough information") {
 				log.Printf("INFO killswitch disable: inbound %s already absent (benign)", sanitizeLogField(tag))
 				continue
 			}
