@@ -73,6 +73,8 @@ services:
     image: alpine/openssl:latest
     profiles: ["e2e-edge-eu"]
     # alpine/openssl entrypoint is `openssl`; pass s_server args directly.
+    # No -quiet so startup + accept lines surface in `compose logs` for
+    # diagnostics on CI failures.
     command:
       - "s_server"
       - "-accept"
@@ -82,7 +84,6 @@ services:
       - "-key"
       - "/certs/key.pem"
       - "-www"
-      - "-quiet"
     volumes:
       - ${MOCK_REALITY_CERT_DIR:-./docker/nginx-frontend/placeholder-certs}:/certs:ro
     expose:

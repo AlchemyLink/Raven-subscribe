@@ -70,10 +70,28 @@ func TestNginxFrontendSNI(t *testing.T) {
 	}
 
 	t.Run("happy_path_destination_com_routes_to_mock", func(t *testing.T) {
-		cn, err := probeSNICertCN(ctx, hostPort, "destination.com")
+		// openssl s_server takes a moment after container start before it
+		// accepts on :4444; first probe sometimes hits a half-open socket
+		// and gets a TCP RST mid-handshake. Retry briefly to absorb that.
+		var (
+			cn  string
+			err error
+		)
+		for attempt := 0; attempt < 10; attempt++ {
+			cn, err = probeSNICertCN(ctx, hostPort, "destination.com")
+			if err == nil {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				dumpEdgeLogs(ctx, t, repoRoot, composeEnv)
+				t.Fatalf("probe destination.com cancelled: %v", ctx.Err())
+			case <-time.After(1 * time.Second):
+			}
+		}
 		if err != nil {
 			dumpEdgeLogs(ctx, t, repoRoot, composeEnv)
-			t.Fatalf("probe destination.com: %v", err)
+			t.Fatalf("probe destination.com after retries: %v", err)
 		}
 		if cn != mockCN {
 			t.Fatalf("expected cert CN=%q for SNI=destination.com, got %q", mockCN, cn)
