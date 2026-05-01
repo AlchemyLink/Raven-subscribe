@@ -51,6 +51,44 @@ services:
       - "80"
     restart: unless-stopped
 
+  # Tier 4 edge-eu variant only. Mounts the snapshot of nginx_frontend's
+  # stream.conf in front of mock TLS upstreams; the test sends openssl
+  # s_client probes with different SNIs and verifies each lands on the
+  # right upstream by inspecting the cert subject CN. Activate with
+  # profile "e2e-edge-eu".
+  nginx-frontend:
+    image: nginx:1.27-alpine
+    profiles: ["e2e-edge-eu"]
+    command: ["nginx", "-g", "daemon off;"]
+    volumes:
+      - ./docker/nginx-frontend/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./testdata/ansible-rendered/nginx-frontend/stream.conf:/etc/nginx/stream.d/stream.conf:ro
+    ports:
+      - "${NGINX_FRONTEND_HOST_PORT:-18444}:443"
+    depends_on:
+      - mock-reality
+    restart: "no"
+
+  mock-reality:
+    image: alpine/openssl:latest
+    profiles: ["e2e-edge-eu"]
+    # alpine/openssl entrypoint is `openssl`; pass s_server args directly.
+    command:
+      - "s_server"
+      - "-accept"
+      - "4444"
+      - "-cert"
+      - "/certs/cert.pem"
+      - "-key"
+      - "/certs/key.pem"
+      - "-www"
+      - "-quiet"
+    volumes:
+      - ${MOCK_REALITY_CERT_DIR:-./docker/nginx-frontend/placeholder-certs}:/certs:ro
+    expose:
+      - "4444"
+    restart: "no"
+
   # Tier 3 bridge-chain variant only. Mirrors the prod RU-bridge → EU-xray
   # topology: xray-bridge accepts client traffic and chains it to the xray
   # service via a VLESS outbound. Activate with profile "e2e-user-bridge".
