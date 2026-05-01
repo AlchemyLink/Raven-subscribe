@@ -128,6 +128,42 @@ services:
       - "5443"
     restart: "no"
 
+  # Tier 4 edge-ru variant: RU relay nginx in front of the EU
+  # nginx-frontend. relay's stream.conf forwards SNIs that don't match
+  # local rules to nginx-frontend over TCP — exercising the prod 2-hop
+  # SNI propagation path. Activate with profile "e2e-edge-ru".
+  nginx-relay:
+    image: nginx:1.27-alpine
+    profiles: ["e2e-edge-ru"]
+    command: ["nginx", "-g", "daemon off;"]
+    volumes:
+      - ./docker/nginx-relay/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./testdata/ansible-rendered/nginx-relay/stream.conf:/etc/nginx/stream.d/stream.conf:ro
+    ports:
+      - "${NGINX_RELAY_HOST_PORT:-18445}:443"
+    depends_on:
+      - nginx-frontend
+      - mock-relay-local
+    restart: "no"
+
+  mock-relay-local:
+    image: alpine/openssl:latest
+    profiles: ["e2e-edge-ru"]
+    command:
+      - "s_server"
+      - "-accept"
+      - "8443"
+      - "-cert"
+      - "/certs/cert.pem"
+      - "-key"
+      - "/certs/key.pem"
+      - "-www"
+    volumes:
+      - ${MOCK_RELAY_LOCAL_CERT_DIR:-./docker/nginx-frontend/placeholder-certs}:/certs:ro
+    expose:
+      - "8443"
+    restart: "no"
+
   # Tier 3 bridge-chain variant only. Mirrors the prod RU-bridge → EU-xray
   # topology: xray-bridge accepts client traffic and chains it to the xray
   # service via a VLESS outbound. Activate with profile "e2e-user-bridge".
