@@ -67,6 +67,8 @@ services:
       - "${NGINX_FRONTEND_HOST_PORT:-18444}:443"
     depends_on:
       - mock-reality
+      - mock-xhttp
+      - mock-fallback
     restart: "no"
 
   mock-reality:
@@ -88,6 +90,42 @@ services:
       - ${MOCK_REALITY_CERT_DIR:-./docker/nginx-frontend/placeholder-certs}:/certs:ro
     expose:
       - "4444"
+    restart: "no"
+
+  mock-xhttp:
+    image: alpine/openssl:latest
+    profiles: ["e2e-edge-eu"]
+    command:
+      - "s_server"
+      - "-accept"
+      - "2054"
+      - "-cert"
+      - "/certs/cert.pem"
+      - "-key"
+      - "/certs/key.pem"
+      - "-www"
+    volumes:
+      - ${MOCK_XHTTP_CERT_DIR:-./docker/nginx-frontend/placeholder-certs}:/certs:ro
+    expose:
+      - "2054"
+    restart: "no"
+
+  mock-fallback:
+    image: alpine/openssl:latest
+    profiles: ["e2e-edge-eu"]
+    command:
+      - "s_server"
+      - "-accept"
+      - "5443"
+      - "-cert"
+      - "/certs/cert.pem"
+      - "-key"
+      - "/certs/key.pem"
+      - "-www"
+    volumes:
+      - ${MOCK_FALLBACK_CERT_DIR:-./docker/nginx-frontend/placeholder-certs}:/certs:ro
+    expose:
+      - "5443"
     restart: "no"
 
   # Tier 3 bridge-chain variant only. Mirrors the prod RU-bridge → EU-xray

@@ -35,15 +35,24 @@ func TestNginxFrontendSNI(t *testing.T) {
 	defer cancel()
 
 	repoRoot := mustRepoRoot(t)
-	const mockCN = "mock-vless-reality-v2"
-	certDir := generateMockCert(t, mockCN)
+
+	mocks := []struct {
+		envVar string
+		cn     string
+	}{
+		{"MOCK_REALITY_CERT_DIR", "mock-vless-reality-v2"},
+		{"MOCK_XHTTP_CERT_DIR", "mock-xhttp-reality-v2"},
+		{"MOCK_FALLBACK_CERT_DIR", "mock-fallback"},
+	}
 
 	hostPort := reservePort(t)
 	projectName := fmt.Sprintf("ravene2enginx%d", time.Now().UnixNano())
 	composeEnv := []string{
 		"COMPOSE_PROJECT_NAME=" + projectName,
-		"MOCK_REALITY_CERT_DIR=" + certDir,
 		fmt.Sprintf("NGINX_FRONTEND_HOST_PORT=%d", hostPort),
+	}
+	for _, m := range mocks {
+		composeEnv = append(composeEnv, m.envVar+"="+generateMockCert(t, m.cn))
 	}
 
 	if out, err := runCmdEnv(ctx, repoRoot, composeEnv,
@@ -53,7 +62,8 @@ func TestNginxFrontendSNI(t *testing.T) {
 	}
 	if out, err := runCmdEnv(ctx, repoRoot, composeEnv,
 		"docker", "compose", "-f", "docker-compose.test.yml",
-		"--profile", "e2e-edge-eu", "up", "-d", "nginx-frontend", "mock-reality"); err != nil {
+		"--profile", "e2e-edge-eu", "up", "-d",
+		"nginx-frontend", "mock-reality", "mock-xhttp", "mock-fallback"); err != nil {
 		t.Fatalf("compose up edge-eu failed: %v\n%s", err, out)
 	}
 	defer func() {
@@ -69,44 +79,67 @@ func TestNginxFrontendSNI(t *testing.T) {
 		t.Fatalf("nginx-frontend not listening: %v", err)
 	}
 
-	t.Run("happy_path_destination_com_routes_to_mock", func(t *testing.T) {
-		// openssl s_server takes a moment after container start before it
-		// accepts on :4444; first probe sometimes hits a half-open socket
-		// and gets a TCP RST mid-handshake. Retry briefly to absorb that.
-		var (
-			cn  string
-			err error
-		)
-		for attempt := 0; attempt < 10; attempt++ {
-			cn, err = probeSNICertCN(ctx, hostPort, "destination.com")
-			if err == nil {
-				break
-			}
-			select {
-			case <-ctx.Done():
+	cases := []struct {
+		name       string
+		sni        string
+		expectedCN string
+	}{
+		{"reality_v2_routes_to_mock_reality", "destination.com", "mock-vless-reality-v2"},
+		{"xhttp_routes_to_mock_xhttp", "addons.example", "mock-xhttp-reality-v2"},
+		{"fallback_stackoverflow_routes_to_mock_fallback", "stackoverflow.com", "mock-fallback"},
+		{"fallback_superuser_routes_to_mock_fallback", "superuser.com", "mock-fallback"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			cn, err := probeSNIWithRetry(ctx, hostPort, tc.sni)
+			if err != nil {
 				dumpEdgeLogs(ctx, t, repoRoot, composeEnv)
-				t.Fatalf("probe destination.com cancelled: %v", ctx.Err())
-			case <-time.After(1 * time.Second):
+				t.Fatalf("probe SNI=%s: %v", tc.sni, err)
 			}
-		}
-		if err != nil {
-			dumpEdgeLogs(ctx, t, repoRoot, composeEnv)
-			t.Fatalf("probe destination.com after retries: %v", err)
-		}
-		if cn != mockCN {
-			t.Fatalf("expected cert CN=%q for SNI=destination.com, got %q", mockCN, cn)
-		}
-	})
+			if cn != tc.expectedCN {
+				t.Fatalf("SNI=%s expected cert CN=%q, got %q", tc.sni, tc.expectedCN, cn)
+			}
+		})
+	}
 
 	t.Run("default_tcp_close_for_unmatched_sni", func(t *testing.T) {
 		cn, err := probeSNICertCN(ctx, hostPort, "some-bogus-sni.invalid")
-		// Either the connection hangs/resets (TLS handshake never completes)
-		// or it succeeds reaching a backend it shouldn't. Anything that
-		// returns mockCN is wrong.
-		if err == nil && cn == mockCN {
-			t.Fatalf("unmatched SNI should not reach mock backend, got cert CN=%q", cn)
+		// The connection should reset before TLS completes — anything that
+		// returns one of our mock CNs means routing leaked.
+		if err == nil {
+			for _, m := range mocks {
+				if cn == m.cn {
+					t.Fatalf("unmatched SNI leaked to mock backend, got cert CN=%q", cn)
+				}
+			}
 		}
 	})
+}
+
+// probeSNIWithRetry wraps probeSNICertCN with a short retry loop. openssl
+// s_server takes a moment after container start before it accepts on its
+// listen port; the first dial through nginx sometimes hits a half-open
+// socket and the kernel sends RST mid-handshake.
+func probeSNIWithRetry(ctx context.Context, hostPort int, sni string) (string, error) {
+	var (
+		cn      string
+		lastErr error
+	)
+	for attempt := 0; attempt < 10; attempt++ {
+		var err error
+		cn, err = probeSNICertCN(ctx, hostPort, sni)
+		if err == nil {
+			return cn, nil
+		}
+		lastErr = err
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(1 * time.Second):
+		}
+	}
+	return "", lastErr
 }
 
 // generateMockCert writes a self-signed RSA cert with CN=cn into a fresh
