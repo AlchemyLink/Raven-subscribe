@@ -94,11 +94,8 @@ func variantConfig(t *testing.T, repoRoot, variant string) userConnectionVariant
 
 func runUserConnectionVariant(t *testing.T, variant string) {
 	if variant == "bridge-chain" {
-		// TODO: implement bridge-chain variant. Requires a second xray
-		// service (bridge) with chain outbound to xray-eu, and a way to
-		// override raven-subscribe's server_host so the generated URL
-		// points at the bridge port. Tracked as future Tier 3 work.
-		t.Skip("bridge-chain variant not yet implemented")
+		runBridgeChainVariant(t)
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
@@ -275,6 +272,215 @@ func buildVariantConfigDir(t *testing.T, srcInboundFile, decryptionOverride stri
 	return dir, inboundTags[0]
 }
 
+// runBridgeChainVariant validates the prod RU-bridge → EU-xray topology
+// hermetically: xray (the EU instance) accepts a chain-only user; xray-bridge
+// terminates the real user's session and chains to xray on a separate VLESS
+// outbound; raven-subscribe sees the user on the bridge inbound and emits a
+// URL pointing at the bridge. Plain VLESS+TCP both legs (no Reality) keeps
+// the test free of internet/DNS dependencies.
+func runBridgeChainVariant(t *testing.T) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+
+	repoRoot := mustRepoRoot(t)
+	euDir, brDir, userEmail := buildBridgeChainConfigs(t)
+
+	env := composeTestEnv{
+		repoRoot:        repoRoot,
+		xrayConfigDir:   euDir,
+		ravenConfigDir:  brDir,
+		bridgeConfigDir: brDir,
+		serverHost:      "xray-bridge",
+	}
+	env.prepare(ctx, t)
+	defer env.teardown(ctx, t)
+
+	bridgeHostPort := reservePort(t)
+	composeEnv := append(env.composeEnv(),
+		fmt.Sprintf("XRAY_BRIDGE_HOST_PORT=%d", bridgeHostPort),
+	)
+
+	if out, err := runCmdEnv(ctx, env.repoRoot, composeEnv,
+		"docker", "compose", "-f", "docker-compose.test.yml",
+		"--profile", "e2e-user-bridge", "up", "-d", "xray-bridge"); err != nil {
+		t.Fatalf("compose up xray-bridge failed: %v\n%s", err, out)
+	}
+
+	if err := waitForTCPErr(fmt.Sprintf("127.0.0.1:%d", bridgeHostPort), 30*time.Second); err != nil {
+		dumpAllLogs(ctx, t, env.repoRoot, composeEnv)
+		t.Fatalf("xray-bridge port not ready: %v", err)
+	}
+
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", env.appPort)
+	waitForHealth(t, baseURL+"/health", 90*time.Second)
+
+	env.requestStatus(t, http.MethodPost, "/api/sync", adminToken, nil, http.StatusOK)
+
+	body := env.requestStatus(t, http.MethodGet, "/api/users", adminToken, nil, http.StatusOK)
+	users := decodeUsers(t, body)
+	user, ok := findUser(users, userEmail)
+	if !ok {
+		t.Fatalf("%s not found in %v", userEmail, users)
+	}
+	if strings.TrimSpace(user.Token) == "" {
+		t.Fatalf("%s has empty sub token: %+v", userEmail, user)
+	}
+
+	rawConfig := env.compactSubStatus(t, user.Token, "", http.StatusOK)
+	clientConfig := rewriteClientConfigForContainer(t, rawConfig, "xray-bridge")
+
+	socksPort := reservePort(t)
+	clientConfigPath := filepath.Join(env.tmpDir, "xray-client.json")
+	if err := os.WriteFile(clientConfigPath, clientConfig, 0o644); err != nil { //nolint:gosec
+		t.Fatalf("write xray-client config: %v", err)
+	}
+
+	composeEnv = append(composeEnv,
+		"XRAY_CLIENT_CONFIG_PATH="+clientConfigPath,
+		fmt.Sprintf("XRAY_CLIENT_HOST_PORT=%d", socksPort),
+	)
+
+	if out, err := runCmdEnv(ctx, env.repoRoot, composeEnv,
+		"docker", "compose", "-f", "docker-compose.test.yml",
+		"--profile", "e2e-user", "--profile", "e2e-user-bridge", "up", "-d",
+		"xray-client", "test-target"); err != nil {
+		t.Fatalf("compose up bridge-chain xray-client failed: %v\n%s", err, out)
+	}
+
+	if err := waitForTCPErr(fmt.Sprintf("127.0.0.1:%d", socksPort), 30*time.Second); err != nil {
+		dumpAllLogs(ctx, t, env.repoRoot, composeEnv)
+		t.Fatalf("xray-client socks5 not ready: %v", err)
+	}
+
+	if err := curlThroughSocks(ctx, socksPort, "http://test-target/get"); err != nil {
+		dumpAllLogs(ctx, t, env.repoRoot, composeEnv)
+		t.Fatalf("traffic check failed: %v", err)
+	}
+}
+
+func dumpAllLogs(ctx context.Context, t *testing.T, repoRoot string, composeEnv []string) {
+	t.Helper()
+	for _, svc := range []string{"xray-client", "xray-bridge", "xray", "test-target", "app"} {
+		out, _ := runCmdEnv(ctx, repoRoot, composeEnv,
+			"docker", "compose", "-f", "docker-compose.test.yml",
+			"--profile", "e2e-user", "--profile", "e2e-user-bridge",
+			"logs", "--no-color", svc)
+		t.Logf("---- %s logs ----\n%s", svc, out)
+	}
+}
+
+// buildBridgeChainConfigs writes two minimal hermetic config dirs:
+//
+//   - eu (mounted into the xray service): one VLESS+TCP inbound on :18443
+//     accepting a chain-only user, freedom outbound, routing to direct.
+//   - bridge (mounted into both raven-subscribe and the xray-bridge service):
+//     one VLESS+TCP inbound on :28443 accepting the test user, plus a VLESS
+//     outbound that chains to xray:18443 with the chain user's UUID.
+//
+// raven-subscribe reads the bridge config and emits a URL pointing at
+// xray-bridge:28443; xray-bridge then proxies authenticated traffic to the
+// EU instance over the chain outbound.
+func buildBridgeChainConfigs(t *testing.T) (string, string, string) {
+	t.Helper()
+
+	const (
+		userEmail = "alice@example.com"
+		userUUID  = "11111111-1111-1111-1111-111111111111"
+		chainUUID = "33333333-3333-3333-3333-333333333333"
+	)
+
+	euCfg := map[string]interface{}{
+		"log": map[string]interface{}{"loglevel": "info"},
+		"inbounds": []map[string]interface{}{{
+			"tag":      "vless-eu-in",
+			"listen":   "0.0.0.0",
+			"port":     18443,
+			"protocol": "vless",
+			"settings": map[string]interface{}{
+				"decryption": "none",
+				"clients": []map[string]interface{}{
+					{"id": chainUUID, "email": "chain@bridge.local"},
+				},
+			},
+			"streamSettings": map[string]interface{}{"network": "tcp"},
+		}},
+		"outbounds": []map[string]interface{}{
+			{"protocol": "freedom", "tag": "direct"},
+			{"protocol": "blackhole", "tag": "block"},
+		},
+		"routing": map[string]interface{}{
+			"rules": []map[string]interface{}{
+				{"type": "field", "inboundTag": []string{"vless-eu-in"}, "outboundTag": "direct"},
+			},
+		},
+	}
+
+	bridgeCfg := map[string]interface{}{
+		"log": map[string]interface{}{"loglevel": "info"},
+		"inbounds": []map[string]interface{}{{
+			"tag":      "vless-bridge-in",
+			"listen":   "0.0.0.0",
+			"port":     28443,
+			"protocol": "vless",
+			"settings": map[string]interface{}{
+				"decryption": "none",
+				"clients": []map[string]interface{}{
+					{"id": userUUID, "email": userEmail},
+				},
+			},
+			"streamSettings": map[string]interface{}{"network": "tcp"},
+		}},
+		"outbounds": []map[string]interface{}{
+			{
+				"tag":      "chain",
+				"protocol": "vless",
+				"settings": map[string]interface{}{
+					"vnext": []map[string]interface{}{{
+						"address": "xray",
+						"port":    18443,
+						"users": []map[string]interface{}{
+							{"id": chainUUID, "encryption": "none"},
+						},
+					}},
+				},
+				"streamSettings": map[string]interface{}{"network": "tcp"},
+			},
+			{"protocol": "freedom", "tag": "direct"},
+			{"protocol": "blackhole", "tag": "block"},
+		},
+		"routing": map[string]interface{}{
+			"rules": []map[string]interface{}{
+				{"type": "field", "inboundTag": []string{"vless-bridge-in"}, "outboundTag": "chain"},
+			},
+		},
+	}
+
+	base := t.TempDir()
+	euDir := filepath.Join(base, "eu-config.d")
+	bridgeDir := filepath.Join(base, "bridge-config.d")
+	for _, d := range []string{euDir, bridgeDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", d, err)
+		}
+	}
+	for path, cfg := range map[string]map[string]interface{}{
+		filepath.Join(euDir, "01_inbound.json"):     euCfg,
+		filepath.Join(bridgeDir, "01_inbound.json"): bridgeCfg,
+	} {
+		raw, err := json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			t.Fatalf("marshal %s: %v", path, err)
+		}
+		if err := os.WriteFile(path, raw, 0o644); err != nil { //nolint:gosec
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	return euDir, bridgeDir, userEmail
+}
+
 // generateVlessenc invokes `xray vlessenc` in a throwaway container and
 // returns a fresh (server decryption, client encryption) pair. Picks the
 // last (Post-Quantum, ML-KEM-768) keypair from the output to mirror prod.
@@ -314,7 +520,10 @@ func rewriteClientConfigForContainer(t *testing.T, raw []byte, target string) []
 		t.Fatalf("parse client config: %v body=%s", err, string(raw))
 	}
 
-	addrRewrites := 0
+	// Rewrite any 127.0.0.1 outbound address to the compose service hostname.
+	// Bridge-chain may have raven configured with serverHost=xray-bridge already,
+	// so 0 rewrites is fine here — the only hard invariant is that no 127.0.0.1
+	// address remains, asserted below.
 	if outbounds, ok := doc["outbounds"].([]interface{}); ok {
 		for _, ob := range outbounds {
 			m, _ := ob.(map[string]interface{})
@@ -328,14 +537,10 @@ func rewriteClientConfigForContainer(t *testing.T, raw []byte, target string) []
 					sm, _ := item.(map[string]interface{})
 					if addr, _ := sm["address"].(string); addr == "127.0.0.1" {
 						sm["address"] = target
-						addrRewrites++
 					}
 				}
 			}
 		}
-	}
-	if addrRewrites == 0 {
-		t.Fatalf("no 127.0.0.1 outbound addresses found; client config does not match expected shape:\n%s", string(raw))
 	}
 
 	listenRewrites := 0

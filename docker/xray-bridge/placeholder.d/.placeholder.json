@@ -1,0 +1,3 @@
+{
+  "_comment": "Placeholder config dir for the xray-bridge service used by the bridge-chain Tier 3 variant. Tests override XRAY_BRIDGE_CONFIG_DIR with a runtime-generated bridge config before activating the e2e-user-bridge profile."
+}

@@ -12,7 +12,12 @@ services:
     image: alpine:3.20
     command: ["/usr/local/bin/xray-subscription", "-config", "/etc/xray-subscription/config.json"]
     volumes:
-      - ${XRAY_CONFIG_DIR:-./docker/xray/config.d}:/etc/xray/config.d:ro
+      # Raven-subscribe reads the config_dir to discover users/inbounds. By
+      # default this is the same directory mounted into the xray service.
+      # The bridge-chain variant overrides RAVEN_XRAY_CONFIG_DIR so raven
+      # sees the bridge inbound (with the test user) while xray runs the
+      # EU config (with the chain-only user).
+      - ${RAVEN_XRAY_CONFIG_DIR:-${XRAY_CONFIG_DIR:-./docker/xray/config.d}}:/etc/xray/config.d:ro
       - ${APP_CONFIG_PATH:-./docker/xray-subscription/config.json}:/etc/xray-subscription/config.json:ro
       - ${APP_BIN_PATH:-./build/xray-subscription}:/usr/local/bin/xray-subscription:ro
       - raven_subscribe_db:/var/lib/xray-subscription
@@ -44,6 +49,23 @@ services:
     profiles: ["e2e-user"]
     expose:
       - "80"
+    restart: unless-stopped
+
+  # Tier 3 bridge-chain variant only. Mirrors the prod RU-bridge → EU-xray
+  # topology: xray-bridge accepts client traffic and chains it to the xray
+  # service via a VLESS outbound. Activate with profile "e2e-user-bridge".
+  xray-bridge:
+    image: ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:latest}
+    profiles: ["e2e-user-bridge"]
+    command: ["run", "-confdir", "/etc/xray-bridge/config.d"]
+    volumes:
+      - ${XRAY_BRIDGE_CONFIG_DIR:-./docker/xray-bridge/placeholder.d}:/etc/xray-bridge/config.d:ro
+    ports:
+      # Host-mapped only so the test harness can probe readiness — xray-client
+      # in the same compose network reaches the bridge by service name.
+      - "${XRAY_BRIDGE_HOST_PORT:-28443}:28443"
+    depends_on:
+      - xray
     restart: unless-stopped
 
 volumes:

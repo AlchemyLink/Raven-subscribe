@@ -393,6 +393,18 @@ type composeTestEnv struct {
 	// inbound has decryption != "none" so generated client URLs include the
 	// matching encryption param.
 	vlessClientEncryption map[string]string
+	// serverHost overrides the host embedded in generated client URLs.
+	// Empty defaults to "127.0.0.1". The bridge-chain variant sets this to
+	// "xray-bridge" so URLs point at the bridge service.
+	serverHost string
+	// ravenConfigDir overrides the path mounted into the raven-subscribe
+	// container. Empty falls back to xrayConfigDir (raven and xray share
+	// a config dir). Bridge-chain points raven at the bridge config so it
+	// discovers the user on the bridge inbound.
+	ravenConfigDir string
+	// bridgeConfigDir, when set, mounts a config dir into the optional
+	// xray-bridge service (profile "e2e-user-bridge"). Bridge-chain only.
+	bridgeConfigDir string
 }
 
 func (e *composeTestEnv) prepare(ctx context.Context, t *testing.T) {
@@ -410,9 +422,13 @@ func (e *composeTestEnv) prepare(ctx context.Context, t *testing.T) {
 		t.Fatalf("build app binary failed: %v\n%s", err, out)
 	}
 
+	serverHost := e.serverHost
+	if serverHost == "" {
+		serverHost = "127.0.0.1"
+	}
 	appCfg := map[string]interface{}{
 		"listen_addr":             ":8080",
-		"server_host":             "127.0.0.1",
+		"server_host":             serverHost,
 		"config_dir":              "/etc/xray/config.d",
 		"db_path":                 "/var/lib/xray-subscription/db.sqlite",
 		"sync_interval_seconds":   60,
@@ -459,7 +475,7 @@ func (e *composeTestEnv) composeEnv() []string {
 	if xrayImage == "" {
 		xrayImage = defaultXrayImage
 	}
-	return []string{
+	out := []string{
 		"COMPOSE_PROJECT_NAME=" + e.projectName,
 		"XRAY_IMAGE=" + xrayImage,
 		"XRAY_CONFIG_DIR=" + xrayCfg,
@@ -468,6 +484,13 @@ func (e *composeTestEnv) composeEnv() []string {
 		"APP_HOST_PORT=" + fmt.Sprintf("%d", e.appPort),
 		"XRAY_HOST_PORT=" + fmt.Sprintf("%d", e.xrayPort),
 	}
+	if e.ravenConfigDir != "" {
+		out = append(out, "RAVEN_XRAY_CONFIG_DIR="+e.ravenConfigDir)
+	}
+	if e.bridgeConfigDir != "" {
+		out = append(out, "XRAY_BRIDGE_CONFIG_DIR="+e.bridgeConfigDir)
+	}
+	return out
 }
 
 func (e *composeTestEnv) requestStatus(t *testing.T, method, path, token string, body []byte, status int) []byte {
