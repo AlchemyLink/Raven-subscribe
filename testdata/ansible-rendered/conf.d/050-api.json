@@ -1,0 +1,11 @@
+{
+    "api": {
+    "tag": "api-inbound",
+    "listen": "127.0.0.1:10085",
+    "services": [
+            "StatsService",
+            "HandlerService",
+            "ReflectionService"
+          ]
+  }
+  }

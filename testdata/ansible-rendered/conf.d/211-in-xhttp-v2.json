@@ -1,0 +1,50 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 2054,
+      "protocol": "vless",
+      "tag": "vless-xhttp-v2-in",
+      "settings": {
+        "clients": [{"id": "11111111-2222-3333-4444-555555555555", "flow": "", "email": "test@raven.local", "level": 0}],
+                        "testseed": [1000, 600, 1000, 300],
+                                "testpre": 5,
+                "decryption": "none"
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "realitySettings": {
+          "dest": "addons.mozilla.org:443",
+          "privateKey": "IG8Hkq_BTLRjMUn1rlkBZIALl9pHUphPp7f6cc1UQVw",
+          "spiderX": "/",
+          "serverNames": [
+                                    "addons.mozilla.org"
+                      ],
+          "shortIds": [
+                        "022656cc1b5b0d56"
+                      ],
+          "show": false,
+          "xver": 0
+        },
+        "security": "reality",
+        "xhttpSettings": {
+          "mode": "auto",
+          "path": "/api/v4/sync",
+          "scMaxPacketSize": 1048576,
+          "extra": {
+            "xPaddingBytes": "100-1000"
+          }
+        }
+      }
+    }
+  ]
+}

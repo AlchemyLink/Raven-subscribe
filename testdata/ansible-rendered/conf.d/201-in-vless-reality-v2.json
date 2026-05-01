@@ -1,0 +1,42 @@
+{
+  "inbounds": [
+   {
+      "listen": "127.0.0.1",
+      "port": 4444,
+      "protocol": "vless",
+      "tag": "vless-reality-v2-in",
+      "settings": {
+        "clients": [{"id": "11111111-2222-3333-4444-555555555555", "flow": "xtls-rprx-vision", "email": "test@raven.local", "level": 0}],
+                        "testseed": [1000, 600, 1000, 300],
+                                "testpre": 5,
+                "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "dl.google.com:443",
+          "spiderX": "/",
+          "serverNames": [
+                        "dl.google.com"
+                      ],
+          "privateKey": "IG8Hkq_BTLRjMUn1rlkBZIALl9pHUphPp7f6cc1UQVw",
+                              "shortIds": [
+                        "022656cc1b5b0d56"
+                      ],
+          "xver": 0
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": true
+      }
+    }
+  ]
+}

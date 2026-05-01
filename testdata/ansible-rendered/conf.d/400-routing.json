@@ -1,0 +1,21 @@
+  {
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+                  {
+        "type": "field",
+        "inboundTag": ["api-inbound"],
+        "outboundTag": "api-inbound"
+      },
+                  {
+        "type": "field",
+        "inboundTag": [
+          "vless-reality-in",
+          "vless-xhttp-in",
+          "vless-reality-v2-in",
+          "vless-xhttp-v2-in"        ],
+        "outboundTag": "freedom"
+      }
+    ]
+  }
+}    

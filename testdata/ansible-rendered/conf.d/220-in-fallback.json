@@ -1,0 +1,43 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 5443,
+      "protocol": "vless",
+      "tag": "vless-fallback-in",
+      "settings": {
+        "clients": [{"id": "11111111-2222-3333-4444-555555555555", "flow": "xtls-rprx-vision", "email": "test@raven.local", "level": 0}],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "stackoverflow.com:443",
+          "spiderX": "/",
+          "serverNames": [
+                        "stackoverflow.com",
+                        "superuser.com",
+                        "serverfault.com",
+                        "unix.stackexchange.com"
+                      ],
+          "privateKey": "GEHIZ7PdEQt6xzBFEoeWChHJyj7lK_NCW3ItWm7WuWY",
+          "shortIds": [
+                        "774d45875dc392af"
+                      ],
+          "xver": 0
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "routeOnly": true
+      }
+    }
+  ]
+}

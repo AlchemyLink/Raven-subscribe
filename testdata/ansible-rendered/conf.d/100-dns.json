@@ -1,0 +1,10 @@
+{
+ "dns": {
+    "servers": [
+            "tcp+local://8.8.8.8",
+            "tcp+local://1.1.1.1"
+          ],
+    "disableFallback": false,
+    "queryStrategy": "UseIPv4"
+  }
+}
