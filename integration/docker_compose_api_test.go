@@ -384,6 +384,10 @@ type composeTestEnv struct {
 	xrayPort      int
 	appConfigPath string
 	appBinPath    string
+	// xrayConfigDir overrides the path mounted into the xray container.
+	// Empty falls back to testdata/xray/config.d (multi-protocol legacy fixture
+	// that crash-loops without TLS certs but is fine for read-only API tests).
+	xrayConfigDir string
 }
 
 func (e *composeTestEnv) prepare(ctx context.Context, t *testing.T) {
@@ -436,7 +440,10 @@ func (e *composeTestEnv) teardown(ctx context.Context, t *testing.T) {
 }
 
 func (e *composeTestEnv) composeEnv() []string {
-	xrayCfg := filepath.Join(e.repoRoot, "testdata", "xray", "config.d")
+	xrayCfg := e.xrayConfigDir
+	if xrayCfg == "" {
+		xrayCfg = filepath.Join(e.repoRoot, "testdata", "xray", "config.d")
+	}
 	xrayImage := strings.TrimSpace(os.Getenv("XRAY_IMAGE"))
 	if xrayImage == "" {
 		xrayImage = defaultXrayImage

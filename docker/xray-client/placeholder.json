@@ -1,0 +1,3 @@
+{
+  "_comment": "Placeholder for the Tier 3 user-connection E2E harness. Tests override XRAY_CLIENT_CONFIG_PATH with a Raven-subscribe-generated client config before activating the e2e-user compose profile."
+}

@@ -22,5 +22,29 @@ services:
       - xray
     restart: unless-stopped
 
+  # User-connection E2E (Tier 3) — gated by profile "e2e-user".
+  # Activate with `docker compose --profile e2e-user up -d`.
+  # XRAY_CLIENT_CONFIG_PATH must point to a Raven-subscribe-generated client
+  # config rendered by the test harness before compose up.
+  xray-client:
+    image: ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:latest}
+    profiles: ["e2e-user"]
+    command: ["run", "-c", "/etc/xray-client/config.json"]
+    volumes:
+      - ${XRAY_CLIENT_CONFIG_PATH:-./docker/xray-client/placeholder.json}:/etc/xray-client/config.json:ro
+    ports:
+      - "${XRAY_CLIENT_HOST_PORT:-11080}:2080"
+    depends_on:
+      - xray
+      - app
+    restart: "no"
+
+  test-target:
+    image: kennethreitz/httpbin
+    profiles: ["e2e-user"]
+    expose:
+      - "80"
+    restart: unless-stopped
+
 volumes:
   raven_subscribe_db:
