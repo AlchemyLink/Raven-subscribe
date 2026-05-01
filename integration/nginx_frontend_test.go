@@ -120,7 +120,7 @@ func generateMockCert(t *testing.T, cn string) string {
 	// path to be traversable by the alpine/openssl container's root user.
 	// Container root can't bypass user-namespace remapping if Docker is
 	// configured for it, so widen perms explicitly.
-	if err := os.Chmod(parent, 0o755); err != nil {
+	if err := os.Chmod(parent, 0o755); err != nil { //nolint:gosec
 		t.Fatalf("chmod tempdir: %v", err)
 	}
 	dir := filepath.Join(parent, "certs")
