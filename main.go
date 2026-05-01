@@ -78,6 +78,11 @@ func main() {
 	defer syncCancel()
 	go sync.Start(syncCtx)
 
+	// Periodic killswitch reconcile — catches xray restarts that reload
+	// fallback inbounds from config.d while the killswitch is OFF in the DB.
+	// See internal/api/fallback.go ReconcileKillSwitchLoop for the full rationale.
+	go srv.ReconcileKillSwitchLoop(syncCtx, time.Duration(cfg.KillSwitchReconcileInterval)*time.Second)
+
 	// ── HTTP Server ─────────────────────────────────────────────────────────
 	httpServer := &http.Server{
 		Addr:         cfg.ListenAddr,

@@ -105,6 +105,14 @@ type Config struct {
 	// Set to false when Xray is not installed — suppresses "directory not found" warnings.
 	XrayEnabled *bool `json:"xray_enabled,omitempty"`
 
+	// KillSwitchReconcileInterval is how often (seconds) raven-subscribe re-applies
+	// the persisted killswitch state to the Xray runtime via gRPC. Catches drift
+	// caused by xray restarts that reload fallback inbounds from /etc/xray/config.d/
+	// while the killswitch is OFF in the DB.
+	// Default 30. Set to 0 to disable the periodic reconcile (startup-only).
+	// No-op when xray_api_addr or fallback_inbound_tags are unset.
+	KillSwitchReconcileInterval int `json:"killswitch_reconcile_interval_seconds,omitempty"`
+
 	xrayFilePerm os.FileMode `json:"-"`
 }
 
@@ -120,6 +128,7 @@ func Load(path string) (*Config, error) {
 		BalancerStrategy:  "leastPing",
 		BalancerProbeURL:  "https://www.gstatic.com/generate_204",
 		BalancerProbeFreq: "30s",
+		KillSwitchReconcileInterval: 30,
 	}
 
 	if path == "" {

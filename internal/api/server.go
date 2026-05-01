@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gorilla/mux"
 	"github.com/alchemylink/raven-subscribe/internal/config"
@@ -37,6 +38,10 @@ type Server struct {
 	cfg    *config.Config
 	db     *database.DB
 	syncer Syncer
+	// killSwitchMu serializes killswitch reconcile/apply against HTTP toggle
+	// handlers so the periodic reconcile loop cannot race a concurrent
+	// enable/disable into a flipped runtime state.
+	killSwitchMu sync.Mutex
 }
 
 // NewServer creates a new Server with the given config, database, and syncer.

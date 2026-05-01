@@ -93,11 +93,13 @@ func (s *Server) getFallbackStatus(w http.ResponseWriter, _ *http.Request) {
 // Xray inbounds via gRPC HandlerService so that VPN traffic resumes immediately.
 // POST /api/fallback/enable
 func (s *Server) enableFallback(w http.ResponseWriter, _ *http.Request) {
+	s.killSwitchMu.Lock()
+	defer s.killSwitchMu.Unlock()
 	if err := s.db.SetFallbackEnabled(true); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.applyKillSwitchInbounds(true)
+	s.applyKillSwitchInboundsLocked(true)
 	jsonOK(w, map[string]bool{"enabled": true})
 }
 
@@ -107,19 +109,64 @@ func (s *Server) enableFallback(w http.ResponseWriter, _ *http.Request) {
 // connections to fallback inbounds get severed on next packet.
 // POST /api/fallback/disable
 func (s *Server) disableFallback(w http.ResponseWriter, _ *http.Request) {
+	s.killSwitchMu.Lock()
+	defer s.killSwitchMu.Unlock()
 	if err := s.db.SetFallbackEnabled(false); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.applyKillSwitchInbounds(false)
+	s.applyKillSwitchInboundsLocked(false)
 	jsonOK(w, map[string]bool{"enabled": false})
 }
 
 // ReconcileKillSwitchOnStartup applies the current persisted killswitch state to the
-// Xray runtime via gRPC. Intended to be called once after server initialization.
+// Xray runtime via gRPC. Intended to be called once after server initialization, before
+// the HTTP listener is up.
 // When disabled, removes fallback inbounds from Xray (they may have been loaded from
 // /etc/xray/config.d/ on Xray's own startup); when enabled, no-op (Xray already has them).
 func (s *Server) ReconcileKillSwitchOnStartup() {
+	s.killSwitchMu.Lock()
+	defer s.killSwitchMu.Unlock()
+	s.reconcileKillSwitchLocked()
+}
+
+// ReconcileKillSwitchLoop periodically re-applies the persisted killswitch state to the
+// Xray runtime. This catches the drift caused by an xray restart (Ansible
+// `--tags xray_inbounds`, manual `systemctl restart xray`, package upgrade, …) reloading
+// `/etc/xray/config.d/220-in-fallback.json` from disk while the killswitch is OFF in the
+// DB — without this loop, raven-subscribe would not notice and the fallback inbound would
+// silently start listening again.
+//
+// The loop is a no-op when XrayAPIAddr is empty or FallbackInboundTags is unset (the same
+// guards as applyKillSwitchInboundsLocked). interval <= 0 disables the loop entirely.
+//
+// reconcileKillSwitchLocked is idempotent — repeated "remove" calls treat
+// "not found" as benign — so the cadence trades latency-to-detect-drift for gRPC churn.
+func (s *Server) ReconcileKillSwitchLoop(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	if strings.TrimSpace(s.cfg.XrayAPIAddr) == "" || len(s.cfg.FallbackInboundTags) == 0 {
+		return
+	}
+	log.Printf("INFO killswitch reconcile loop: interval %s", interval)
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s.killSwitchMu.Lock()
+			s.reconcileKillSwitchLocked()
+			s.killSwitchMu.Unlock()
+		}
+	}
+}
+
+// reconcileKillSwitchLocked reads the persisted killswitch state and applies it.
+// Caller must hold killSwitchMu.
+func (s *Server) reconcileKillSwitchLocked() {
 	enabled, err := s.db.GetFallbackEnabled()
 	if err != nil {
 		log.Printf("WARN killswitch reconcile: read state: %v", err)
@@ -129,16 +176,16 @@ func (s *Server) ReconcileKillSwitchOnStartup() {
 		// Inbounds are expected to be live from Xray config; nothing to add.
 		return
 	}
-	s.applyKillSwitchInbounds(false)
+	s.applyKillSwitchInboundsLocked(false)
 }
 
-// applyKillSwitchInbounds toggles fallback inbounds in the running Xray instance via
+// applyKillSwitchInboundsLocked toggles fallback inbounds in the running Xray instance via
 // gRPC. Errors are logged but never propagated to the HTTP response — the DB flag is
 // already authoritative for subscription gating; gRPC failure means the inbound state
-// drifts (will reconcile on next toggle or process restart).
+// drifts (will reconcile on next toggle, periodic loop tick, or process restart).
 //
-// No-op when XrayAPIAddr is empty or FallbackInboundTags is unset.
-func (s *Server) applyKillSwitchInbounds(enable bool) {
+// Caller must hold killSwitchMu. No-op when XrayAPIAddr is empty or FallbackInboundTags is unset.
+func (s *Server) applyKillSwitchInboundsLocked(enable bool) {
 	apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr)
 	if apiAddr == "" || len(s.cfg.FallbackInboundTags) == 0 {
 		return
