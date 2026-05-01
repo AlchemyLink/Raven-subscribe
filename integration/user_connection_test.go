@@ -578,19 +578,36 @@ func waitForTCPErr(addr string, timeout time.Duration) error {
 }
 
 func curlThroughSocks(ctx context.Context, socksPort int, target string) error {
-	//nolint:gosec // controlled command, args are not attacker-controlled in tests
-	cmd := exec.CommandContext(ctx, "curl", "-fsS",
-		"--max-time", "20",
-		"--proxy", fmt.Sprintf("socks5h://127.0.0.1:%d", socksPort),
-		target)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("curl failed: %w\noutput: %s", err, string(out))
+	// xray binds the socks listener and logs "core: Xray started" before
+	// the proxy is fully ready to accept SOCKS5 handshakes. On hosts with
+	// fast TCP-accept (GitHub Actions runners) the first curl can race
+	// the proxy bring-up and see "Connection reset by peer" mid-handshake.
+	// Retry a few times before giving up.
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(2 * time.Second):
+			}
+		}
+		//nolint:gosec // controlled command, args are not attacker-controlled in tests
+		cmd := exec.CommandContext(ctx, "curl", "-fsS",
+			"--max-time", "20",
+			"--proxy", fmt.Sprintf("socks5h://127.0.0.1:%d", socksPort),
+			target)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			if strings.Contains(string(out), `"url"`) {
+				return nil
+			}
+			lastErr = fmt.Errorf("unexpected curl response (no \"url\" field):\n%s", string(out))
+			continue
+		}
+		lastErr = fmt.Errorf("curl failed (attempt %d): %w\noutput: %s", attempt+1, err, string(out))
 	}
-	if !strings.Contains(string(out), `"url"`) {
-		return fmt.Errorf("unexpected curl response (no \"url\" field):\n%s", string(out))
-	}
-	return nil
+	return lastErr
 }
 
 // probeContainerInternet runs a throwaway alpine container that tries to
