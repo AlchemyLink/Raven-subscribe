@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 
 	"github.com/alchemylink/raven-subscribe/internal/models"
@@ -44,6 +45,15 @@ func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inb
 	// Priority: user rules > global rules > defaults
 	applyUserRoutes(cfg, globalRoutesJSON)
 	applyUserRoutes(cfg, user.ClientRoutes)
+
+	// XHTTP transports survive the 2026-Q1 TSPU "freeze attack"
+	// (sessions over ~15-20KB stall on bare VLESS+Reality+TCP) noticeably
+	// better than plain TCP. Stable-sort so XHTTP outbounds are emitted
+	// first; this becomes the balancer FallbackTag (proxyTags[0] below)
+	// when the observatory has not yet picked a healthy proxy, and is the
+	// chosen path entirely when the user has only one proxy. The runtime
+	// leastPing/leastLoad strategy still rebalances later as data flows.
+	clients = sortClientsXHTTPFirst(clients)
 
 	// Build outbounds from each user client
 	var proxyTags []string
@@ -537,6 +547,48 @@ func shouldUseMux(proto, flow, encryption string, ss *StreamSettings) bool {
 }
 
 // ─── Default client-side config pieces ───────────────────────────────────────
+
+// sortClientsXHTTPFirst stable-sorts user clients so any inbound that uses
+// XHTTP transport comes before TCP/other transports. Detection reads the
+// raw inbound JSON's streamSettings.network field — robust to tag renames.
+// Falls back to a tag-substring check when InboundRaw is missing/unparseable.
+func sortClientsXHTTPFirst(clients []models.UserClientFull) []models.UserClientFull {
+	out := make([]models.UserClientFull, len(clients))
+	copy(out, clients)
+	sort.SliceStable(out, func(i, j int) bool {
+		return inboundPriority(out[i]) < inboundPriority(out[j])
+	})
+	return out
+}
+
+func inboundPriority(uc models.UserClientFull) int {
+	if isXHTTPInbound(uc) {
+		return 0
+	}
+	return 1
+}
+
+func isXHTTPInbound(uc models.UserClientFull) bool {
+	if raw := strings.TrimSpace(uc.InboundRaw); raw != "" {
+		var probe struct {
+			StreamSettings struct {
+				Network string `json:"network"`
+			} `json:"streamSettings"`
+		}
+		if err := json.Unmarshal([]byte(raw), &probe); err == nil {
+			net := strings.ToLower(strings.TrimSpace(probe.StreamSettings.Network))
+			if net == "xhttp" || net == "splithttp" {
+				return true
+			}
+			if net != "" {
+				return false
+			}
+		}
+	}
+	// Tag fallback when InboundRaw is empty/unparseable. Prod tag
+	// convention: vless-xhttp-* for XHTTP transports.
+	return strings.Contains(strings.ToLower(uc.InboundTag), "xhttp")
+}
 
 func localSOCKS(port int) Inbound {
 	raw, _ := json.Marshal(map[string]interface{}{

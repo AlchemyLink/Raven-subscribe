@@ -798,3 +798,120 @@ func TestGenerateClientConfigBlackholeResponse(t *testing.T) {
 		}
 	}
 }
+
+func TestSortClientsXHTTPFirst(t *testing.T) {
+	tcp := models.UserClientFull{
+		InboundTag: "vless-reality-v2-in",
+		InboundRaw: `{"streamSettings":{"network":"tcp"}}`,
+	}
+	xhttp := models.UserClientFull{
+		InboundTag: "vless-xhttp-v2-in",
+		InboundRaw: `{"streamSettings":{"network":"xhttp"}}`,
+	}
+	splithttp := models.UserClientFull{
+		InboundTag: "legacy-splithttp-in",
+		InboundRaw: `{"streamSettings":{"network":"splithttp"}}`,
+	}
+	noRaw := models.UserClientFull{
+		InboundTag: "vless-xhttp-from-tag",
+	}
+	noRawTCP := models.UserClientFull{
+		InboundTag: "vless-reality-tag-only",
+	}
+
+	t.Run("xhttp_promoted_above_tcp", func(t *testing.T) {
+		got := sortClientsXHTTPFirst([]models.UserClientFull{tcp, xhttp})
+		if got[0].InboundTag != xhttp.InboundTag {
+			t.Errorf("expected xhttp first, got %q", got[0].InboundTag)
+		}
+	})
+
+	t.Run("splithttp_alias_treated_as_xhttp", func(t *testing.T) {
+		got := sortClientsXHTTPFirst([]models.UserClientFull{tcp, splithttp})
+		if got[0].InboundTag != splithttp.InboundTag {
+			t.Errorf("expected splithttp first, got %q", got[0].InboundTag)
+		}
+	})
+
+	t.Run("stable_order_within_same_priority", func(t *testing.T) {
+		a := models.UserClientFull{InboundTag: "vless-xhttp-a", InboundRaw: `{"streamSettings":{"network":"xhttp"}}`}
+		b := models.UserClientFull{InboundTag: "vless-xhttp-b", InboundRaw: `{"streamSettings":{"network":"xhttp"}}`}
+		got := sortClientsXHTTPFirst([]models.UserClientFull{a, b, tcp})
+		if got[0].InboundTag != "vless-xhttp-a" || got[1].InboundTag != "vless-xhttp-b" {
+			t.Errorf("expected a,b,tcp; got %q,%q,%q", got[0].InboundTag, got[1].InboundTag, got[2].InboundTag)
+		}
+	})
+
+	t.Run("tag_fallback_when_inbound_raw_missing", func(t *testing.T) {
+		got := sortClientsXHTTPFirst([]models.UserClientFull{noRawTCP, noRaw})
+		if got[0].InboundTag != noRaw.InboundTag {
+			t.Errorf("expected xhttp tag-fallback first, got %q", got[0].InboundTag)
+		}
+	})
+
+	t.Run("does_not_mutate_caller_slice", func(t *testing.T) {
+		input := []models.UserClientFull{tcp, xhttp}
+		_ = sortClientsXHTTPFirst(input)
+		if input[0].InboundTag != tcp.InboundTag {
+			t.Errorf("caller slice mutated: input[0]=%q, want %q", input[0].InboundTag, tcp.InboundTag)
+		}
+	})
+}
+
+func TestGenerateClientConfig_XHTTPOutboundFirst(t *testing.T) {
+	tcpClient := models.UserClientFull{
+		InboundTag:      "vless-reality-v2-in",
+		InboundProtocol: "vless",
+		InboundPort:     4444,
+		InboundRaw:      `{"tag":"vless-reality-v2-in","protocol":"vless","port":4444,"settings":{"clients":[{"id":"uuid-tcp","email":"u@t.com","flow":"xtls-rprx-vision"}],"decryption":"none"},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"destination.com"}}}`,
+	}
+	tcpClient.UserClient.ClientConfig = `{"protocol":"vless","id":"uuid-tcp","flow":"xtls-rprx-vision","encryption":"none"}`
+
+	xhttpClient := models.UserClientFull{
+		InboundTag:      "vless-xhttp-v2-in",
+		InboundProtocol: "vless",
+		InboundPort:     2054,
+		InboundRaw:      `{"tag":"vless-xhttp-v2-in","protocol":"vless","port":2054,"settings":{"clients":[{"id":"uuid-xhttp","email":"u@t.com"}],"decryption":"none"},"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"serverName":"addons.mozilla.org"},"xhttpSettings":{"path":"/p"}}}`,
+	}
+	xhttpClient.UserClient.ClientConfig = `{"protocol":"vless","id":"uuid-xhttp","encryption":"none"}`
+
+	// DB returns tcp first, xhttp second — order before sorting
+	cfg, err := GenerateClientConfig("example.com", nil, nil, models.User{Username: "u"},
+		[]models.UserClientFull{tcpClient, xhttpClient}, "", "", "", "", 0, 0, nil, "http")
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	// Find first proxy outbound (skip socks/http inbounds, pick the first
+	// vless outbound in cfg.Outbounds order).
+	var firstProxyTag string
+	for _, ob := range cfg.Outbounds {
+		if ob.Protocol == "vless" {
+			firstProxyTag = ob.Tag
+			break
+		}
+	}
+	if firstProxyTag == "" {
+		t.Fatal("no vless outbound in generated config")
+	}
+	if !strings.Contains(strings.ToLower(firstProxyTag), "xhttp") {
+		t.Errorf("expected XHTTP proxy first, got tag %q. Outbounds: %v", firstProxyTag,
+			outboundTags(cfg.Outbounds))
+	}
+
+	// Balancer fallback should also be the XHTTP outbound
+	if len(cfg.Routing.Balancers) > 0 {
+		if !strings.Contains(strings.ToLower(cfg.Routing.Balancers[0].FallbackTag), "xhttp") {
+			t.Errorf("balancer FallbackTag = %q, want XHTTP-bearing tag",
+				cfg.Routing.Balancers[0].FallbackTag)
+		}
+	}
+}
+
+func outboundTags(out []Outbound) []string {
+	tags := make([]string, 0, len(out))
+	for _, o := range out {
+		tags = append(tags, o.Tag)
+	}
+	return tags
+}
