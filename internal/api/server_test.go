@@ -209,6 +209,90 @@ func TestAPI_InvalidID_ReturnsBadRequest(t *testing.T) {
 	}
 }
 
+// TestAPI_AddUserClient_ReEnablesDisabledRow covers the regression where a
+// disabled user_clients row caused POST /api/users/{id}/clients to return 500
+// "failed to add user to inbound". With the fix, a disabled row for the same
+// tag is re-enabled in DB (and pushed to Xray) instead of triggering a fresh
+// addUserToInbound that would crash on Xray's "User already exists".
+func TestAPI_AddUserClient_ReEnablesDisabledRow(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	// Create user
+	createBody := `{"username":"reenable_user"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/users", bytes.NewReader([]byte(createBody)))
+	req.Header.Set("X-Admin-Token", "admin-secret")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create user: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		User struct {
+			ID int64 `json:"id"`
+		} `json:"user"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+
+	// Pre-seed: inbound + disabled user_clients row, simulating the production drift.
+	const tag = "vless-reality-v2-in"
+	inboundID, err := srv.db.UpsertInbound(tag, "vless", 4444, "201-test.json", `{}`)
+	if err != nil {
+		t.Fatalf("upsert inbound: %v", err)
+	}
+	if err := srv.db.UpsertUserClient(created.User.ID, inboundID, `{"id":"test-uuid"}`); err != nil {
+		t.Fatalf("upsert user_client: %v", err)
+	}
+	if err := srv.db.SetUserClientEnabled(created.User.ID, inboundID, false); err != nil {
+		t.Fatalf("disable client: %v", err)
+	}
+
+	// Confirm the precondition — GetUserClients (enabled-only) returns nothing,
+	// GetAllUserClients returns the disabled row.
+	if cs, _ := srv.db.GetUserClients(created.User.ID); len(cs) != 0 {
+		t.Fatalf("precondition: GetUserClients should be empty, got %+v", cs)
+	}
+	if cs, _ := srv.db.GetAllUserClients(created.User.ID); len(cs) != 1 || cs[0].Enabled {
+		t.Fatalf("precondition: GetAllUserClients should return 1 disabled row, got %+v", cs)
+	}
+
+	// POST /api/users/{id}/clients should re-enable, not 500.
+	addBody := `{"tag":"` + tag + `"}`
+	req = httptest.NewRequest(http.MethodPost,
+		"/api/users/"+strconv.FormatInt(created.User.ID, 10)+"/clients",
+		bytes.NewReader([]byte(addBody)))
+	req.Header.Set("X-Admin-Token", "admin-secret")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("re-enable add client: got %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		InboundTag string `json:"inbound_tag"`
+		Enabled    bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode add: %v", err)
+	}
+	if resp.InboundTag != tag {
+		t.Errorf("inbound_tag: got %q, want %q", resp.InboundTag, tag)
+	}
+	if !resp.Enabled {
+		t.Errorf("response enabled: got false, want true")
+	}
+
+	// DB row should now be enabled.
+	cs, _ := srv.db.GetUserClients(created.User.ID)
+	if len(cs) != 1 || !cs[0].Enabled || cs[0].InboundTag != tag {
+		t.Errorf("post-condition: GetUserClients should return 1 enabled row for %q, got %+v", tag, cs)
+	}
+}
+
 func testServer(t *testing.T) (*Server, func()) {
 	t.Helper()
 	dir := t.TempDir()

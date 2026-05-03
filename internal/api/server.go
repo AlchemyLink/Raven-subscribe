@@ -1402,14 +1402,32 @@ func (s *Server) addUserClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Idempotent behavior: if enabled client for this tag already exists, return it.
-	existingClients, err := s.db.GetUserClients(user.ID)
+	// Idempotent behavior — covers two recovery paths:
+	//   enabled row exists  → return as-is (no-op)
+	//   disabled row exists → re-enable in DB and push to Xray, then return.
+	// The disabled-row path matters because Xray runtime may still hold the
+	// UUID from the original add (config-file persistence); without this,
+	// addUserToInbound below would call AddClientToInboundViaAPI which fails
+	// with "User already exists", returns 500, and leaves the user stuck —
+	// even though the fix is just flipping enabled=1.
+	existingClients, err := s.db.GetAllUserClients(user.ID)
 	if err == nil {
 		for _, c := range existingClients {
-			if c.InboundTag == tag {
+			if c.InboundTag != tag {
+				continue
+			}
+			if c.Enabled {
 				jsonOK(w, c)
 				return
 			}
+			if err := s.db.SetUserClientEnabled(user.ID, c.InboundID, true); err != nil {
+				jsonError(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			s.addClientToXray(user.ClientIdentity(), tag, c.ClientConfig)
+			c.Enabled = true
+			jsonOK(w, c)
+			return
 		}
 	}
 

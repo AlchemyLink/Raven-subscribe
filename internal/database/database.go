@@ -612,6 +612,40 @@ func (db *DB) GetUserClients(userID int64) ([]models.UserClientFull, error) {
 	return result, rows.Err()
 }
 
+// GetAllUserClients returns ALL client rows for the given user (including disabled), joined with inbound data.
+// Use for idempotency / re-enable flows; subscription serving uses GetUserClients which filters enabled=1.
+func (db *DB) GetAllUserClients(userID int64) ([]models.UserClientFull, error) {
+	rows, err := db.conn.Query(`
+		SELECT
+			uc.id, uc.user_id, uc.inbound_id, uc.client_config, uc.enabled,
+			ib.tag, ib.protocol, ib.port, ib.raw_config
+		FROM user_clients uc
+		JOIN inbounds ib ON ib.id = uc.inbound_id
+		WHERE uc.user_id = ?
+		ORDER BY ib.tag
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var result []models.UserClientFull
+	for rows.Next() {
+		var f models.UserClientFull
+		var enabled int
+		err := rows.Scan(
+			&f.ID, &f.UserID, &f.InboundID, &f.ClientConfig, &enabled,
+			&f.InboundTag, &f.InboundProtocol, &f.InboundPort, &f.InboundRaw,
+		)
+		if err != nil {
+			return nil, err
+		}
+		f.Enabled = enabled == 1
+		result = append(result, f)
+	}
+	return result, rows.Err()
+}
+
 // GetUserClientByUserAndInbound returns the inbound tag and client config for a user/inbound pair.
 // Returns ("", "", nil) if not found. Does not filter by enabled.
 func (db *DB) GetUserClientByUserAndInbound(userID, inboundID int64) (tag, clientConfig string, err error) {
