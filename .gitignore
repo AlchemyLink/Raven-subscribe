@@ -57,3 +57,7 @@ test_conf_xhttp.json
 .ansible
 
 CLAUDE.md
+
+# Internal architecture notes — kept local until the repo goes public (Wave 3
+# of the phased OSS plan). Remove this line during the public-release pass.
+docs/internal-core-design.md
