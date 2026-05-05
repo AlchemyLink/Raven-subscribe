@@ -3,7 +3,7 @@ module github.com/alchemylink/raven-subscribe
 go 1.26
 
 require (
-	github.com/fsnotify/fsnotify v1.9.0
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gorilla/mux v1.8.1
 	github.com/xtls/xray-core v1.260327.0
 	golang.org/x/crypto v0.50.0
