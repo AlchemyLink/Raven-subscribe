@@ -6,7 +6,7 @@
 [![Test](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/test.yml/badge.svg)](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/test.yml)
 [![Security Scan](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml/badge.svg)](https://github.com/AlchemyLink/Raven-subscribe/actions/workflows/security.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/alchemylink/raven-subscribe)](https://goreportcard.com/report/github.com/alchemylink/raven-subscribe)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/AlchemyLink/Raven-subscribe?style=flat)](https://github.com/AlchemyLink/Raven-subscribe/stargazers)
 [![Forks](https://img.shields.io/github/forks/AlchemyLink/Raven-subscribe?style=flat)](https://github.com/AlchemyLink/Raven-subscribe/network/members)
 [![Hits](https://hits.dwyl.com/AlchemyLink/Raven-subscribe.svg?style=flat)](https://hits.dwyl.com/AlchemyLink/Raven-subscribe)
@@ -1030,4 +1030,9 @@ make release VERSION=v1.2.3
 
 ## Лицензия
 
-[MIT](LICENSE) © AlchemyLink
+[GNU Affero General Public License v3.0 or later](LICENSE) © AlchemyLink contributors
+
+Проект перелицензирован c MIT на AGPL-3.0-or-later 2026-05-06.
+Код на коммите `f944cef5afe32e4519825e630d4ab00cf2be8d27` или раньше остаётся
+доступен под MIT согласно исходным условиям публикации; начиная со
+следующего коммита — AGPL-3.0-or-later.
