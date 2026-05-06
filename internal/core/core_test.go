@@ -17,7 +17,7 @@ import (
 // The test does not exercise behaviour — there is none yet. It guards the
 // public surface so accidental drift in Phase 2/3 is caught.
 func TestCoreInvariants(t *testing.T) {
-	t.Run("interfaces are declared", func(t *testing.T) {
+	t.Run("interfaces are declared", func(_ *testing.T) {
 		// Compile-time assertions that the four interfaces exist and that
 		// nil values can be typed against them. These will fail to compile
 		// (caught at `go vet`/`go build` time) if any signature drifts.
@@ -28,7 +28,7 @@ func TestCoreInvariants(t *testing.T) {
 		var _ core.EngineConfig
 	})
 
-	t.Run("value types are zero-constructible", func(t *testing.T) {
+	t.Run("value types are zero-constructible", func(_ *testing.T) {
 		_ = core.Inbound{}
 		_ = core.Client{}
 		_ = core.OutboundLink{}
