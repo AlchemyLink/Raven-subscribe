@@ -8,7 +8,7 @@ require (
 	github.com/xtls/xray-core v1.260327.0
 	golang.org/x/crypto v0.51.0
 	golang.org/x/time v0.15.0
-	google.golang.org/grpc v1.81.0
+	google.golang.org/grpc v1.81.1
 	modernc.org/sqlite v1.50.1
 )
 
