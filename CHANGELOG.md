@@ -7,6 +7,23 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [v0.2.1] - 2026-05-25
+
+### Fixed
+- `streamSettings.network` `"raw"` alias normalized to `"tcp"` on JSON unmarshal — Xray-core v24.9.30+ renamed the bare-TCP transport name to `"raw"` (v2rayN 7.21.3+ emits this by default); downstream share-link / XHTTP / Mux logic now sees a single canonical value.
+
+### Security
+- Bumped `golang.org/x/net` v0.53.0 → v0.55.0 — fixes GO-2026-5026 (`idna.ToASCII` did not reject ASCII-only Punycode-encoded labels), reached via `parser.go` HTTP path.
+
+### Changed
+- Bumped `google.golang.org/grpc` 1.81.0 → 1.81.1
+- Bumped `modernc.org/sqlite` 1.50.0 → 1.50.1
+- Bumped `golang.org/x/crypto` 0.50.0 → 0.51.0
+- Bumped `golang.org/x/sys` 0.44.0 → 0.45.0 (transitive)
+- CI: `codecov/codecov-action` 6.0.0 → 6.0.1
+
+---
+
 ## [Unreleased]
 
 ### Added
