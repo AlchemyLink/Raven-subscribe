@@ -1,6 +1,9 @@
 package xray
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // ─── Server-side config types ─────────────────────────────────────────────────
 
@@ -110,6 +113,24 @@ type StreamSettings struct {
 	QUICSettings        *QUICSettings   `json:"quicSettings,omitempty"`
 	HTTPUpgradeSettings json.RawMessage `json:"httpupgradeSettings,omitempty"`
 	XHTTPSettings       json.RawMessage `json:"xhttpSettings,omitempty"`
+}
+
+// UnmarshalJSON canonicalizes the bare-TCP transport name. Xray-core v24.9.30
+// renamed `"network": "tcp"` to `"network": "raw"` and accepts both as
+// aliases; v2rayN 7.21.3+ emits "raw" by default. Normalize on read so
+// downstream code (share-link generation, XHTTP detection, Mux disable
+// rules) operates on a single canonical value.
+func (s *StreamSettings) UnmarshalJSON(data []byte) error {
+	type alias StreamSettings
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*s = StreamSettings(a)
+	if strings.EqualFold(strings.TrimSpace(s.Network), "raw") {
+		s.Network = "tcp"
+	}
+	return nil
 }
 
 // TLSSettings holds TLS security configuration for stream settings.

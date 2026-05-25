@@ -441,6 +441,76 @@ func TestExtractVLESSTestpreZeroOmitted(t *testing.T) {
 	}
 }
 
+// Xray-core v24.9.30 renamed "tcp" → "raw" as the bare-TCP transport name and
+// keeps both as aliases. v2rayN 7.21.3+ emits "raw" by default. Verify that
+// StreamSettings.UnmarshalJSON canonicalizes "raw" to "tcp" so downstream
+// share-link / XHTTP / Mux logic sees one value.
+func TestStreamSettingsNetworkRawAliasNormalized(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantNet  string
+	}{
+		{"tcp passthrough", `{"network":"tcp"}`, "tcp"},
+		{"raw normalized to tcp", `{"network":"raw"}`, "tcp"},
+		{"RAW upper-case normalized", `{"network":"RAW"}`, "tcp"},
+		{"raw with surrounding space", `{"network":" raw "}`, "tcp"},
+		{"xhttp untouched", `{"network":"xhttp"}`, "xhttp"},
+		{"empty untouched", `{}`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var ss StreamSettings
+			if err := json.Unmarshal([]byte(tt.input), &ss); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if ss.Network != tt.wantNet {
+				t.Fatalf("Network = %q, want %q", ss.Network, tt.wantNet)
+			}
+		})
+	}
+}
+
+func TestParseConfigFileNetworkRawAlias(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Inbound emitted by v2rayN 7.21.3+ / Xray-core v24.9.30+ uses "raw" instead of "tcp".
+	cfg := `{
+		"inbounds": [{
+			"tag": "vless-reality-v2-in-1",
+			"port": 4443,
+			"protocol": "vless",
+			"settings": {
+				"decryption": "none",
+				"clients": [{"id": "11111111-1111-1111-1111-111111111111", "email": "alice@test.com"}]
+			},
+			"streamSettings": {"network": "raw", "security": "reality"}
+		}]
+	}`
+	path := filepath.Join(tmpDir, "raw.json")
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inbounds, err := ParseConfigFile(path)
+	if err != nil {
+		t.Fatalf("ParseConfigFile: %v", err)
+	}
+	if len(inbounds) != 1 {
+		t.Fatalf("expected 1 inbound, got %d", len(inbounds))
+	}
+	// Re-parse the inbound's stored streamSettings to confirm normalization
+	// flows through ServerInbound (used by generator.go to build client config).
+	var si ServerInbound
+	if err := json.Unmarshal([]byte(inbounds[0].RawJSON), &si); err != nil {
+		t.Fatalf("unmarshal RawJSON: %v", err)
+	}
+	if si.StreamSettings == nil {
+		t.Fatal("StreamSettings nil")
+	}
+	if si.StreamSettings.Network != "tcp" {
+		t.Fatalf("Network = %q, want \"tcp\" (raw alias)", si.StreamSettings.Network)
+	}
+}
+
 func TestStoredClientConfigUnmarshalAlterIDBackwardCompat(t *testing.T) {
 	t.Run("camelCase alterId", func(t *testing.T) {
 		var c StoredClientConfig
