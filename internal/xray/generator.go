@@ -55,8 +55,11 @@ func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inb
 	// leastPing/leastLoad strategy still rebalances later as data flows.
 	clients = sortClientsXHTTPFirst(clients)
 
-	// Build outbounds from each user client
+	// Build outbounds from each user client. Track which resulting tags are
+	// XHTTP vs not, so the balancer below can prefer XHTTP transports.
 	var proxyTags []string
+	var xhttpTags []string
+	var nonXHTTPTags []string
 	for i, uc := range clients {
 		host := serverHost
 		if h, ok := inboundHosts[uc.InboundTag]; ok && strings.TrimSpace(h) != "" {
@@ -72,6 +75,11 @@ func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inb
 		}
 		cfg.Outbounds = append(cfg.Outbounds, *ob)
 		proxyTags = append(proxyTags, ob.Tag)
+		if isXHTTPInbound(uc) {
+			xhttpTags = append(xhttpTags, ob.Tag)
+		} else {
+			nonXHTTPTags = append(nonXHTTPTags, ob.Tag)
+		}
 	}
 
 	if len(cfg.Outbounds) == 0 {
@@ -90,17 +98,34 @@ func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inb
 		if strategy == "" {
 			strategy = "leastPing"
 		}
+		// XHTTP-primary balancing. During the 2026-Q2 TSPU behavioral-detection
+		// regime, Reality+TCP sessions are reset within seconds (observed on the
+		// RU first hop: avg ~3s, >50% under 2s) while XHTTP survives. leastPing
+		// is fooled — the short generate_204 probe completes before TSPU kills
+		// the session, so the balancer keeps selecting the broken Reality path.
+		// We therefore balance only across XHTTP outbounds and demote non-XHTTP
+		// (Reality/TCP) to the FallbackTag, engaged only when every XHTTP
+		// outbound is observed down. When no XHTTP exists, keep prior behavior.
+		selector := proxyTags
+		fallbackTag := proxyTags[0]
+		if len(xhttpTags) > 0 {
+			selector = xhttpTags
+			if len(nonXHTTPTags) > 0 {
+				fallbackTag = nonXHTTPTags[0]
+			} else {
+				fallbackTag = xhttpTags[0]
+			}
+		}
 		// Xray load balancing is configured in routing.balancers, not as an outbound protocol.
 		cfg.Routing.Balancers = append(cfg.Routing.Balancers, Balancer{
-			Tag:      "proxy-balance",
-			Selector: proxyTags,
-			Strategy: &BalancerStrategy{Type: strategy},
-			// If balancer cannot pick a healthy outbound yet, use first proxy as fallback.
-			FallbackTag: proxyTags[0],
+			Tag:         "proxy-balance",
+			Selector:    selector,
+			Strategy:    &BalancerStrategy{Type: strategy},
+			FallbackTag: fallbackTag,
 		})
 		if strategy == "leastPing" || strategy == "leastLoad" {
 			cfg.Observatory = &ObservatoryConfig{
-				SubjectSelector: proxyTags,
+				SubjectSelector: selector,
 				ProbeURL:        firstNonEmpty(strings.TrimSpace(balancerProbeURL), "https://www.gstatic.com/generate_204"),
 				ProbeInterval:   firstNonEmpty(strings.TrimSpace(balancerProbeInterval), "30s"),
 			}
@@ -461,7 +486,7 @@ func convertXHTTPSettings(raw json.RawMessage, rs *RealitySettings) (json.RawMes
 	// Optional: extra (server-provided advanced settings), xPaddingBytes, scMaxEachPostBytes, scMinPostsIntervalMs
 	// Client-only (never from server): xmux, downloadSettings
 	clientSettings := make(map[string]interface{})
-	
+
 	// Core fields
 	if path, ok := serverSettings["path"]; ok {
 		clientSettings["path"] = path
@@ -482,7 +507,7 @@ func convertXHTTPSettings(raw json.RawMessage, rs *RealitySettings) (json.RawMes
 	if headers, ok := serverSettings["headers"]; ok {
 		clientSettings["headers"] = headers
 	}
-	
+
 	// Optional server-sharable fields
 	if extra, ok := serverSettings["extra"]; ok {
 		clientSettings["extra"] = extra
@@ -497,11 +522,40 @@ func convertXHTTPSettings(raw json.RawMessage, rs *RealitySettings) (json.RawMes
 		clientSettings["scMinPostsIntervalMs"] = scMinPostsIntervalMs
 	}
 
+	// xmux is a client-only dialer concern (the server never advertises it).
+	// We inject a tuned default that bounds connection reuse and lifetime and
+	// randomizes the limits, so a muxed XHTTP connection rotates and jitters
+	// instead of looking like one persistent tunnel — reduces exposure to the
+	// 2026 RU TSPU behavioral/concurrent-TLS shaping (net4people #546) and the
+	// volumetric per-connection freeze (#490). See dpi_wave_mechanism_taxonomy.
+	// If a server config ever ships an explicit xmux block, honor it as override.
+	if xmux, ok := serverSettings["xmux"]; ok {
+		clientSettings["xmux"] = xmux
+	} else {
+		clientSettings["xmux"] = defaultXHTTPXMux()
+	}
+
 	result, err := json.Marshal(clientSettings)
 	if err != nil {
 		return nil, fmt.Errorf("marshal xhttp settings: %w", err)
 	}
 	return result, nil
+}
+
+// defaultXHTTPXMux returns the client-side XMUX profile for XHTTP outbounds.
+// Values follow the XTLS-recommended defaults (discussion #4113) as a complete
+// set — once any xmux field is set, Xray drops defaults for the rest, so all
+// must be specified. The randomized ranges give per-connection rotation and
+// timing jitter against behavioral DPI without regressing throughput.
+func defaultXHTTPXMux() map[string]interface{} {
+	return map[string]interface{}{
+		"maxConcurrency":   "16-32",     // few muxed TCP connections (keeps concurrent-TLS count low vs M2)
+		"maxConnections":   0,           // disabled; concurrency-based pooling instead (mutually exclusive)
+		"cMaxReuseTimes":   "64-128",    // cap reuses per connection → forces rotation
+		"hMaxRequestTimes": "600-900",   // stay under nginx ~1000 req/conn ceiling
+		"hMaxReusableSecs": "1800-3000", // randomized 30–50 min lifetime → no fixed timeout pattern
+		"hKeepAlivePeriod": 0,           // automatic
+	}
 }
 
 // derivePublicKey computes X25519 public key from base64url-encoded private key

@@ -714,6 +714,60 @@ func TestGenerateClientConfigXHTTPHostFromServerNames(t *testing.T) {
 	}
 }
 
+// TestConvertXHTTPSettingsInjectsXMux verifies the client config gets a tuned
+// xmux block by default (anti-DPI connection rotation), and that an explicit
+// server-provided xmux overrides the default.
+func TestConvertXHTTPSettingsInjectsXMux(t *testing.T) {
+	t.Run("default injected when absent", func(t *testing.T) {
+		raw := json.RawMessage(`{"mode":"packet-up","path":"/p"}`)
+		out, err := convertXHTTPSettings(raw, &RealitySettings{ServerName: "addons.mozilla.org"})
+		if err != nil {
+			t.Fatalf("convertXHTTPSettings error: %v", err)
+		}
+		var cs map[string]interface{}
+		if err := json.Unmarshal(out, &cs); err != nil {
+			t.Fatalf("unmarshal client settings: %v", err)
+		}
+		xmux, ok := cs["xmux"].(map[string]interface{})
+		if !ok {
+			t.Fatal("client xhttpSettings missing default xmux block")
+		}
+		// A complete set must be emitted — once any xmux field is set, Xray drops
+		// defaults for the rest, so all keys must be present.
+		for _, k := range []string{"maxConcurrency", "maxConnections", "cMaxReuseTimes", "hMaxRequestTimes", "hMaxReusableSecs", "hKeepAlivePeriod"} {
+			if _, ok := xmux[k]; !ok {
+				t.Errorf("default xmux missing key %q", k)
+			}
+		}
+		if xmux["maxConcurrency"] != "16-32" {
+			t.Errorf("maxConcurrency: got %v, want \"16-32\"", xmux["maxConcurrency"])
+		}
+	})
+
+	t.Run("server override honored", func(t *testing.T) {
+		raw := json.RawMessage(`{"mode":"packet-up","path":"/p","xmux":{"maxConcurrency":"4-8"}}`)
+		out, err := convertXHTTPSettings(raw, nil)
+		if err != nil {
+			t.Fatalf("convertXHTTPSettings error: %v", err)
+		}
+		var cs map[string]interface{}
+		if err := json.Unmarshal(out, &cs); err != nil {
+			t.Fatalf("unmarshal client settings: %v", err)
+		}
+		xmux, ok := cs["xmux"].(map[string]interface{})
+		if !ok {
+			t.Fatal("xmux missing")
+		}
+		if xmux["maxConcurrency"] != "4-8" {
+			t.Errorf("override not honored: got %v, want \"4-8\"", xmux["maxConcurrency"])
+		}
+		// override replaces the default wholesale; no default keys leak in
+		if _, leaked := xmux["hMaxReusableSecs"]; leaked {
+			t.Error("server override should replace default xmux wholesale, default key leaked")
+		}
+	})
+}
+
 func TestGenerateClientConfigDNSServerFields(t *testing.T) {
 	dnsServers := []interface{}{
 		DNSServer{
@@ -899,12 +953,32 @@ func TestGenerateClientConfig_XHTTPOutboundFirst(t *testing.T) {
 			outboundTags(cfg.Outbounds))
 	}
 
-	// Balancer fallback should also be the XHTTP outbound
-	if len(cfg.Routing.Balancers) > 0 {
-		if !strings.Contains(strings.ToLower(cfg.Routing.Balancers[0].FallbackTag), "xhttp") {
-			t.Errorf("balancer FallbackTag = %q, want XHTTP-bearing tag",
-				cfg.Routing.Balancers[0].FallbackTag)
+	// XHTTP-primary balancer: the Selector balances only XHTTP outbounds, and
+	// the non-XHTTP (Reality/TCP) outbound is demoted to FallbackTag — engaged
+	// only when every XHTTP outbound is observed down (2026-Q2 TSPU regime,
+	// where Reality sessions are killed within seconds on the first hop).
+	if len(cfg.Routing.Balancers) != 1 {
+		t.Fatalf("expected 1 balancer, got %d", len(cfg.Routing.Balancers))
+	}
+	b := cfg.Routing.Balancers[0]
+	if len(b.Selector) != 1 {
+		t.Errorf("expected exactly 1 XHTTP selector, got %v", b.Selector)
+	}
+	for _, sel := range b.Selector {
+		if !strings.Contains(strings.ToLower(sel), "xhttp") {
+			t.Errorf("balancer Selector must contain only XHTTP tags, got %v", b.Selector)
 		}
+	}
+	if strings.Contains(strings.ToLower(b.FallbackTag), "xhttp") {
+		t.Errorf("FallbackTag should be the non-XHTTP (Reality) outbound, got %q", b.FallbackTag)
+	}
+	if !strings.Contains(strings.ToLower(b.FallbackTag), "reality") {
+		t.Errorf("FallbackTag should be the Reality outbound, got %q", b.FallbackTag)
+	}
+	// Observatory must probe only the XHTTP outbound(s).
+	if cfg.Observatory == nil || len(cfg.Observatory.SubjectSelector) != 1 ||
+		!strings.Contains(strings.ToLower(cfg.Observatory.SubjectSelector[0]), "xhttp") {
+		t.Errorf("Observatory should probe only the XHTTP outbound, got %+v", cfg.Observatory)
 	}
 }
 
