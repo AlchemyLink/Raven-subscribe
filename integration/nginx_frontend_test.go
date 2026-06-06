@@ -86,8 +86,7 @@ func TestNginxFrontendSNI(t *testing.T) {
 	}{
 		{"reality_v2_routes_to_mock_reality", "destination.com", "mock-vless-reality-v2"},
 		{"xhttp_routes_to_mock_xhttp", "addons.example", "mock-xhttp-reality-v2"},
-		{"fallback_stackoverflow_routes_to_mock_fallback", "stackoverflow.com", "mock-fallback"},
-		{"fallback_superuser_routes_to_mock_fallback", "superuser.com", "mock-fallback"},
+		{"fallback_gstatic_routes_to_mock_fallback", "www.gstatic.com", "mock-fallback"},
 	}
 	for _, tc := range cases {
 		tc := tc

@@ -57,7 +57,8 @@ func TestAnsibleContract_ParserShape(t *testing.T) {
 	}{
 		{tag: "vless-reality-v2-in", port: 4444, wantFlow: "xtls-rprx-vision"},
 		{tag: "vless-xhttp-v2-in", port: 2054, wantFlow: ""},
-		{tag: "vless-fallback-in", port: 5443, wantFlow: "xtls-rprx-vision"},
+		// fallback converted to VLESS+XHTTP+Reality (2026-06-06): XHTTP has no Vision flow.
+		{tag: "vless-fallback-in", port: 5443, wantFlow: ""},
 	}
 
 	const (
@@ -136,7 +137,8 @@ func TestAnsibleContract_StreamSettingsRoundTrip(t *testing.T) {
 	want := map[string]streamShape{
 		"vless-reality-v2-in": {network: "tcp", security: "reality", realityDest: "dl.google.com:443", realitySNICount: 1},
 		"vless-xhttp-v2-in":   {network: "xhttp", security: "reality", realityDest: "addons.mozilla.org:443", realitySNICount: 1, xhttpPath: "/api/v4/sync"},
-		"vless-fallback-in":   {network: "tcp", security: "reality", realityDest: "stackoverflow.com:443", realitySNICount: 4},
+		// fallback converted to VLESS+XHTTP+Reality (2026-06-06): single cover-SNI www.gstatic.com.
+		"vless-fallback-in": {network: "xhttp", security: "reality", realityDest: "www.gstatic.com:443", realitySNICount: 1, xhttpPath: "/v2/assets/sync"},
 	}
 
 	for _, inbounds := range parsed {

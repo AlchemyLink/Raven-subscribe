@@ -6,28 +6,8 @@
       "protocol": "vless",
       "tag": "vless-fallback-in",
       "settings": {
-        "clients": [{"id": "11111111-2222-3333-4444-555555555555", "flow": "xtls-rprx-vision", "email": "test@raven.local", "level": 0}],
+        "clients": [{"id": "11111111-2222-3333-4444-555555555555", "flow": "", "email": "test@raven.local", "level": 0}],
         "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "stackoverflow.com:443",
-          "spiderX": "/",
-          "serverNames": [
-                        "stackoverflow.com",
-                        "superuser.com",
-                        "serverfault.com",
-                        "unix.stackexchange.com"
-                      ],
-          "privateKey": "GEHIZ7PdEQt6xzBFEoeWChHJyj7lK_NCW3ItWm7WuWY",
-          "shortIds": [
-                        "774d45875dc392af"
-                      ],
-          "xver": 0
-        }
       },
       "sniffing": {
         "enabled": true,
@@ -37,6 +17,31 @@
           "quic"
         ],
         "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "realitySettings": {
+          "show": false,
+          "dest": "www.gstatic.com:443",
+          "spiderX": "/",
+          "serverNames": [
+                        "www.gstatic.com"
+                      ],
+          "privateKey": "GEHIZ7PdEQt6xzBFEoeWChHJyj7lK_NCW3ItWm7WuWY",
+          "shortIds": [
+                        "774d45875dc392af"
+                      ],
+          "xver": 0
+        },
+        "security": "reality",
+        "xhttpSettings": {
+          "mode": "packet-up",
+          "path": "/v2/assets/sync",
+          "scMaxPacketSize": 1048576,
+          "extra": {
+            "xPaddingBytes": "100-1000"
+          }
+        }
       }
     }
   ]
