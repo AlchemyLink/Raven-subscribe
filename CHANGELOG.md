@@ -7,6 +7,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [v0.3.2] - 2026-06-07
+
+### Changed
+- **Balancer reverted to XHTTP-primary** (re-confirms v0.3.0; undoes the v0.3.1 Reality/Vision-primary flip). A containerized xray-lab measurement from the actual RU vantage (AS42610) proved the DPI **resets Reality+Vision on the client→relay first hop** (`connection reset by peer` to the relay; the EU server logs 0 resets), while **XHTTP sustains ~16 MB/s with 10/10 concurrent streams**. XHTTP-primary is also safer against the burstObservatory false-positive (#5897) that can mark a TSPU-reset Reality "healthy" and trap users on a dead path. The v0.3.1 flip had been based on a field report the lab now contradicts; "primary transport" is volatile — measure before changing.
+
 ## [v0.3.1] - 2026-06-07
 
 ### Fixed

@@ -960,7 +960,7 @@ func TestSortClientsXHTTPFirst(t *testing.T) {
 	})
 }
 
-func TestGenerateClientConfig_RealityPrimaryBalancer(t *testing.T) {
+func TestGenerateClientConfig_XHTTPPrimaryBalancer(t *testing.T) {
 	tcpClient := models.UserClientFull{
 		InboundTag:      "vless-reality-v2-in",
 		InboundProtocol: "vless",
@@ -1002,32 +1002,33 @@ func TestGenerateClientConfig_RealityPrimaryBalancer(t *testing.T) {
 		t.Fatalf("expected both XHTTP and Reality vless outbounds, got %v", tags)
 	}
 
-	// Reality/Vision-primary balancer (field report 2026-06-07): the Selector
-	// balances only the non-XHTTP (Reality/Vision) outbound(s), and XHTTP is
-	// demoted to FallbackTag — engaged only when every non-XHTTP outbound is
-	// observed down. (Reverses the prior XHTTP-primary assertion.)
+	// XHTTP-primary balancer (lab-confirmed 2026-06-07): the Selector balances only
+	// the XHTTP outbound(s), and non-XHTTP (Reality/Vision) is demoted to FallbackTag
+	// — engaged only when every XHTTP outbound is observed down. (The DPI resets
+	// Reality on the first hop while XHTTP survives; also dodges the burstObservatory
+	// false-positive that can trap users on a dead Reality path.)
 	if len(cfg.Routing.Balancers) != 1 {
 		t.Fatalf("expected 1 balancer, got %d", len(cfg.Routing.Balancers))
 	}
 	b := cfg.Routing.Balancers[0]
 	if len(b.Selector) != 1 {
-		t.Errorf("expected exactly 1 non-XHTTP selector, got %v", b.Selector)
+		t.Errorf("expected exactly 1 XHTTP selector, got %v", b.Selector)
 	}
 	for _, sel := range b.Selector {
-		if strings.Contains(strings.ToLower(sel), "xhttp") {
-			t.Errorf("balancer Selector must contain only non-XHTTP (Reality) tags, got %v", b.Selector)
+		if !strings.Contains(strings.ToLower(sel), "xhttp") {
+			t.Errorf("balancer Selector must contain only XHTTP tags, got %v", b.Selector)
 		}
 	}
-	if !strings.Contains(strings.ToLower(b.Selector[0]), "reality") {
-		t.Errorf("balancer Selector should be the Reality outbound, got %v", b.Selector)
+	if strings.Contains(strings.ToLower(b.FallbackTag), "xhttp") {
+		t.Errorf("FallbackTag should be the non-XHTTP (Reality) outbound, got %q", b.FallbackTag)
 	}
-	if !strings.Contains(strings.ToLower(b.FallbackTag), "xhttp") {
-		t.Errorf("FallbackTag should be the XHTTP outbound, got %q", b.FallbackTag)
+	if !strings.Contains(strings.ToLower(b.FallbackTag), "reality") {
+		t.Errorf("FallbackTag should be the Reality outbound, got %q", b.FallbackTag)
 	}
-	// Observatory must probe only the non-XHTTP (Reality) outbound(s).
+	// Observatory must probe only the XHTTP outbound(s).
 	if cfg.Observatory == nil || len(cfg.Observatory.SubjectSelector) != 1 ||
-		strings.Contains(strings.ToLower(cfg.Observatory.SubjectSelector[0]), "xhttp") {
-		t.Errorf("Observatory should probe only the non-XHTTP (Reality) outbound, got %+v", cfg.Observatory)
+		!strings.Contains(strings.ToLower(cfg.Observatory.SubjectSelector[0]), "xhttp") {
+		t.Errorf("Observatory should probe only the XHTTP outbound, got %+v", cfg.Observatory)
 	}
 }
 

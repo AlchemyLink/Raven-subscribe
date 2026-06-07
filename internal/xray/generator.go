@@ -98,22 +98,25 @@ func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inb
 		if strategy == "" {
 			strategy = "leastPing"
 		}
-		// Reality/Vision-primary balancing. Field report 2026-06-07: on the current
-		// RU vantage the working transport is VLESS+Reality+Vision (TCP) via the
-		// relay, while XHTTP does NOT come up there. This REVERSES the 2026-06-05
-		// XHTTP-primary call — DPI is a moving target, and empirical ground truth
-		// (the user's live connection) overrides the stale first-hop measurement.
-		// We balance across non-XHTTP (Reality/Vision) outbounds and demote XHTTP
-		// to the FallbackTag, engaged only when every non-XHTTP outbound is observed
-		// down. When no non-XHTTP outbound exists, balance across whatever we have.
+		// XHTTP-primary balancing (re-confirmed 2026-06-07 by direct lab measurement,
+		// superseding the brief Reality-primary flip earlier the same day). On the
+		// user's RU vantage (AS42610) the containerized xray-lab proved the DPI RESETS
+		// Reality+Vision on the client→relay first hop ("connection reset by peer" to
+		// the relay; the EU server sees 0 resets), while XHTTP sustains ~16 MB/s with
+		// 10/10 concurrent streams. So we balance across XHTTP outbounds and demote
+		// non-XHTTP (Reality/Vision) to the FallbackTag — engaged only when every XHTTP
+		// outbound is observed down. This is also safer against the burstObservatory
+		// false-positive (#5897), which can mark a TSPU-reset Reality "healthy" and trap
+		// users on a dead path. NB "primary transport" is volatile — re-measure with
+		// xray-lab before changing.
 		selector := proxyTags
 		fallbackTag := proxyTags[0]
-		if len(nonXHTTPTags) > 0 {
-			selector = nonXHTTPTags
-			if len(xhttpTags) > 0 {
-				fallbackTag = xhttpTags[0]
-			} else {
+		if len(xhttpTags) > 0 {
+			selector = xhttpTags
+			if len(nonXHTTPTags) > 0 {
 				fallbackTag = nonXHTTPTags[0]
+			} else {
+				fallbackTag = xhttpTags[0]
 			}
 		}
 		// Xray load balancing is configured in routing.balancers, not as an outbound protocol.
