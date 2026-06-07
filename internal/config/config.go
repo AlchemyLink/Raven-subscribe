@@ -36,6 +36,17 @@ type Config struct {
 	// Use to expose only an isolated fallback inbound (e.g. ["vless-fallback-in"])
 	// while primary subscription continues to serve all primary inbounds.
 	FallbackInboundTags []string `json:"fallback_inbound_tags,omitempty"`
+
+	// KillSwitchInboundTags is the set of inbound tags the fallback killswitch
+	// (enable/disable + reconcile loop) actually adds/removes from the running Xray.
+	// This is DELIBERATELY separate from FallbackInboundTags: a tag can be served on
+	// the /sub/fallback/* route (subscription routing) WITHOUT being torn down when
+	// the killswitch is OFF. Empty/nil → falls back to FallbackInboundTags (legacy
+	// behaviour, where the two sets are identical). Use KillSwitchTags() to resolve.
+	// Example: fallback_inbound_tags=[vless-fallback-in, vless-experimental-in] but
+	// killswitch_inbound_tags=[vless-fallback-in] → experimental stays up regardless
+	// of killswitch state (it is just a config.d inbound, like the primaries).
+	KillSwitchInboundTags []string `json:"killswitch_inbound_tags,omitempty"`
 	AdminToken        string `json:"admin_token"`
 	BalancerStrategy  string `json:"balancer_strategy"`
 	BalancerProbeURL  string `json:"balancer_probe_url"`
@@ -114,6 +125,16 @@ type Config struct {
 	KillSwitchReconcileInterval int `json:"killswitch_reconcile_interval_seconds,omitempty"`
 
 	xrayFilePerm os.FileMode `json:"-"`
+}
+
+// KillSwitchTags returns the inbound tags the fallback killswitch controls.
+// When KillSwitchInboundTags is set it is authoritative; otherwise it falls back
+// to FallbackInboundTags so existing deployments keep their current behaviour.
+func (c *Config) KillSwitchTags() []string {
+	if len(c.KillSwitchInboundTags) > 0 {
+		return c.KillSwitchInboundTags
+	}
+	return c.FallbackInboundTags
 }
 
 // Load reads and parses a JSON config file from path. An empty path returns defaults.

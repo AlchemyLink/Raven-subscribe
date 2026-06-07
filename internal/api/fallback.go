@@ -137,7 +137,7 @@ func (s *Server) ReconcileKillSwitchOnStartup() {
 // DB — without this loop, raven-subscribe would not notice and the fallback inbound would
 // silently start listening again.
 //
-// The loop is a no-op when XrayAPIAddr is empty or FallbackInboundTags is unset (the same
+// The loop is a no-op when XrayAPIAddr is empty or KillSwitchTags() is empty (the same
 // guards as applyKillSwitchInboundsLocked). interval <= 0 disables the loop entirely.
 //
 // reconcileKillSwitchLocked is idempotent — repeated "remove" calls treat
@@ -146,7 +146,7 @@ func (s *Server) ReconcileKillSwitchLoop(ctx context.Context, interval time.Dura
 	if interval <= 0 {
 		return
 	}
-	if strings.TrimSpace(s.cfg.XrayAPIAddr) == "" || len(s.cfg.FallbackInboundTags) == 0 {
+	if strings.TrimSpace(s.cfg.XrayAPIAddr) == "" || len(s.cfg.KillSwitchTags()) == 0 {
 		return
 	}
 	log.Printf("INFO killswitch reconcile loop: interval %s", interval)
@@ -184,13 +184,14 @@ func (s *Server) reconcileKillSwitchLocked() {
 // already authoritative for subscription gating; gRPC failure means the inbound state
 // drifts (will reconcile on next toggle, periodic loop tick, or process restart).
 //
-// Caller must hold killSwitchMu. No-op when XrayAPIAddr is empty or FallbackInboundTags is unset.
+// Caller must hold killSwitchMu. No-op when XrayAPIAddr is empty or KillSwitchTags() is empty.
 func (s *Server) applyKillSwitchInboundsLocked(enable bool) {
 	apiAddr := strings.TrimSpace(s.cfg.XrayAPIAddr)
-	if apiAddr == "" || len(s.cfg.FallbackInboundTags) == 0 {
+	tags := s.cfg.KillSwitchTags()
+	if apiAddr == "" || len(tags) == 0 {
 		return
 	}
-	for _, tag := range s.cfg.FallbackInboundTags {
+	for _, tag := range tags {
 		tag = strings.TrimSpace(tag)
 		if tag == "" {
 			continue

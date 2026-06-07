@@ -166,6 +166,46 @@ func TestConfig_IsXrayEnabled(t *testing.T) {
 	}
 }
 
+func TestConfig_KillSwitchTags(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *Config
+		want []string
+	}{
+		{
+			name: "both empty → empty",
+			cfg:  &Config{},
+			want: nil,
+		},
+		{
+			name: "only fallback set → falls back to fallback (legacy)",
+			cfg:  &Config{FallbackInboundTags: []string{"vless-fallback-in"}},
+			want: []string{"vless-fallback-in"},
+		},
+		{
+			name: "killswitch set → authoritative, ignores fallback",
+			cfg: &Config{
+				FallbackInboundTags:   []string{"vless-fallback-in", "vless-experimental-in"},
+				KillSwitchInboundTags: []string{"vless-fallback-in"},
+			},
+			want: []string{"vless-fallback-in"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.KillSwitchTags()
+			if len(got) != len(tt.want) {
+				t.Fatalf("KillSwitchTags() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("KillSwitchTags()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestConfig_SubURLs(t *testing.T) {
 	cfg := &Config{BaseURL: "https://vpn.example.com"}
 	urls := cfg.SubURLs("mytoken")
