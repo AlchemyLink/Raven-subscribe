@@ -98,22 +98,22 @@ func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inb
 		if strategy == "" {
 			strategy = "leastPing"
 		}
-		// XHTTP-primary balancing. During the 2026-Q2 TSPU behavioral-detection
-		// regime, Reality+TCP sessions are reset within seconds (observed on the
-		// RU first hop: avg ~3s, >50% under 2s) while XHTTP survives. leastPing
-		// is fooled — the short generate_204 probe completes before TSPU kills
-		// the session, so the balancer keeps selecting the broken Reality path.
-		// We therefore balance only across XHTTP outbounds and demote non-XHTTP
-		// (Reality/TCP) to the FallbackTag, engaged only when every XHTTP
-		// outbound is observed down. When no XHTTP exists, keep prior behavior.
+		// Reality/Vision-primary balancing. Field report 2026-06-07: on the current
+		// RU vantage the working transport is VLESS+Reality+Vision (TCP) via the
+		// relay, while XHTTP does NOT come up there. This REVERSES the 2026-06-05
+		// XHTTP-primary call — DPI is a moving target, and empirical ground truth
+		// (the user's live connection) overrides the stale first-hop measurement.
+		// We balance across non-XHTTP (Reality/Vision) outbounds and demote XHTTP
+		// to the FallbackTag, engaged only when every non-XHTTP outbound is observed
+		// down. When no non-XHTTP outbound exists, balance across whatever we have.
 		selector := proxyTags
 		fallbackTag := proxyTags[0]
-		if len(xhttpTags) > 0 {
-			selector = xhttpTags
-			if len(nonXHTTPTags) > 0 {
-				fallbackTag = nonXHTTPTags[0]
-			} else {
+		if len(nonXHTTPTags) > 0 {
+			selector = nonXHTTPTags
+			if len(xhttpTags) > 0 {
 				fallbackTag = xhttpTags[0]
+			} else {
+				fallbackTag = nonXHTTPTags[0]
 			}
 		}
 		// Xray load balancing is configured in routing.balancers, not as an outbound protocol.
@@ -487,7 +487,17 @@ func convertXHTTPSettings(raw json.RawMessage, rs *RealitySettings) (json.RawMes
 	// Client-only (never from server): xmux, downloadSettings
 	clientSettings := make(map[string]interface{})
 
-	// Core fields
+	// Core fields stay at the TOP LEVEL.
+	//
+	// CRITICAL (Xray transport/internet/splithttp Build, infra/conf/transport_internet.go):
+	// when xhttpSettings carries a non-empty "extra" object, Xray REBUILDS the whole
+	// transport config from "extra" and copies back only Host/Path/Mode from the outer
+	// object. Every other field placed as a SIBLING of "extra" — xmux, scMaxEachPostBytes,
+	// xPaddingBytes, scMinPostsIntervalMs, headers, downloadSettings — is silently
+	// DISCARDED. So we keep only path/host/mode here and pack everything else into
+	// "extra". (Historic bug: xmux was emitted top-level and dropped on every XHTTP
+	// client whenever extra was non-empty — which it always is — making the tuned
+	// anti-DPI rotation inert. Regression-guarded in TestConvertXHTTPSettingsInjectsXMux.)
 	if path, ok := serverSettings["path"]; ok {
 		clientSettings["path"] = path
 	}
@@ -504,36 +514,37 @@ func convertXHTTPSettings(raw json.RawMessage, rs *RealitySettings) (json.RawMes
 	if mode, ok := serverSettings["mode"]; ok {
 		clientSettings["mode"] = mode
 	}
-	if headers, ok := serverSettings["headers"]; ok {
-		clientSettings["headers"] = headers
+
+	// Build the single "extra" object that carries ALL advanced client-side fields.
+	// Start from any server-provided extra (verbatim — a server may already nest fields
+	// such as xmux/scMaxEachPostBytes there), then merge server top-level advanced
+	// fields (a server may place them at either level).
+	extra := make(map[string]interface{})
+	if se, ok := serverSettings["extra"].(map[string]interface{}); ok {
+		for k, v := range se {
+			extra[k] = v
+		}
+	}
+	for _, k := range []string{"headers", "xPaddingBytes", "scMaxEachPostBytes", "scMinPostsIntervalMs"} {
+		if v, ok := serverSettings[k]; ok {
+			extra[k] = v
+		}
 	}
 
-	// Optional server-sharable fields
-	if extra, ok := serverSettings["extra"]; ok {
-		clientSettings["extra"] = extra
-	}
-	if xPaddingBytes, ok := serverSettings["xPaddingBytes"]; ok {
-		clientSettings["xPaddingBytes"] = xPaddingBytes
-	}
-	if scMaxEachPostBytes, ok := serverSettings["scMaxEachPostBytes"]; ok {
-		clientSettings["scMaxEachPostBytes"] = scMaxEachPostBytes
-	}
-	if scMinPostsIntervalMs, ok := serverSettings["scMinPostsIntervalMs"]; ok {
-		clientSettings["scMinPostsIntervalMs"] = scMinPostsIntervalMs
-	}
-
-	// xmux is a client-only dialer concern (the server never advertises it).
-	// We inject a tuned default that bounds connection reuse and lifetime and
-	// randomizes the limits, so a muxed XHTTP connection rotates and jitters
-	// instead of looking like one persistent tunnel — reduces exposure to the
-	// 2026 RU TSPU behavioral/concurrent-TLS shaping (net4people #546) and the
-	// volumetric per-connection freeze (#490). See dpi_wave_mechanism_taxonomy.
-	// If a server config ever ships an explicit xmux block, honor it as override.
+	// xmux is a client-only dialer concern. We inject a tuned default that bounds
+	// connection reuse/lifetime and randomizes the limits, so a muxed XHTTP connection
+	// rotates and jitters instead of looking like one persistent tunnel — reduces
+	// exposure to the 2026 RU TSPU behavioral/concurrent-TLS shaping (net4people #546)
+	// and the volumetric per-connection freeze (#490). See dpi_wave_mechanism_taxonomy.
+	// It MUST live inside "extra" (see above). Precedence: explicit server top-level
+	// xmux > xmux already nested in the server's extra > tuned default.
 	if xmux, ok := serverSettings["xmux"]; ok {
-		clientSettings["xmux"] = xmux
-	} else {
-		clientSettings["xmux"] = defaultXHTTPXMux()
+		extra["xmux"] = xmux
+	} else if _, nested := extra["xmux"]; !nested {
+		extra["xmux"] = defaultXHTTPXMux()
 	}
+
+	clientSettings["extra"] = extra
 
 	result, err := json.Marshal(clientSettings)
 	if err != nil {

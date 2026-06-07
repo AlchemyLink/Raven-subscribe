@@ -7,6 +7,23 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [v0.3.1] - 2026-06-07
+
+### Fixed
+- **XHTTP `xmux` is now nested inside `streamSettings.xhttpSettings.extra`** instead of being emitted as a top-level sibling. Xray's XHTTP transport (`infra/conf/transport_internet.go`) rebuilds its config from `extra` when present — copying back only `host`/`path`/`mode` from the outer object and **silently discarding every sibling field** (`xmux`, `scMaxEachPostBytes`, `xPaddingBytes`, `downloadSettings`). As a result the tuned client `xmux` shipped in v0.3.0 was **inert on every XHTTP client whose `extra` was non-empty** — which is always, since `xPaddingBytes` is present. `convertXHTTPSettings` now packs `xmux` and all advanced fields inside `extra`, so the anti-DPI connection rotation (net4people #490/#546) actually reaches the dialer. xmux precedence: server top-level → server-nested-in-`extra` → tuned default. Regression test asserts `extra.xmux` is set, server-nested xmux is preserved, and no top-level `xmux`/advanced field leaks.
+- **Clients must re-fetch their subscription** to pick up the now-active xmux. Live connections are unaffected until they refetch.
+
+### Changed
+- **Balancer reverted to Reality/Vision-primary** (reverses the v0.3.0 XHTTP-primary selector). Field report 2026-06-07: on the current RU vantage VLESS+Reality+`xtls-rprx-vision` (TCP, via relay) is the working transport while XHTTP does not come up. The balancer `Selector` and Observatory `SubjectSelector` now target the non-XHTTP (Reality/Vision) outbound(s), and XHTTP is demoted to `FallbackTag` — engaged only when every non-XHTTP outbound is observed down. When no non-XHTTP outbound exists, balances across whatever proxies remain. DPI is a moving target; this is empirical ground truth overriding the 2026-06-05 first-hop measurement.
+
+## [v0.3.0] - 2026-06-05
+
+### Changed
+- **XHTTP-primary balancer.** When XHTTP outbounds exist, the generated balancer `Selector` targets XHTTP tags only with the first Reality tag as `FallbackTag`, and the Observatory `SubjectSelector` probes XHTTP only. Traffic stays on XHTTP (which survives the 2026 RU TSPU first-hop behavioral kill) and engages Reality only when every XHTTP outbound is observed down. Prior behavior preserved when no XHTTP outbound exists.
+
+### Added
+- Tuned client `xmux` defaults for XHTTP outbounds (bounded reuse + randomized lifetime) as an anti-DPI connection-rotation measure. (NB: not actually effective until the v0.3.1 `extra`-nesting fix.)
+
 ## [v0.2.1] - 2026-05-25
 
 ### Fixed

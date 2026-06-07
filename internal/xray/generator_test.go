@@ -715,23 +715,41 @@ func TestGenerateClientConfigXHTTPHostFromServerNames(t *testing.T) {
 }
 
 // TestConvertXHTTPSettingsInjectsXMux verifies the client config gets a tuned
-// xmux block by default (anti-DPI connection rotation), and that an explicit
-// server-provided xmux overrides the default.
+// xmux block by default (anti-DPI connection rotation), nested INSIDE "extra"
+// (mandatory — Xray rebuilds the transport from "extra" and discards any field that
+// is a sibling of it), and that an explicit server-provided xmux overrides the
+// default. Regression guard for the historic bug where xmux was emitted at the top
+// level and silently dropped on every XHTTP client whose extra was non-empty.
 func TestConvertXHTTPSettingsInjectsXMux(t *testing.T) {
-	t.Run("default injected when absent", func(t *testing.T) {
+	// extractXMux returns the effective xmux (which MUST be inside extra) and asserts
+	// no xmux leaked at the top level where Xray would discard it.
+	extractXMux := func(t *testing.T, out json.RawMessage) map[string]interface{} {
+		t.Helper()
+		var cs map[string]interface{}
+		if err := json.Unmarshal(out, &cs); err != nil {
+			t.Fatalf("unmarshal client settings: %v", err)
+		}
+		if _, leaked := cs["xmux"]; leaked {
+			t.Error(`xmux leaked at top level of xhttpSettings — Xray discards siblings of "extra"; xmux MUST be nested inside extra`)
+		}
+		extra, ok := cs["extra"].(map[string]interface{})
+		if !ok {
+			t.Fatal(`client xhttpSettings missing "extra" object`)
+		}
+		xmux, ok := extra["xmux"].(map[string]interface{})
+		if !ok {
+			t.Fatal("extra.xmux missing")
+		}
+		return xmux
+	}
+
+	t.Run("default injected inside extra when absent", func(t *testing.T) {
 		raw := json.RawMessage(`{"mode":"packet-up","path":"/p"}`)
 		out, err := convertXHTTPSettings(raw, &RealitySettings{ServerName: "addons.mozilla.org"})
 		if err != nil {
 			t.Fatalf("convertXHTTPSettings error: %v", err)
 		}
-		var cs map[string]interface{}
-		if err := json.Unmarshal(out, &cs); err != nil {
-			t.Fatalf("unmarshal client settings: %v", err)
-		}
-		xmux, ok := cs["xmux"].(map[string]interface{})
-		if !ok {
-			t.Fatal("client xhttpSettings missing default xmux block")
-		}
+		xmux := extractXMux(t, out)
 		// A complete set must be emitted — once any xmux field is set, Xray drops
 		// defaults for the rest, so all keys must be present.
 		for _, k := range []string{"maxConcurrency", "maxConnections", "cMaxReuseTimes", "hMaxRequestTimes", "hMaxReusableSecs", "hKeepAlivePeriod"} {
@@ -744,26 +762,56 @@ func TestConvertXHTTPSettingsInjectsXMux(t *testing.T) {
 		}
 	})
 
-	t.Run("server override honored", func(t *testing.T) {
+	t.Run("server top-level xmux relocated into extra and honored", func(t *testing.T) {
 		raw := json.RawMessage(`{"mode":"packet-up","path":"/p","xmux":{"maxConcurrency":"4-8"}}`)
 		out, err := convertXHTTPSettings(raw, nil)
 		if err != nil {
 			t.Fatalf("convertXHTTPSettings error: %v", err)
 		}
-		var cs map[string]interface{}
-		if err := json.Unmarshal(out, &cs); err != nil {
-			t.Fatalf("unmarshal client settings: %v", err)
-		}
-		xmux, ok := cs["xmux"].(map[string]interface{})
-		if !ok {
-			t.Fatal("xmux missing")
-		}
+		xmux := extractXMux(t, out)
 		if xmux["maxConcurrency"] != "4-8" {
 			t.Errorf("override not honored: got %v, want \"4-8\"", xmux["maxConcurrency"])
 		}
 		// override replaces the default wholesale; no default keys leak in
 		if _, leaked := xmux["hMaxReusableSecs"]; leaked {
 			t.Error("server override should replace default xmux wholesale, default key leaked")
+		}
+	})
+
+	t.Run("xmux already nested in server extra is preserved; sc-fields stay inside extra", func(t *testing.T) {
+		raw := json.RawMessage(`{"mode":"packet-up","path":"/p","extra":{"xPaddingBytes":"100-1000","scMaxEachPostBytes":"2000-4000","xmux":{"cMaxReuseTimes":"2-3","maxConcurrency":"2-4"}}}`)
+		out, err := convertXHTTPSettings(raw, nil)
+		if err != nil {
+			t.Fatalf("convertXHTTPSettings error: %v", err)
+		}
+		var cs map[string]interface{}
+		if err := json.Unmarshal(out, &cs); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		extra, ok := cs["extra"].(map[string]interface{})
+		if !ok {
+			t.Fatal("extra missing")
+		}
+		// advanced fields must stay inside extra (would be discarded as siblings)
+		if extra["scMaxEachPostBytes"] != "2000-4000" {
+			t.Errorf(`extra.scMaxEachPostBytes: got %v, want "2000-4000"`, extra["scMaxEachPostBytes"])
+		}
+		if extra["xPaddingBytes"] != "100-1000" {
+			t.Errorf("extra.xPaddingBytes: got %v", extra["xPaddingBytes"])
+		}
+		// the server's nested xmux wins over the tuned default (not overwritten)
+		xmux, ok := extra["xmux"].(map[string]interface{})
+		if !ok {
+			t.Fatal("extra.xmux missing")
+		}
+		if xmux["cMaxReuseTimes"] != "2-3" || xmux["maxConcurrency"] != "2-4" {
+			t.Errorf("server-nested xmux not preserved: got %v", xmux)
+		}
+		// no advanced field may leak to the top level (Xray would discard it)
+		for _, k := range []string{"xmux", "scMaxEachPostBytes", "xPaddingBytes"} {
+			if _, leaked := cs[k]; leaked {
+				t.Errorf("%q leaked at top level (Xray would discard it)", k)
+			}
 		}
 	})
 }
@@ -912,7 +960,7 @@ func TestSortClientsXHTTPFirst(t *testing.T) {
 	})
 }
 
-func TestGenerateClientConfig_XHTTPOutboundFirst(t *testing.T) {
+func TestGenerateClientConfig_RealityPrimaryBalancer(t *testing.T) {
 	tcpClient := models.UserClientFull{
 		InboundTag:      "vless-reality-v2-in",
 		InboundProtocol: "vless",
@@ -936,49 +984,50 @@ func TestGenerateClientConfig_XHTTPOutboundFirst(t *testing.T) {
 		t.Fatalf("generate: %v", err)
 	}
 
-	// Find first proxy outbound (skip socks/http inbounds, pick the first
-	// vless outbound in cfg.Outbounds order).
-	var firstProxyTag string
+	// Both transports must be present as proxy outbounds (emission order is
+	// covered by TestSortClientsXHTTPFirst and is not asserted here).
+	tags := outboundTags(cfg.Outbounds)
+	var haveXHTTP, haveReality bool
 	for _, ob := range cfg.Outbounds {
-		if ob.Protocol == "vless" {
-			firstProxyTag = ob.Tag
-			break
+		if ob.Protocol != "vless" {
+			continue
+		}
+		if strings.Contains(strings.ToLower(ob.Tag), "xhttp") {
+			haveXHTTP = true
+		} else {
+			haveReality = true
 		}
 	}
-	if firstProxyTag == "" {
-		t.Fatal("no vless outbound in generated config")
-	}
-	if !strings.Contains(strings.ToLower(firstProxyTag), "xhttp") {
-		t.Errorf("expected XHTTP proxy first, got tag %q. Outbounds: %v", firstProxyTag,
-			outboundTags(cfg.Outbounds))
+	if !haveXHTTP || !haveReality {
+		t.Fatalf("expected both XHTTP and Reality vless outbounds, got %v", tags)
 	}
 
-	// XHTTP-primary balancer: the Selector balances only XHTTP outbounds, and
-	// the non-XHTTP (Reality/TCP) outbound is demoted to FallbackTag — engaged
-	// only when every XHTTP outbound is observed down (2026-Q2 TSPU regime,
-	// where Reality sessions are killed within seconds on the first hop).
+	// Reality/Vision-primary balancer (field report 2026-06-07): the Selector
+	// balances only the non-XHTTP (Reality/Vision) outbound(s), and XHTTP is
+	// demoted to FallbackTag — engaged only when every non-XHTTP outbound is
+	// observed down. (Reverses the prior XHTTP-primary assertion.)
 	if len(cfg.Routing.Balancers) != 1 {
 		t.Fatalf("expected 1 balancer, got %d", len(cfg.Routing.Balancers))
 	}
 	b := cfg.Routing.Balancers[0]
 	if len(b.Selector) != 1 {
-		t.Errorf("expected exactly 1 XHTTP selector, got %v", b.Selector)
+		t.Errorf("expected exactly 1 non-XHTTP selector, got %v", b.Selector)
 	}
 	for _, sel := range b.Selector {
-		if !strings.Contains(strings.ToLower(sel), "xhttp") {
-			t.Errorf("balancer Selector must contain only XHTTP tags, got %v", b.Selector)
+		if strings.Contains(strings.ToLower(sel), "xhttp") {
+			t.Errorf("balancer Selector must contain only non-XHTTP (Reality) tags, got %v", b.Selector)
 		}
 	}
-	if strings.Contains(strings.ToLower(b.FallbackTag), "xhttp") {
-		t.Errorf("FallbackTag should be the non-XHTTP (Reality) outbound, got %q", b.FallbackTag)
+	if !strings.Contains(strings.ToLower(b.Selector[0]), "reality") {
+		t.Errorf("balancer Selector should be the Reality outbound, got %v", b.Selector)
 	}
-	if !strings.Contains(strings.ToLower(b.FallbackTag), "reality") {
-		t.Errorf("FallbackTag should be the Reality outbound, got %q", b.FallbackTag)
+	if !strings.Contains(strings.ToLower(b.FallbackTag), "xhttp") {
+		t.Errorf("FallbackTag should be the XHTTP outbound, got %q", b.FallbackTag)
 	}
-	// Observatory must probe only the XHTTP outbound(s).
+	// Observatory must probe only the non-XHTTP (Reality) outbound(s).
 	if cfg.Observatory == nil || len(cfg.Observatory.SubjectSelector) != 1 ||
-		!strings.Contains(strings.ToLower(cfg.Observatory.SubjectSelector[0]), "xhttp") {
-		t.Errorf("Observatory should probe only the XHTTP outbound, got %+v", cfg.Observatory)
+		strings.Contains(strings.ToLower(cfg.Observatory.SubjectSelector[0]), "xhttp") {
+		t.Errorf("Observatory should probe only the non-XHTTP (Reality) outbound, got %+v", cfg.Observatory)
 	}
 }
 
