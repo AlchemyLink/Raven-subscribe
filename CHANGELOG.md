@@ -7,6 +7,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [v0.3.5] - 2026-06-08
+
+### Added
+- **Per-user Hysteria2 reserve channel.** `GET /sub/{token}/hy2` (+ `.b64`) returns a per-user `hysteria2://` URI — auth = the user's sub token, shared obfs (salamander default), self-signed cert verified via `insecure=1`+`pinSHA256` (so the SNI domain stays out of Certificate-Transparency logs while remaining MITM-safe). New loopback-only auth-backend `POST /hysteria/auth` lets a native hysteria daemon (`auth.type:http`) validate each connection against the user DB → per-user revocation + a stats id. Config block `hysteria` (host/port/obfs_type/obfs_password/sni/cert_pin), disabled by default. Pairs with the `hysteria` + relay roles in Raven-server-install (EU native hysteria servers reached via RU nginx UDP forwards over the WG mesh).
+
 ## [v0.3.4] - 2026-06-08
 
 ### Added

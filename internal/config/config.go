@@ -11,6 +11,21 @@ import (
 	"github.com/alchemylink/raven-subscribe/internal/models"
 )
 
+// HysteriaConfig configures the per-user Hysteria2 reserve subscription channel.
+type HysteriaConfig struct {
+	Enabled      bool   `json:"enabled"`
+	Host         string `json:"host"`          // domain clients connect to (relay apex, e.g. zirgate.com)
+	Port         int    `json:"port"`          // relay UDP port forwarded to the EU hysteria server (e.g. 47014)
+	ObfsType     string `json:"obfs_type"`     // "salamander" (mainstream-client default) or "gecko"
+	ObfsPassword string `json:"obfs_password"` // shared obfs key (server-wide, not per-user)
+	SNI          string `json:"sni"`           // TLS SNI presented by the client (matches the server cert CN)
+	// CertPin is the server cert SHA256 fingerprint (hex). Emitted as pinSHA256 in the
+	// hysteria2:// URI so a self-signed cert verifies without a public CA — avoids leaking
+	// the SNI domain into Certificate Transparency logs (relay-OPSEC parity). The URI carries
+	// it automatically, so there is no manual-pin burden. Empty = rely on CA trust (real cert).
+	CertPin string `json:"cert_pin,omitempty"`
+}
+
 // Config holds all runtime configuration for the xray-subscription service.
 type Config struct {
 	ListenAddr        string `json:"listen_addr"`
@@ -56,6 +71,13 @@ type Config struct {
 	// Reality stops passing the RU first hop). Applied before the FallbackInboundTags
 	// split, so an excluded tag never appears regardless of route.
 	ExcludeInboundTags []string `json:"exclude_inbound_tags,omitempty"`
+
+	// Hysteria, when enabled, exposes a per-user Hysteria2 UDP reserve: /sub/{token}/hy2
+	// returns a hysteria2:// URI, and /hysteria/auth is the auth-backend the native
+	// hysteria daemon calls (auth.type:http) to validate a connection's auth (= the
+	// user's sub token) against the DB. obfs is shared (anti-DPI key, not access control);
+	// per-user control is via the auth-backend. See hysteria_raven_integration_plan.
+	Hysteria *HysteriaConfig `json:"hysteria,omitempty"`
 
 	AdminToken        string `json:"admin_token"`
 	BalancerStrategy  string `json:"balancer_strategy"`

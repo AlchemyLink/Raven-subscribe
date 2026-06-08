@@ -96,6 +96,12 @@ func (s *Server) Router() http.Handler {
 	r.HandleFunc("/sub/{token}/inbound/{inboundTag}/links.txt", s.handleSubscriptionLinksText).Methods(http.MethodGet)
 	r.HandleFunc("/sub/{token}/inbound/{inboundTag}/links.b64", s.handleSubscriptionLinksB64).Methods(http.MethodGet)
 
+	// ── Hysteria2 UDP reserve (per-user) ──────────────────────────────────
+	r.HandleFunc("/sub/{token}/hy2", func(w http.ResponseWriter, r *http.Request) { s.handleHysteriaSub(w, r, false) }).Methods(http.MethodGet)
+	r.HandleFunc("/sub/{token}/hy2.b64", func(w http.ResponseWriter, r *http.Request) { s.handleHysteriaSub(w, r, true) }).Methods(http.MethodGet)
+	// auth-backend the native hysteria daemon calls (auth.type:http); loopback-only.
+	r.HandleFunc("/hysteria/auth", s.handleHysteriaAuth).Methods(http.MethodPost)
+
 	// ── Admin API (protected by admin token header) ───────────────────────
 	api := r.PathPrefix("/api").Subrouter()
 	api.Use(s.adminAuth)
