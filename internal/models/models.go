@@ -81,6 +81,9 @@ type SubURLs struct {
 	Compact     string `json:"compact"`
 	CompactText string `json:"compact_txt"`
 	CompactB64  string `json:"compact_b64"`
+	// Hy2 is the per-user Hysteria2 reserve URL (/sub/{token}/hy2). Present only when the
+	// hysteria reserve is enabled in config. Surfaced in the dashboard + Telegram /links.
+	Hy2 string `json:"hy2,omitempty"`
 	// Fallback variants — keyed on fallback_token, never rotated with primary token.
 	Fallback            string `json:"fallback,omitempty"`
 	FallbackText        string `json:"fallback_txt,omitempty"`

@@ -330,7 +330,7 @@ func (c *Config) FallbackURL(fallbackToken string) string {
 func (c *Config) SubURLs(token string) models.SubURLs {
 	sub := fmt.Sprintf("%s/sub/%s", c.BaseURL, token)
 	compact := fmt.Sprintf("%s/c/%s", c.BaseURL, token)
-	return models.SubURLs{
+	urls := models.SubURLs{
 		Full:        sub,
 		LinksText:   sub + "/links.txt",
 		LinksB64:    sub + "/links.b64",
@@ -338,6 +338,10 @@ func (c *Config) SubURLs(token string) models.SubURLs {
 		CompactText: compact + "/links.txt",
 		CompactB64:  compact + "/links.b64",
 	}
+	if c.Hysteria != nil && c.Hysteria.Enabled {
+		urls.Hy2 = sub + "/hy2"
+	}
+	return urls
 }
 
 // SubURLsWithFallback returns all subscription URL variants including all fallback format variants.

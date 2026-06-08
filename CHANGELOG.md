@@ -7,6 +7,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [v0.3.7] - 2026-06-08
+
+### Added
+- **`hy2` field in `sub_urls`** (user API responses). When the hysteria reserve is enabled, every user's `sub_urls` now includes the `/sub/{token}/hy2` URL, so the dashboard user card and the Telegram `/links` picker can surface the reserve per-user. Omitted when the reserve is disabled.
+
 ## [v0.3.6] - 2026-06-08
 
 ### Added

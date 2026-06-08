@@ -221,6 +221,14 @@ func TestConfig_SubURLs(t *testing.T) {
 	if urls.Compact != "https://vpn.example.com/c/mytoken" {
 		t.Errorf("Compact: got %q", urls.Compact)
 	}
+	// Hy2 absent unless the hysteria reserve is enabled.
+	if urls.Hy2 != "" {
+		t.Errorf("Hy2 should be empty when hysteria disabled, got %q", urls.Hy2)
+	}
+	cfg.Hysteria = &HysteriaConfig{Enabled: true}
+	if got := cfg.SubURLs("mytoken").Hy2; got != "https://vpn.example.com/sub/mytoken/hy2" {
+		t.Errorf("Hy2: got %q", got)
+	}
 }
 
 func TestLoad_XrayConfigFileMode(t *testing.T) {
