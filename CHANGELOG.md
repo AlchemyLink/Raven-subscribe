@@ -7,6 +7,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [v0.3.6] - 2026-06-08
+
+### Added
+- **Hysteria2 reserve can ride the main subscription** (`hysteria.in_main_sub`, default off). When enabled, the per-user `hysteria2://` URI is appended to the link-list subscription (`/sub/{token}/links`, `/c/{token}/links`, `?format=links`/`b64`), so clients receive the reserve as an extra server without importing `/sub/{token}/hy2` separately. Protocol-forced lists (`/vless`, `/vmess`, …) are unaffected. The hy2 URI is ADDED, never replaces the primary links.
+
 ## [v0.3.5] - 2026-06-08
 
 ### Added

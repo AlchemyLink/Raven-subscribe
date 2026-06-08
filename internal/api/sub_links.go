@@ -136,11 +136,16 @@ func (s *Server) handleSubscriptionLinksByFormatAndProtocol(w http.ResponseWrite
 		return
 	}
 
+	// Fold the per-user hy2 reserve into the GENERAL link list only (not protocol-forced lists).
+	var extra []string
+	if forcedProtocol == "" {
+		extra = s.hysteriaMainSubExtra(mux.Vars(r)["token"])
+	}
 	if format == "b64" {
-		writeProxyLinksB64(w, username, cfg)
+		writeProxyLinksB64(w, username, cfg, extra)
 		return
 	}
-	writeProxyLinksText(w, username, cfg)
+	writeProxyLinksText(w, username, cfg, extra)
 }
 
 // filterExcludedInbounds drops clients whose inbound tag is in cfg.ExcludeInboundTags.
@@ -228,8 +233,8 @@ func matchesInboundTagFilter(inboundTag, filter string, index int) bool {
 	return fmt.Sprintf("%s-%d", sanitized, index) == filter
 }
 
-func writeProxyLinksText(w http.ResponseWriter, username string, cfg *xray.ClientConfig) {
-	links := buildProxyLinks(cfg)
+func writeProxyLinksText(w http.ResponseWriter, username string, cfg *xray.ClientConfig, extra ...[]string) {
+	links := append(buildProxyLinks(cfg), flattenExtra(extra)...)
 	payload := strings.Join(links, "\n")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Profile-Title", username)
@@ -237,8 +242,17 @@ func writeProxyLinksText(w http.ResponseWriter, username string, cfg *xray.Clien
 	_, _ = w.Write([]byte(payload))
 }
 
-func writeProxyLinksB64(w http.ResponseWriter, username string, cfg *xray.ClientConfig) {
-	links := buildProxyLinks(cfg)
+// flattenExtra merges optional variadic extra-link slices into one slice.
+func flattenExtra(extra [][]string) []string {
+	var out []string
+	for _, e := range extra {
+		out = append(out, e...)
+	}
+	return out
+}
+
+func writeProxyLinksB64(w http.ResponseWriter, username string, cfg *xray.ClientConfig, extra ...[]string) {
+	links := append(buildProxyLinks(cfg), flattenExtra(extra)...)
 	plain := strings.Join(links, "\n")
 	payload := base64.StdEncoding.EncodeToString([]byte(plain))
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

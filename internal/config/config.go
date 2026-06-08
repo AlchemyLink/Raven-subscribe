@@ -24,6 +24,10 @@ type HysteriaConfig struct {
 	// the SNI domain into Certificate Transparency logs (relay-OPSEC parity). The URI carries
 	// it automatically, so there is no manual-pin burden. Empty = rely on CA trust (real cert).
 	CertPin string `json:"cert_pin,omitempty"`
+	// InMainSub, when true, also appends the per-user hysteria2:// URI to the link-list
+	// subscription (/sub/{token}/links, /c/{token}/links, etc.) so clients get the reserve
+	// as an extra server without importing /sub/{token}/hy2 separately. Off by default.
+	InMainSub bool `json:"in_main_sub"`
 }
 
 // Config holds all runtime configuration for the xray-subscription service.

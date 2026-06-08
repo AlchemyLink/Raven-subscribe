@@ -55,6 +55,44 @@ func TestHysteriaAuth(t *testing.T) {
 	})
 }
 
+func TestHysteriaInMainSub(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	u, err := srv.db.CreateUser("alice", "alice@example.com", "t-alice", "fb-alice")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	xID, _ := srv.db.UpsertInbound("vless-xhttp-v2-in", "vless", 443, "210.json",
+		`{"tag":"vless-xhttp-v2-in","protocol":"vless","port":443,"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"serverNames":["www.python.org"],"publicKey":"testpublickey12345678901234567890123456789012","shortIds":["ab"]},"xhttpSettings":{"mode":"packet-up","host":"www.python.org","path":"/x"}}}`)
+	_ = srv.db.UpsertUserClient(u.ID, xID, `{"protocol":"vless","id":"uuid1","flow":"xtls-rprx-vision","encryption":"none"}`)
+	hy := &config.HysteriaConfig{Enabled: true, Host: "zirgate.com", Port: 47014, ObfsType: "salamander", ObfsPassword: "pw", SNI: "www.python.org", CertPin: "abc"}
+
+	get := func() string {
+		req := httptest.NewRequest(http.MethodGet, "/sub/t-alice/links.txt", nil)
+		rec := httptest.NewRecorder()
+		srv.Router().ServeHTTP(rec, req)
+		return rec.Body.String()
+	}
+	t.Run("in_main_sub=false -> no hy2 in links", func(t *testing.T) {
+		hy.InMainSub = false
+		srv.cfg.Hysteria = hy
+		if strings.Contains(get(), "hysteria2://") {
+			t.Error("hy2 leaked into links when in_main_sub=false")
+		}
+	})
+	t.Run("in_main_sub=true -> hy2 appended to links", func(t *testing.T) {
+		hy.InMainSub = true
+		srv.cfg.Hysteria = hy
+		body := get()
+		if !strings.Contains(body, "hysteria2://t-alice@zirgate.com:47014") {
+			t.Errorf("hy2 URI missing from links: %s", body)
+		}
+		if !strings.Contains(body, "vless://") {
+			t.Errorf("primary vless link missing (hy2 should be ADDED, not replace): %s", body)
+		}
+	})
+}
+
 func TestHysteriaSub(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()

@@ -118,6 +118,22 @@ func (s *Server) handleHysteriaSub(w http.ResponseWriter, r *http.Request, b64 b
 	_, _ = w.Write([]byte(uri))
 }
 
+// hysteriaMainSubExtra returns the per-user hysteria2:// URI as a one-element slice when the
+// reserve is enabled AND configured to ride the main link-list subscription; else nil.
+func (s *Server) hysteriaMainSubExtra(token string) []string {
+	h := s.cfg.Hysteria
+	if h == nil || !h.Enabled || !h.InMainSub || token == "" {
+		return nil
+	}
+	user, err := s.db.GetUserByToken(token)
+	if err != nil || user == nil || !user.Enabled {
+		return nil
+	}
+	return []string{buildHysteria2URI(user.Token, "hy2-reserve", &HysteriaConfigView{
+		Host: h.Host, Port: h.Port, ObfsType: h.ObfsType, ObfsPassword: h.ObfsPassword, SNI: h.SNI, CertPin: h.CertPin,
+	})}
+}
+
 func requestFromLoopback(r *http.Request) bool {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
