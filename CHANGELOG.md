@@ -7,6 +7,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [v0.3.4] - 2026-06-08
+
+### Added
+- **`exclude_inbound_tags` config field.** Listed inbound tags are dropped from **every** subscription response — primary `/sub/*`, fallback `/sub/fallback/*`, JSON, links, and links-index — while the inbound stays alive on the server. Unlike `fallback_inbound_tags` (which *moves* a tag from primary to fallback), this removes it everywhere. Use to retire a dead transport from what clients download (e.g. `["vless-reality-v2-in"]` once Reality stops passing the RU first hop) without deleting the server inbound, so it can be restored instantly. Filtering is centralized in `filterExcludedInbounds` and applied before the `fallback_inbound_tags` split across all three subscription handlers. Regression test covers control (both inbounds present) and exclusion (tag dropped, others retained). **Clients must re-fetch** to drop the excluded entry.
+
 ## [v0.3.3] - 2026-06-08
 
 ### Added

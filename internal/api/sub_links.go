@@ -143,6 +143,27 @@ func (s *Server) handleSubscriptionLinksByFormatAndProtocol(w http.ResponseWrite
 	writeProxyLinksText(w, username, cfg)
 }
 
+// filterExcludedInbounds drops clients whose inbound tag is in cfg.ExcludeInboundTags.
+// Called by every subscription-serving path (JSON, links, links-index, fallback) so an
+// excluded transport never appears in what clients download, while the inbound stays
+// alive on the server. Must run before the FallbackInboundTags split.
+func (s *Server) filterExcludedInbounds(clients []models.UserClientFull) []models.UserClientFull {
+	if len(s.cfg.ExcludeInboundTags) == 0 {
+		return clients
+	}
+	ex := make(map[string]bool, len(s.cfg.ExcludeInboundTags))
+	for _, tag := range s.cfg.ExcludeInboundTags {
+		ex[tag] = true
+	}
+	kept := make([]models.UserClientFull, 0, len(clients))
+	for _, c := range clients {
+		if !ex[c.InboundTag] {
+			kept = append(kept, c)
+		}
+	}
+	return kept
+}
+
 func applySubscriptionFiltersWithProtocol(clients []models.UserClientFull, r *http.Request, forcedProtocol string) []models.UserClientFull {
 	result := clients
 	p := strings.ToLower(strings.TrimSpace(forcedProtocol))
@@ -285,6 +306,9 @@ func (s *Server) generateConfigForSubscriptionRequestWithForcedProtocol(r *http.
 		log.Printf("ERROR get user clients for %s: %v", sanitizeLogField(user.Username), err)
 		return nil, "", fmt.Errorf("internal error")
 	}
+	// ExcludeInboundTags removes tags from EVERY subscription (primary + fallback, all
+	// formats), before the FallbackInboundTags split. See filterExcludedInbounds.
+	clients = s.filterExcludedInbounds(clients)
 	// FallbackInboundTags is symmetric (whitelist on /sub/fallback/*, blacklist on primary).
 	if len(s.cfg.FallbackInboundTags) > 0 {
 		tagSet := make(map[string]bool, len(s.cfg.FallbackInboundTags))

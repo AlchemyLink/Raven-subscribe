@@ -47,6 +47,16 @@ type Config struct {
 	// killswitch_inbound_tags=[vless-fallback-in] → experimental stays up regardless
 	// of killswitch state (it is just a config.d inbound, like the primaries).
 	KillSwitchInboundTags []string `json:"killswitch_inbound_tags,omitempty"`
+
+	// ExcludeInboundTags drops these inbound tags from ALL subscription responses
+	// (primary /sub/* AND fallback /sub/fallback/*, every format). Unlike
+	// FallbackInboundTags (which MOVES a tag from primary to fallback), this removes
+	// it everywhere. Use to retire a dead transport from what clients download while
+	// keeping the inbound alive on the server (e.g. ["vless-reality-v2-in"] once
+	// Reality stops passing the RU first hop). Applied before the FallbackInboundTags
+	// split, so an excluded tag never appears regardless of route.
+	ExcludeInboundTags []string `json:"exclude_inbound_tags,omitempty"`
+
 	AdminToken        string `json:"admin_token"`
 	BalancerStrategy  string `json:"balancer_strategy"`
 	BalancerProbeURL  string `json:"balancer_probe_url"`

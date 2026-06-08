@@ -237,6 +237,9 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ExcludeInboundTags removes tags from EVERY subscription, before the fallback split.
+	clients = s.filterExcludedInbounds(clients)
+
 	// FallbackInboundTags is symmetric:
 	//   - On /sub/fallback/* : whitelist (only these tags are returned)
 	//   - On primary /sub/*  : blacklist (these tags are excluded — fallback inbounds
@@ -422,6 +425,7 @@ func (s *Server) handleSubscriptionLinks(w http.ResponseWriter, r *http.Request)
 		jsonError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	clients = s.filterExcludedInbounds(clients)
 	if len(clients) == 0 {
 		jsonError(w, "no enabled clients", http.StatusNotFound)
 		return
