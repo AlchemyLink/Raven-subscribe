@@ -7,6 +7,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [v0.3.3] - 2026-06-08
+
+### Added
+- **Default `xPaddingBytes "100-1000"` injected into XHTTP `extra`.** Every XHTTP client now pads each HTTP request/response body to a random length, flattening the packet-size distribution so RU TSPU volumetric/fingerprint DPI (net4people #490) cannot key on it. Previously padding only appeared if the server inbound set it explicitly, so most clients had none. Injected with the same precedence as `xmux` (server top-level → server-nested-in-`extra` → default) and nested inside `extra` (Xray discards siblings of a non-empty `extra`). Regression tests assert the default is present in `extra`, a server-provided value is preserved, and nothing leaks to the top level. **Clients must re-fetch their subscription** to pick it up.
+
 ## [v0.3.2] - 2026-06-07
 
 ### Changed

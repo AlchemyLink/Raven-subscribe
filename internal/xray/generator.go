@@ -547,6 +547,15 @@ func convertXHTTPSettings(raw json.RawMessage, rs *RealitySettings) (json.RawMes
 		extra["xmux"] = defaultXHTTPXMux()
 	}
 
+	// xPaddingBytes pads every HTTP request/response body to a random length in the
+	// range, flattening the XHTTP packet-size distribution so volumetric/fingerprint
+	// DPI can't key on it (RU TSPU 2026, net4people #490). Inject a default unless the
+	// server already specified one (top-level or nested in extra, both merged above).
+	// MUST live inside "extra" (Xray discards siblings of a non-empty extra).
+	if _, ok := extra["xPaddingBytes"]; !ok {
+		extra["xPaddingBytes"] = defaultXHTTPPadding
+	}
+
 	clientSettings["extra"] = extra
 
 	result, err := json.Marshal(clientSettings)
@@ -555,6 +564,11 @@ func convertXHTTPSettings(raw json.RawMessage, rs *RealitySettings) (json.RawMes
 	}
 	return result, nil
 }
+
+// defaultXHTTPPadding is the client-side XHTTP body-padding range (bytes), randomized
+// per request to flatten the packet-size distribution against volumetric DPI. Lives
+// inside "extra" (see convertXHTTPSettings). Server config can override it.
+const defaultXHTTPPadding = "100-1000"
 
 // defaultXHTTPXMux returns the client-side XMUX profile for XHTTP outbounds.
 // Values follow the XTLS-recommended defaults (discussion #4113) as a complete

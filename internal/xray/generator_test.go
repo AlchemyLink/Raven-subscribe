@@ -760,6 +760,34 @@ func TestConvertXHTTPSettingsInjectsXMux(t *testing.T) {
 		if xmux["maxConcurrency"] != "16-32" {
 			t.Errorf("maxConcurrency: got %v, want \"16-32\"", xmux["maxConcurrency"])
 		}
+		// default xPaddingBytes must be injected inside extra (anti-volumetric DPI)
+		var cs map[string]interface{}
+		if err := json.Unmarshal(out, &cs); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		extra := cs["extra"].(map[string]interface{})
+		if extra["xPaddingBytes"] != "100-1000" {
+			t.Errorf(`default extra.xPaddingBytes: got %v, want "100-1000"`, extra["xPaddingBytes"])
+		}
+		if _, leaked := cs["xPaddingBytes"]; leaked {
+			t.Error("xPaddingBytes leaked at top level (Xray would discard it)")
+		}
+	})
+
+	t.Run("server xPaddingBytes preserved over default", func(t *testing.T) {
+		raw := json.RawMessage(`{"mode":"packet-up","path":"/p","xPaddingBytes":"500-2000"}`)
+		out, err := convertXHTTPSettings(raw, nil)
+		if err != nil {
+			t.Fatalf("convertXHTTPSettings error: %v", err)
+		}
+		var cs map[string]interface{}
+		if err := json.Unmarshal(out, &cs); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		extra := cs["extra"].(map[string]interface{})
+		if extra["xPaddingBytes"] != "500-2000" {
+			t.Errorf(`server xPaddingBytes not preserved: got %v, want "500-2000"`, extra["xPaddingBytes"])
+		}
 	})
 
 	t.Run("server top-level xmux relocated into extra and honored", func(t *testing.T) {
