@@ -100,6 +100,26 @@ func main() {
 		}
 	}()
 
+	// ── Metrics Server (separate listener — never exposed via the sub vhost) ──
+	var metricsServer *http.Server
+	if cfg.MetricsListen != "" {
+		mm := http.NewServeMux()
+		mm.HandleFunc("/metrics", srv.MetricsHandler())
+		metricsServer = &http.Server{
+			Addr:         cfg.MetricsListen,
+			Handler:      mm,
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			IdleTimeout:  60 * time.Second,
+		}
+		go func() {
+			log.Printf("Metrics listening on %s/metrics", cfg.MetricsListen)
+			if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("Metrics server error: %v", err)
+			}
+		}()
+	}
+
 	// ── Graceful Shutdown ───────────────────────────────────────────────────
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -111,6 +131,11 @@ func main() {
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("HTTP shutdown error: %v", err)
+	}
+	if metricsServer != nil {
+		if err := metricsServer.Shutdown(ctx); err != nil {
+			log.Printf("Metrics shutdown error: %v", err)
+		}
 	}
 	log.Println("Stopped")
 }

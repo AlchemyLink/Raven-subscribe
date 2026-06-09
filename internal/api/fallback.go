@@ -32,6 +32,7 @@ func (s *Server) withFallbackAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if !enabled {
+			s.fallbackDenied.Add(1)
 			jsonError(w, "fallback subscription disabled", http.StatusForbidden)
 			return
 		}
@@ -213,7 +214,11 @@ func (s *Server) applyKillSwitchInboundsLocked(enable bool) {
 					continue
 				}
 				log.Printf("WARN killswitch enable: AddInbound %s: %v", sanitizeLogField(tag), err)
+				continue
 			}
+			// Log actual additions: this is the only record that a runtime inbound
+			// came back. Fires once per real transition, not per reconcile tick.
+			log.Printf("INFO killswitch enable: added inbound %s to runtime", sanitizeLogField(tag))
 			continue
 		}
 		// disable
@@ -229,7 +234,12 @@ func (s *Server) applyKillSwitchInboundsLocked(enable bool) {
 				continue
 			}
 			log.Printf("WARN killswitch disable: RemoveInbound %s: %v", sanitizeLogField(tag), err)
+			continue
 		}
+		// Log actual removals: during incident 2026-06-09 inbounds vanished from the
+		// runtime with zero log evidence because successful RemoveInbound was silent
+		// (only the "already absent" idiom logged). Fires once per real transition.
+		log.Printf("INFO killswitch disable: removed inbound %s from runtime", sanitizeLogField(tag))
 	}
 }
 

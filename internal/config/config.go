@@ -32,7 +32,12 @@ type HysteriaConfig struct {
 
 // Config holds all runtime configuration for the xray-subscription service.
 type Config struct {
-	ListenAddr        string `json:"listen_addr"`
+	ListenAddr string `json:"listen_addr"`
+	// MetricsListen, when set (e.g. "127.0.0.1:9091"), serves Prometheus metrics
+	// at /metrics on a dedicated listener. Deliberately separate from ListenAddr:
+	// the main router is publicly reachable through the subscription vhost, and
+	// metrics must never be. Empty = metrics disabled.
+	MetricsListen     string `json:"metrics_listen,omitempty"`
 	ServerHost        string `json:"server_host"`
 	ConfigDir         string `json:"config_dir"`
 	DBPath            string `json:"db_path"`
