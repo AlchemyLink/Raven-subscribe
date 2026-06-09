@@ -15,6 +15,9 @@ type User struct {
 	FallbackToken   string     `json:"fallback_token"`
 	FallbackAccessedAt *time.Time `json:"fallback_accessed_at,omitempty"`
 	Enabled         bool       `json:"enabled"`
+	// Hy2Enabled gates the per-user Hysteria2 reserve (/sub/{token}/hy2 and the hy2 URI
+	// folded into the main link-list). Defaults to true for all users (DB column DEFAULT 1).
+	Hy2Enabled      bool       `json:"hy2_enabled"`
 	ClientRoutes    string     `json:"-"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`

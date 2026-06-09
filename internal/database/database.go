@@ -138,6 +138,13 @@ func (db *DB) migrate() error {
 			return err
 		}
 	}
+	// Per-user Hysteria2 reserve gate. DEFAULT 1 → existing users keep hy2 on upgrade
+	// (matches the prior global-availability behaviour); operators disable per-user.
+	if _, err := db.conn.Exec(`ALTER TABLE users ADD COLUMN hy2_enabled INTEGER NOT NULL DEFAULT 1`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name: hy2_enabled") {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -168,14 +175,28 @@ func (db *DB) CreateUser(username, email, token, fallbackToken string) (*models.
 	id, _ := res.LastInsertId()
 	return &models.User{
 		ID: id, Username: username, Email: email, Token: token, FallbackToken: fallbackToken, Enabled: true,
+		Hy2Enabled: true, // DB column DEFAULT 1
 		CreatedAt: now, UpdatedAt: now,
 	}, nil
+}
+
+// SetUserHy2Enabled toggles the per-user Hysteria2 reserve gate.
+func (db *DB) SetUserHy2Enabled(userID int64, enabled bool) error {
+	v := 0
+	if enabled {
+		v = 1
+	}
+	_, err := db.conn.Exec(
+		`UPDATE users SET hy2_enabled = ?, updated_at = ? WHERE id = ?`,
+		v, time.Now().UTC(), userID,
+	)
+	return err
 }
 
 // GetUserByToken returns the user matching the given subscription token, or nil if not found.
 func (db *DB) GetUserByToken(token string) (*models.User, error) {
 	return db.scanUser(db.conn.QueryRow(
-		`SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, created_at, updated_at FROM users WHERE token = ?`, token,
+		`SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, hy2_enabled, created_at, updated_at FROM users WHERE token = ?`, token,
 	))
 }
 
@@ -185,21 +206,21 @@ func (db *DB) GetUserByFallbackToken(token string) (*models.User, error) {
 		return nil, nil
 	}
 	return db.scanUser(db.conn.QueryRow(
-		`SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, created_at, updated_at FROM users WHERE fallback_token = ?`, token,
+		`SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, hy2_enabled, created_at, updated_at FROM users WHERE fallback_token = ?`, token,
 	))
 }
 
 // GetUserByUsername returns the user with the given username, or nil if not found.
 func (db *DB) GetUserByUsername(username string) (*models.User, error) {
 	return db.scanUser(db.conn.QueryRow(
-		`SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, created_at, updated_at FROM users WHERE username = ?`, username,
+		`SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, hy2_enabled, created_at, updated_at FROM users WHERE username = ?`, username,
 	))
 }
 
 // GetUserByID returns the user with the given ID, or nil if not found.
 func (db *DB) GetUserByID(id int64) (*models.User, error) {
 	return db.scanUser(db.conn.QueryRow(
-		`SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, created_at, updated_at FROM users WHERE id = ?`, id,
+		`SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, hy2_enabled, created_at, updated_at FROM users WHERE id = ?`, id,
 	))
 }
 
@@ -210,7 +231,7 @@ func (db *DB) ListUsers() ([]models.User, error) {
 
 // ListUsersPaginated returns users with pagination. limit/offset 0 = no limit.
 func (db *DB) ListUsersPaginated(limit, offset int) ([]models.User, error) {
-	query := `SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, created_at, updated_at FROM users ORDER BY created_at`
+	query := `SELECT id, username, email, token, fallback_token, fallback_accessed_at, enabled, client_routes, hy2_enabled, created_at, updated_at FROM users ORDER BY created_at`
 	var args []interface{}
 	if limit > 0 {
 		query += ` LIMIT ? OFFSET ?`
@@ -321,9 +342,10 @@ func (db *DB) scanUser(row interface {
 }) (*models.User, error) {
 	var u models.User
 	var enabled int
+	var hy2Enabled int
 	var fallbackToken sql.NullString
 	var fallbackAccessedAt sql.NullTime
-	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.Token, &fallbackToken, &fallbackAccessedAt, &enabled, &u.ClientRoutes, &u.CreatedAt, &u.UpdatedAt)
+	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.Token, &fallbackToken, &fallbackAccessedAt, &enabled, &u.ClientRoutes, &hy2Enabled, &u.CreatedAt, &u.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -331,6 +353,7 @@ func (db *DB) scanUser(row interface {
 		return nil, err
 	}
 	u.Enabled = enabled == 1
+	u.Hy2Enabled = hy2Enabled == 1
 	if fallbackToken.Valid {
 		u.FallbackToken = fallbackToken.String
 	}

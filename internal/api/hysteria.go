@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"time"
 
+	"github.com/alchemylink/raven-subscribe/internal/config"
 	"github.com/gorilla/mux"
 )
 
@@ -106,6 +108,10 @@ func (s *Server) handleHysteriaSub(w http.ResponseWriter, r *http.Request, b64 b
 		jsonError(w, "user disabled", http.StatusForbidden)
 		return
 	}
+	if !user.Hy2Enabled {
+		jsonError(w, "hysteria2 reserve not enabled for this user", http.StatusForbidden)
+		return
+	}
 	h := s.cfg.Hysteria
 	uri := buildHysteria2URI(user.Token, "hy2-reserve", &HysteriaConfigView{
 		Host: h.Host, Port: h.Port, ObfsType: h.ObfsType, ObfsPassword: h.ObfsPassword, SNI: h.SNI, CertPin: h.CertPin,
@@ -126,12 +132,59 @@ func (s *Server) hysteriaMainSubExtra(token string) []string {
 		return nil
 	}
 	user, err := s.db.GetUserByToken(token)
-	if err != nil || user == nil || !user.Enabled {
+	if err != nil || user == nil || !user.Enabled || !user.Hy2Enabled {
 		return nil
 	}
 	return []string{buildHysteria2URI(user.Token, "hy2-reserve", &HysteriaConfigView{
 		Host: h.Host, Port: h.Port, ObfsType: h.ObfsType, ObfsPassword: h.ObfsPassword, SNI: h.SNI, CertPin: h.CertPin,
 	})}
+}
+
+// getUserHy2 (admin) returns whether the per-user Hysteria2 reserve is enabled.
+func (s *Server) getUserHy2(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getByID(w, r)
+	if user == nil || err != nil {
+		return
+	}
+	jsonOK(w, map[string]bool{"hy2_enabled": user.Hy2Enabled})
+}
+
+// setUserHy2 (admin) toggles the per-user Hysteria2 reserve gate. Body: {"enabled": bool}.
+func (s *Server) setUserHy2(w http.ResponseWriter, r *http.Request) {
+	user, err := s.getByID(w, r)
+	if user == nil || err != nil {
+		return
+	}
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(limitRequestBody(r)).Decode(&body); err != nil {
+		jsonError(w, "invalid json body", http.StatusBadRequest)
+		return
+	}
+	if err := s.db.SetUserHy2Enabled(user.ID, body.Enabled); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]bool{"hy2_enabled": body.Enabled})
+}
+
+// hysteriaPseudoInbound renders the hysteria reserve as a synthetic inbound entry for the
+// /api/inbounds listing. It is NOT a real Xray inbound (id 0 + config_file "native-daemon"
+// + raw_config.pseudo signal that); the dashboard segregates it and gates it per-user via
+// the hy2_enabled flag, not via user_clients.
+func hysteriaPseudoInbound(h *config.HysteriaConfig) map[string]interface{} {
+	return map[string]interface{}{
+		"id":          0,
+		"tag":         "hysteria2-reserve",
+		"protocol":    "hysteria2",
+		"port":        h.Port,
+		"config_file": "native-daemon",
+		"updated_at":  time.Time{},
+		"raw_config": map[string]interface{}{
+			"tag": "hysteria2-reserve", "protocol": "hysteria2", "port": h.Port, "pseudo": true,
+		},
+	}
 }
 
 func requestFromLoopback(r *http.Request) bool {

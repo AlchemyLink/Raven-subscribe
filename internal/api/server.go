@@ -125,6 +125,8 @@ func (s *Server) Router() http.Handler {
 	api.HandleFunc("/users/{id}/clients", s.addUserClient).Methods(http.MethodPost)
 	api.HandleFunc("/users/{id}/clients/{inboundId}/enable", s.enableUserClient).Methods(http.MethodPut)
 	api.HandleFunc("/users/{id}/clients/{inboundId}/disable", s.disableUserClient).Methods(http.MethodPut)
+	api.HandleFunc("/users/{id}/hy2", s.getUserHy2).Methods(http.MethodGet)
+	api.HandleFunc("/users/{id}/hy2", s.setUserHy2).Methods(http.MethodPut)
 
 	api.HandleFunc("/inbounds", s.listInbounds).Methods(http.MethodGet)
 	api.HandleFunc("/routes/global", s.getGlobalRoutes).Methods(http.MethodGet)
@@ -1563,6 +1565,13 @@ func (s *Server) listInbounds(w http.ResponseWriter, r *http.Request) {
 			"offset": offset,
 		})
 	} else {
+		// Hysteria2 runs as a separate native daemon (not in Xray config.d), so it never
+		// appears via the DB inbound sync. Surface it as a pseudo-inbound when enabled so
+		// the dashboard can list/offer it as a channel. The dashboard segregates it (it is
+		// not an Xray inbound — per-user control is the hy2_enabled flag, not user_clients).
+		if s.cfg.Hysteria != nil && s.cfg.Hysteria.Enabled {
+			resp = append(resp, hysteriaPseudoInbound(s.cfg.Hysteria))
+		}
 		jsonOK(w, resp)
 	}
 }
