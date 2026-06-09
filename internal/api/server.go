@@ -1532,15 +1532,24 @@ func (s *Server) listInbounds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// fallback_only marks inbounds that FallbackInboundTags excludes from the primary
+	// subscription (served only on /sub/fallback/* — retired primaries / fallback-only
+	// channels). Lets the dashboard badge them instead of looking like live primaries.
+	fbSet := make(map[string]bool, len(s.cfg.FallbackInboundTags))
+	for _, t := range s.cfg.FallbackInboundTags {
+		fbSet[t] = true
+	}
+
 	resp := make([]map[string]interface{}, 0, len(inbounds))
 	for _, ib := range inbounds {
 		item := map[string]interface{}{
-			"id":          ib.ID,
-			"tag":         ib.Tag,
-			"protocol":    ib.Protocol,
-			"port":        ib.Port,
-			"config_file": ib.ConfigFile,
-			"updated_at":  ib.UpdatedAt,
+			"id":            ib.ID,
+			"tag":           ib.Tag,
+			"protocol":      ib.Protocol,
+			"port":          ib.Port,
+			"config_file":   ib.ConfigFile,
+			"updated_at":    ib.UpdatedAt,
+			"fallback_only": fbSet[ib.Tag],
 		}
 		var raw interface{}
 		if err := json.Unmarshal([]byte(ib.RawConfig), &raw); err != nil {
