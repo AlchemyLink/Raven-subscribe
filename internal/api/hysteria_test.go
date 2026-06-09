@@ -93,6 +93,74 @@ func TestHysteriaInMainSub(t *testing.T) {
 	})
 }
 
+func TestHysteriaPerUserGate(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+	hyTestUser(t, srv)
+	// Give alice a primary inbound+client so links.txt has content for hy2 to append to.
+	u, err := srv.db.GetUserByUsername("alice")
+	if err != nil || u == nil {
+		t.Fatalf("GetUserByUsername: %v", err)
+	}
+	xID, _ := srv.db.UpsertInbound("vless-xhttp-v2-in", "vless", 443, "210.json",
+		`{"tag":"vless-xhttp-v2-in","protocol":"vless","port":443,"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"serverNames":["www.python.org"],"publicKey":"testpublickey12345678901234567890123456789012","shortIds":["ab"]},"xhttpSettings":{"mode":"packet-up","host":"www.python.org","path":"/x"}}}`)
+	_ = srv.db.UpsertUserClient(u.ID, xID, `{"protocol":"vless","id":"uuid1","flow":"xtls-rprx-vision","encryption":"none"}`)
+	srv.cfg.Hysteria = &config.HysteriaConfig{
+		Enabled: true, Host: "zirgate.com", Port: 47014,
+		ObfsType: "salamander", ObfsPassword: "obfspw", SNI: "hy2.zirgate.com",
+		InMainSub: true,
+	}
+
+	subHy2 := func() int {
+		req := httptest.NewRequest(http.MethodGet, "/sub/t-alice/hy2", nil)
+		rec := httptest.NewRecorder()
+		srv.Router().ServeHTTP(rec, req)
+		return rec.Code
+	}
+	setHy2 := func(enabled bool) int {
+		body, _ := json.Marshal(map[string]bool{"enabled": enabled})
+		req := httptest.NewRequest(http.MethodPut, "/api/users/alice/hy2", bytes.NewReader(body))
+		req.Header.Set("X-Admin-Token", "admin-secret")
+		rec := httptest.NewRecorder()
+		srv.Router().ServeHTTP(rec, req)
+		return rec.Code
+	}
+	links := func() string {
+		req := httptest.NewRequest(http.MethodGet, "/sub/t-alice/links.txt", nil)
+		rec := httptest.NewRecorder()
+		srv.Router().ServeHTTP(rec, req)
+		return rec.Body.String()
+	}
+
+	t.Run("default enabled -> 200 + hy2 in links", func(t *testing.T) {
+		if code := subHy2(); code != http.StatusOK {
+			t.Fatalf("default: got %d, want 200", code)
+		}
+		if !strings.Contains(links(), "hysteria2://") {
+			t.Error("default: hy2 missing from links")
+		}
+	})
+	t.Run("disable -> /hy2 403 + omitted from links", func(t *testing.T) {
+		if code := setHy2(false); code != http.StatusOK {
+			t.Fatalf("PUT disable: got %d, want 200", code)
+		}
+		if code := subHy2(); code != http.StatusForbidden {
+			t.Errorf("disabled /hy2: got %d, want 403", code)
+		}
+		if strings.Contains(links(), "hysteria2://") {
+			t.Error("disabled: hy2 leaked into links")
+		}
+	})
+	t.Run("re-enable -> 200 again", func(t *testing.T) {
+		if code := setHy2(true); code != http.StatusOK {
+			t.Fatalf("PUT enable: got %d, want 200", code)
+		}
+		if code := subHy2(); code != http.StatusOK {
+			t.Errorf("re-enabled /hy2: got %d, want 200", code)
+		}
+	})
+}
+
 func TestHysteriaSub(t *testing.T) {
 	srv, cleanup := testServer(t)
 	defer cleanup()
