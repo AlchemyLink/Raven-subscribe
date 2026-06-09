@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/gorilla/mux"
 	"github.com/alchemylink/raven-subscribe/internal/config"
@@ -42,6 +43,11 @@ type Server struct {
 	// handlers so the periodic reconcile loop cannot race a concurrent
 	// enable/disable into a flipped runtime state.
 	killSwitchMu sync.Mutex
+	// fallbackDenied counts /sub/fallback/* and /c/fallback/* requests rejected
+	// with 403 because the global fallback flag is off. Exposed on /metrics so
+	// monitoring can alert on users hitting a disabled fallback (a forgotten
+	// sanitization window). Resets on restart — alert on increase(), not value.
+	fallbackDenied atomic.Int64
 }
 
 // NewServer creates a new Server with the given config, database, and syncer.
