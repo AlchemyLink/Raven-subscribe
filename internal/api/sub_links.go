@@ -556,6 +556,21 @@ func applyTransportParams(params url.Values, ss *xray.StreamSettings) {
 			if v, ok := xh["mode"].(string); ok && v != "" {
 				params.Set("mode", v)
 			}
+			// "extra" carries the client-side advanced fields (xmux, xPaddingBytes,
+			// scMaxEachPostBytes, ...). Emit it as a URL-encoded JSON query param so
+			// URI-import subscriptions reach parity with the full-JSON sub (which has
+			// always sent these). Without it, URI clients silently lost the xmux +
+			// anti-volumetric padding levers — the prod cause of the intermittent
+			// RU-mobile DPI download freeze (2026-06-10: no-xmux stalled 4/5 during a
+			// wave, with-xmux 5/5). Emitted for ALL clients: v2rayN/v2rayNG, Happ and
+			// v2box all parse extra and connect on packet-up+xmux (field-verified).
+			// (An earlier-suspected Happ "no connect" was a mode:auto-vs-packet-up bug,
+			// not extra; the server emits the real packet-up mode here.)
+			if ex, ok := xh["extra"].(map[string]interface{}); ok && len(ex) > 0 {
+				if b, err := json.Marshal(ex); err == nil {
+					params.Set("extra", string(b))
+				}
+			}
 		}
 	}
 }

@@ -162,6 +162,83 @@ func TestBuildVLESSLink_RealityNoPCSVCN(t *testing.T) {
 	}
 }
 
+func xhttpStreamSettings(t *testing.T, withExtra bool) json.RawMessage {
+	t.Helper()
+	xh := map[string]interface{}{
+		"path": "/api/v4/sync",
+		"host": "www.python.org",
+		"mode": "packet-up",
+	}
+	if withExtra {
+		xh["extra"] = map[string]interface{}{
+			"xPaddingBytes": "100-1000",
+			"xmux": map[string]interface{}{
+				"maxConcurrency": "16-32",
+				"cMaxReuseTimes": "64-128",
+			},
+		}
+	}
+	raw, err := json.Marshal(xh)
+	if err != nil {
+		t.Fatalf("marshal xhttp settings: %v", err)
+	}
+	return raw
+}
+
+// The vless:// URI must carry the xhttp "extra" (xmux + xPaddingBytes) for ALL clients,
+// reaching parity with the full-JSON sub. Dropping it was the prod cause of the M1
+// download freeze on RU-mobile DPI (2026-06-10); v2rayN/v2rayNG, Happ and v2box all
+// parse `extra` and connect on packet-up+xmux.
+func TestBuildVLESSLink_XHTTPExtraEmitted(t *testing.T) {
+	ob := xray.Outbound{
+		Tag:      "xhttp-extra",
+		Protocol: "vless",
+		Settings: vlessOutboundSettings(t),
+		StreamSettings: &xray.StreamSettings{
+			Network:         "xhttp",
+			Security:        "reality",
+			RealitySettings: &xray.RealitySettings{ServerName: "www.python.org", PublicKey: "PBK", ShortId: "0011"},
+			XHTTPSettings:   xhttpStreamSettings(t, true),
+		},
+	}
+	params := parseLinkParams(t, buildVLESSLink(ob))
+	if got := params.Get("mode"); got != "packet-up" {
+		t.Errorf("mode: got %q, want packet-up", got)
+	}
+	ex := params.Get("extra")
+	if ex == "" {
+		t.Fatal("extra param missing — xmux would not reach URI clients")
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(ex), &parsed); err != nil {
+		t.Fatalf("extra is not valid JSON (%q): %v", ex, err)
+	}
+	if _, ok := parsed["xmux"]; !ok {
+		t.Errorf("extra missing xmux: %v", parsed)
+	}
+	if parsed["xPaddingBytes"] != "100-1000" {
+		t.Errorf("extra xPaddingBytes: got %v, want 100-1000", parsed["xPaddingBytes"])
+	}
+}
+
+func TestBuildVLESSLink_XHTTPNoExtraWhenAbsent(t *testing.T) {
+	ob := xray.Outbound{
+		Tag:      "xhttp-noextra",
+		Protocol: "vless",
+		Settings: vlessOutboundSettings(t),
+		StreamSettings: &xray.StreamSettings{
+			Network:         "xhttp",
+			Security:        "reality",
+			RealitySettings: &xray.RealitySettings{ServerName: "www.python.org", PublicKey: "PBK", ShortId: "0011"},
+			XHTTPSettings:   xhttpStreamSettings(t, false),
+		},
+	}
+	params := parseLinkParams(t, buildVLESSLink(ob))
+	if got := params.Get("extra"); got != "" {
+		t.Errorf("extra should be absent when xhttp has no extra, got %q", got)
+	}
+}
+
 func TestBuildTrojanLink_TLSPCSVCNEmitted(t *testing.T) {
 	settings, _ := json.Marshal(xray.TrojanOutboundSettings{
 		Servers: []xray.TrojanServer{{Address: "example.com", Port: 443, Password: "secret"}},
