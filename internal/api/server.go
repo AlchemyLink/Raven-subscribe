@@ -365,12 +365,13 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 
 	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
 	hyExtra := s.hysteriaMainSubExtra(user.Token)
+	emitXHTTPExtra := clientSupportsXHTTPExtra(r)
 	if format == "v2box" || format == "links" || format == "links.txt" {
-		writeProxyLinksText(w, user.Username, cfg, hyExtra)
+		writeProxyLinksText(w, user.Username, cfg, emitXHTTPExtra, hyExtra)
 		return
 	}
 	if format == "b64" || format == "links.b64" {
-		writeProxyLinksB64(w, user.Username, cfg, hyExtra)
+		writeProxyLinksB64(w, user.Username, cfg, emitXHTTPExtra, hyExtra)
 		return
 	}
 
