@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gorilla/mux"
 	"github.com/alchemylink/raven-subscribe/internal/models"
 	"github.com/alchemylink/raven-subscribe/internal/xray"
+	"github.com/gorilla/mux"
 )
 
 type proxyLink struct {
@@ -67,17 +67,17 @@ func (s *Server) handleVLESSList(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	entries := buildProxyLinkEntries(cfg)
+	entries := buildProxyLinkEntries(cfg, clientSupportsXHTTPExtra(r))
 	list := make([]map[string]string, 0, len(entries))
 	for _, e := range entries {
 		if e.Protocol != "vless" {
 			continue
 		}
 		list = append(list, map[string]string{
-			"tag":      e.Tag,
-			"url":      e.URL,
-			"url_b64":  base64.StdEncoding.EncodeToString([]byte(e.URL)),
-			"by_tag":   fmt.Sprintf("%s/vless/%s", strings.TrimSuffix(extractSubBaseURL(r), "/"), url.PathEscape(e.Tag)),
+			"tag":        e.Tag,
+			"url":        e.URL,
+			"url_b64":    base64.StdEncoding.EncodeToString([]byte(e.URL)),
+			"by_tag":     fmt.Sprintf("%s/vless/%s", strings.TrimSuffix(extractSubBaseURL(r), "/"), url.PathEscape(e.Tag)),
 			"by_tag_b64": fmt.Sprintf("%s/vless/%s/b64", strings.TrimSuffix(extractSubBaseURL(r), "/"), url.PathEscape(e.Tag)),
 		})
 	}
@@ -107,7 +107,7 @@ func (s *Server) handleVLESSLinkByTag(w http.ResponseWriter, r *http.Request, fo
 		jsonError(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	entries := buildProxyLinkEntries(cfg)
+	entries := buildProxyLinkEntries(cfg, clientSupportsXHTTPExtra(r))
 	for _, e := range entries {
 		if e.Protocol != "vless" {
 			continue
@@ -141,11 +141,12 @@ func (s *Server) handleSubscriptionLinksByFormatAndProtocol(w http.ResponseWrite
 	if forcedProtocol == "" {
 		extra = s.hysteriaMainSubExtra(mux.Vars(r)["token"])
 	}
+	emitXHTTPExtra := clientSupportsXHTTPExtra(r)
 	if format == "b64" {
-		writeProxyLinksB64(w, username, cfg, extra)
+		writeProxyLinksB64(w, username, cfg, emitXHTTPExtra, extra)
 		return
 	}
-	writeProxyLinksText(w, username, cfg, extra)
+	writeProxyLinksText(w, username, cfg, emitXHTTPExtra, extra)
 }
 
 // filterExcludedInbounds drops clients whose inbound tag is in cfg.ExcludeInboundTags.
@@ -233,8 +234,8 @@ func matchesInboundTagFilter(inboundTag, filter string, index int) bool {
 	return fmt.Sprintf("%s-%d", sanitized, index) == filter
 }
 
-func writeProxyLinksText(w http.ResponseWriter, username string, cfg *xray.ClientConfig, extra ...[]string) {
-	links := append(buildProxyLinks(cfg), flattenExtra(extra)...)
+func writeProxyLinksText(w http.ResponseWriter, username string, cfg *xray.ClientConfig, emitXHTTPExtra bool, extra ...[]string) {
+	links := append(buildProxyLinks(cfg, emitXHTTPExtra), flattenExtra(extra)...)
 	payload := strings.Join(links, "\n")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Profile-Title", username)
@@ -251,8 +252,8 @@ func flattenExtra(extra [][]string) []string {
 	return out
 }
 
-func writeProxyLinksB64(w http.ResponseWriter, username string, cfg *xray.ClientConfig, extra ...[]string) {
-	links := append(buildProxyLinks(cfg), flattenExtra(extra)...)
+func writeProxyLinksB64(w http.ResponseWriter, username string, cfg *xray.ClientConfig, emitXHTTPExtra bool, extra ...[]string) {
+	links := append(buildProxyLinks(cfg, emitXHTTPExtra), flattenExtra(extra)...)
 	plain := strings.Join(links, "\n")
 	payload := base64.StdEncoding.EncodeToString([]byte(plain))
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -261,8 +262,8 @@ func writeProxyLinksB64(w http.ResponseWriter, username string, cfg *xray.Client
 	_, _ = w.Write([]byte(payload))
 }
 
-func buildProxyLinks(cfg *xray.ClientConfig) []string {
-	entries := buildProxyLinkEntries(cfg)
+func buildProxyLinks(cfg *xray.ClientConfig, emitXHTTPExtra bool) []string {
+	entries := buildProxyLinkEntries(cfg, emitXHTTPExtra)
 	links := make([]string, 0, len(entries))
 	for _, e := range entries {
 		links = append(links, e.URL)
@@ -270,7 +271,7 @@ func buildProxyLinks(cfg *xray.ClientConfig) []string {
 	return links
 }
 
-func buildProxyLinkEntries(cfg *xray.ClientConfig) []proxyLink {
+func buildProxyLinkEntries(cfg *xray.ClientConfig, emitXHTTPExtra bool) []proxyLink {
 	if cfg == nil {
 		return nil
 	}
@@ -278,7 +279,7 @@ func buildProxyLinkEntries(cfg *xray.ClientConfig) []proxyLink {
 	for _, ob := range cfg.Outbounds {
 		switch ob.Protocol {
 		case "vless":
-			if l := buildVLESSLink(ob); l != "" {
+			if l := buildVLESSLink(ob, emitXHTTPExtra); l != "" {
 				links = append(links, proxyLink{Protocol: "vless", Tag: ob.Tag, URL: l})
 			}
 		case "vmess":
@@ -286,7 +287,7 @@ func buildProxyLinkEntries(cfg *xray.ClientConfig) []proxyLink {
 				links = append(links, proxyLink{Protocol: "vmess", Tag: ob.Tag, URL: l})
 			}
 		case "trojan":
-			if l := buildTrojanLink(ob); l != "" {
+			if l := buildTrojanLink(ob, emitXHTTPExtra); l != "" {
 				links = append(links, proxyLink{Protocol: "trojan", Tag: ob.Tag, URL: l})
 			}
 		case "shadowsocks":
@@ -387,7 +388,7 @@ func extractSubBaseURL(r *http.Request) string {
 	return fmt.Sprintf("%s://%s/sub/%s", scheme, host, token)
 }
 
-func buildVLESSLink(ob xray.Outbound) string {
+func buildVLESSLink(ob xray.Outbound, emitXHTTPExtra bool) string {
 	var s xray.VLESSOutboundSettings
 	if err := json.Unmarshal(ob.Settings, &s); err != nil || len(s.Vnext) == 0 || len(s.Vnext[0].Users) == 0 {
 		return ""
@@ -428,7 +429,7 @@ func buildVLESSLink(ob xray.Outbound) string {
 		if ob.StreamSettings.Security == "tls" && ob.StreamSettings.TLSSettings != nil {
 			applyTLSCertParams(params, ob.StreamSettings.TLSSettings)
 		}
-		applyTransportParams(params, ob.StreamSettings)
+		applyTransportParams(params, ob.StreamSettings, emitXHTTPExtra)
 	}
 	if fm := extractFinalmask(ob.Settings); fm != "" {
 		params.Set("fm", fm)
@@ -445,14 +446,14 @@ func buildVMessLink(ob xray.Outbound) string {
 	vn := s.Vnext[0]
 	u := s.Vnext[0].Users[0]
 	item := map[string]string{
-		"v":   "2",
-		"ps":  ob.Tag,
-		"add": vn.Address,
+		"v":    "2",
+		"ps":   ob.Tag,
+		"add":  vn.Address,
 		"port": strconv.Itoa(vn.Port),
-		"id":  u.ID,
-		"aid": strconv.Itoa(u.AlterId),
-		"scy": firstNonEmptyString(u.Security, "auto"),
-		"net": "tcp",
+		"id":   u.ID,
+		"aid":  strconv.Itoa(u.AlterId),
+		"scy":  firstNonEmptyString(u.Security, "auto"),
+		"net":  "tcp",
 		"type": "none",
 		"host": "",
 		"path": "",
@@ -482,7 +483,7 @@ func buildVMessLink(ob xray.Outbound) string {
 	return "vmess://" + base64.StdEncoding.EncodeToString(raw)
 }
 
-func buildTrojanLink(ob xray.Outbound) string {
+func buildTrojanLink(ob xray.Outbound, emitXHTTPExtra bool) string {
 	var s xray.TrojanOutboundSettings
 	if err := json.Unmarshal(ob.Settings, &s); err != nil || len(s.Servers) == 0 {
 		return ""
@@ -503,7 +504,7 @@ func buildTrojanLink(ob xray.Outbound) string {
 			}
 			applyTLSCertParams(params, ob.StreamSettings.TLSSettings)
 		}
-		applyTransportParams(params, ob.StreamSettings)
+		applyTransportParams(params, ob.StreamSettings, emitXHTTPExtra)
 	}
 	if fm := extractFinalmask(ob.Settings); fm != "" {
 		params.Set("fm", fm)
@@ -522,7 +523,24 @@ func buildSSLink(ob xray.Outbound) string {
 	return fmt.Sprintf("ss://%s@%s:%d#%s", cred, sv.Address, sv.Port, url.QueryEscape(ob.Tag))
 }
 
-func applyTransportParams(params url.Values, ss *xray.StreamSettings) {
+// clientSupportsXHTTPExtra reports whether the requesting client can be trusted with
+// the vless:// `extra` query param (xmux + xPaddingBytes) WITHOUT breaking the
+// connection. Only v2rayN/v2rayNG have mature XHTTP+xmux support and parse `extra`
+// correctly. Xray-core-embedded mobile clients (Happ, Streisand, INCY) accept and even
+// display the param but then fail to connect on XHTTP+xmux — the handshake completes
+// but no HTTP data flows (XTLS/Xray-core#5918, #6048; open / can't-reproduce upstream,
+// version-coupling sensitive). sing-box/libXray clients don't parse `extra` at all
+// (XTLS/libXray#62). So we emit `extra` ONLY for v2rayN-family User-Agents; everyone
+// else gets the clean URI (connects fine, just without the anti-volumetric xmux lever).
+// "v2rayn" is a substring of both "v2rayn/x.y" and "v2rayng/x.y" (case-insensitive).
+func clientSupportsXHTTPExtra(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(r.UserAgent()), "v2rayn")
+}
+
+func applyTransportParams(params url.Values, ss *xray.StreamSettings, emitXHTTPExtra bool) {
 	if ss == nil {
 		return
 	}
@@ -555,6 +573,22 @@ func applyTransportParams(params url.Values, ss *xray.StreamSettings) {
 			}
 			if v, ok := xh["mode"].(string); ok && v != "" {
 				params.Set("mode", v)
+			}
+			// "extra" carries the client-side advanced fields (xmux, xPaddingBytes,
+			// scMaxEachPostBytes, ...). vless:// URIs historically dropped it, so the
+			// mux + anti-volumetric levers never reached URI-import clients
+			// (v2rayN/v2rayNG) — the prod root cause of the M1 download freeze on
+			// mobile DPI (proven 2026-06-10: no-xmux stalls 4/5, with-xmux 5/5 clean).
+			// v2rayN parses a URL-encoded JSON `extra` query param; emit it so URI subs
+			// carry xmux too — but ONLY for clients that handle it (emitXHTTPExtra,
+			// gated on User-Agent via clientSupportsXHTTPExtra). Emitting it to Happ/
+			// libXray/sing-box clients breaks the connection (XTLS/Xray-core#5918,#6048).
+			if emitXHTTPExtra {
+				if ex, ok := xh["extra"].(map[string]interface{}); ok && len(ex) > 0 {
+					if b, err := json.Marshal(ex); err == nil {
+						params.Set("extra", string(b))
+					}
+				}
 			}
 		}
 	}
