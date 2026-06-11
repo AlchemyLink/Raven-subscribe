@@ -6,7 +6,7 @@ Go to: https://github.com/AlchemyLink/Raven-subscribe → Settings → scroll to
 
 Add these topics (copy-paste each):
 ```
-xray xray-core vless vmess trojan shadowsocks hysteria2 subscription-server sing-box reality xhttp v2ray vpn proxy golang self-hosted
+xray xray-core vless vmess trojan shadowsocks hysteria2 subscription-server sing-box reality xhttp v2ray vpn proxy golang self-hosted anti-censorship prometheus
 ```
 
 ---
@@ -32,14 +32,14 @@ Repo: https://github.com/awesome-selfhosted/awesome-selfhosted
 The entry to add (goes under **Proxy** section, alphabetically near "R"):
 
 ```markdown
-- [Raven Subscribe](https://github.com/AlchemyLink/Raven-subscribe) - Self-hosted subscription server for Xray-core and sing-box. Auto-discovers VLESS/VMess/Trojan/Shadowsocks/Hysteria2 users from server configs and serves personal subscription URLs for V2RayNG, NekoBox, Hiddify and other clients. `MIT` `Go/Docker`
+- [Raven Subscribe](https://github.com/AlchemyLink/Raven-subscribe) - Self-hosted subscription server for Xray-core and sing-box. Auto-discovers VLESS/VMess/Trojan/Shadowsocks/Hysteria2 users from server configs and serves personal subscription URLs for V2RayNG, NekoBox, Hiddify and other clients. `AGPL-3.0` `Go/Docker`
 ```
 
 PR checklist (from their CONTRIBUTING.md):
 - [ ] Fork awesome-selfhosted/awesome-selfhosted
 - [ ] Add the line above in `README.md` under **Proxy** section, in alphabetical order
 - [ ] The project must have a working demo or clear screenshots (add one to your README if missing)
-- [ ] License must be in the repo (MIT — already present)
+- [ ] License must be in the repo (AGPL-3.0 — already present)
 - [ ] Must have a public source code link (already present)
 
 ---
