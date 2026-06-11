@@ -13,7 +13,7 @@ Languages: **English** | [Русский](README.ru.md)
 
 **Self-hosted subscription server for [XTLS/Xray-core](https://github.com/XTLS/Xray-core) and [sing-box](https://github.com/SagerNet/sing-box).** Auto-discovers users from your Xray server configs and gives each one a personal subscription URL — so V2RayNG, NekoBox, Hiddify, and other VPN clients always fetch the latest connection settings automatically.
 
-Supports **VLESS, VMess, Trojan, Shadowsocks, Hysteria2**, transports **XHTTP/SplitHTTP, WebSocket, gRPC, REALITY**, and serves configs in Xray JSON, sing-box JSON, and share-link formats.
+Supports **VLESS, VMess, Trojan, Shadowsocks, Hysteria2**, transports **XHTTP/SplitHTTP, WebSocket, gRPC, REALITY**, and serves configs in Xray JSON, sing-box JSON, and share-link formats. Built for **censorship circumvention**: one-call emergency rotation to fallback inbounds, a per-user **Hysteria2 reserve channel**, anti-DPI client tuning (xmux connection rotation + XHTTP padding), and a Prometheus metrics endpoint for monitoring.
 
 ---
 
@@ -28,6 +28,9 @@ Supports **VLESS, VMess, Trojan, Shadowsocks, Hysteria2**, transports **XHTTP/Sp
 - [Admin API](#admin-api)
 - [Routing Rules](#routing-rules)
 - [Emergency Config Rotation](#emergency-config-rotation)
+- [Retiring & Redirecting Inbounds](#retiring--redirecting-inbounds)
+- [Anti-DPI Client Tuning](#anti-dpi-client-tuning)
+- [Observability (Prometheus)](#observability-prometheus)
 - [Supported Protocols & Transports](#supported-protocols--transports)
 - [sing-box / Hysteria2](#sing-box--hysteria2)
 - [Docker](#docker)
@@ -68,6 +71,15 @@ Users just add their subscription URL to any Xray-compatible client (V2RayNG, Ne
 - **Token rotation** — regenerate any user's subscription token without downtime
 - **Balancer support** — automatic load balancing across multiple outbounds (leastPing, leastLoad, random)
 - **Global routing rules** — apply routing rules to all users at once
+- **Emergency rotation & killswitch** — one API call redirects every subscription to fallback inbounds during a blocking event; revert just as fast
+- **Retire or redirect transports without deleting them** — `exclude_inbound_tags` drops a dead transport from every subscription; `fallback_inbound_tags` moves it from the primary to the fallback set
+- **Per-user Hysteria2 reserve** — hand each user a backup QUIC channel (`/sub/{token}/hy2`) with per-user enable/disable, validated live by a native hysteria daemon
+- **Prometheus metrics** — a separate `/metrics` listener exposes fallback-state and denied-request gauges for alerting
+
+### Anti-censorship
+- **Anti-DPI client tuning** — XHTTP configs ship `xmux` connection rotation and randomized `xPaddingBytes`, nested correctly inside `extra` so they actually reach the dialer; `xmux` is also emitted in `vless://` share-link URIs
+- **Emergency fallback subscription** — a parallel per-user fallback token + global killswitch, designed around DPI/TSPU blocking waves
+- **Russia-aware DNS split** — resolve allowed local services through a domestic resolver (defeats geo-mismatch VPN detection) while keeping blocked domains on foreign DNS through the proxy
 
 ### Protocols & transports
 - **VLESS**, **VMess**, **Trojan**, **Shadowsocks**, **SOCKS** (via Xray-core)
@@ -234,6 +246,9 @@ xray-subscription -config /etc/xray-subscription/config.json
   "api_user_inbound_tag": "vless-reality",
   "xray_api_addr": "",
   "xray_enabled": true,
+  "metrics_listen": "127.0.0.1:9091",
+  "fallback_inbound_tags": ["vless-reality-in"],
+  "exclude_inbound_tags": [],
   "singbox_config": "/etc/sing-box/config.json",
   "singbox_enabled": true,
   "inbound_hosts": {
@@ -314,6 +329,17 @@ Limits requests per IP per minute. `0` = disabled. Helps prevent abuse.
 | `inbound_hosts` | `{}` | Per-inbound host overrides. Key: inbound tag, value: host/domain. Overrides `server_host` for matching inbounds in generated client configs. Falls back to `server_host` when tag is not listed. Example: `{"vless-reality-in": "relay.example.com"}` |
 | `inbound_ports` | `{}` | Per-inbound port overrides. Key: inbound tag, value: port number. Overrides the inbound's own port in generated client configs. Useful when clients connect through a relay that listens on a different port. Example: `{"vless-reality-in": 8445}` |
 
+#### Observability, transport retirement & fallback
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `metrics_listen` | *(omit)* | When set (e.g. `"127.0.0.1:9091"`), serves a Prometheus `/metrics` endpoint on a **separate** listener — never on the public subscription router. See [Observability](#observability-prometheus). |
+| `fallback_inbound_tags` | `[]` | Inbound tags **moved** out of the primary subscription into the per-user fallback subscription (`/sub/fallback/*`). The tag stays live on the server; clients only get it via their fallback URL. Used to keep a transport in reserve behind the killswitch. |
+| `exclude_inbound_tags` | `[]` | Inbound tags **dropped from every** subscription response (primary, fallback, JSON, links) while the inbound stays alive on the server. Use to retire a transport that no longer passes DPI without deleting it — restore instantly by clearing the list. **Clients must re-fetch.** |
+| `killswitch_inbound_tags` | `[]` | Inbound tags the global fallback killswitch adds/removes on the server via gRPC when toggled. A tag here is killswitch-controlled (not listening while the switch is off). |
+| `killswitch_reconcile_interval_seconds` | `30` | How often the killswitch reconcile loop re-applies the desired inbound state (self-heals drift after an Xray restart). |
+| `hysteria` | *(omit)* | Per-user Hysteria2 reserve channel. See [Per-user Hysteria2 reserve](#per-user-hysteria2-reserve-native). |
+
 **DB ↔ Xray sync (when `api_user_inbound_tag` is set):** The database is the source of truth. All changes propagate to Xray immediately:
 
 | Action | DB | Xray |
@@ -368,6 +394,7 @@ Each user has several subscription endpoints:
 | `/sub/{token}/singbox` | sing-box JSON config with Hysteria2 outbounds. For Hysteria2 clients. |
 | `/sub/{token}/hysteria2` | Hysteria2 share links (`hysteria2://…`), plain text. |
 | `/sub/{token}/hysteria2.b64` | Hysteria2 share links, Base64-encoded. |
+| `/sub/{token}/hy2` | **Per-user Hysteria2 reserve** URI (`hysteria2://`) — native reserve channel, separate from sing-box discovery. `.b64` variant available. See [below](#per-user-hysteria2-reserve-native). |
 | `/sub/{token}/links` | JSON map of all share-link URLs grouped by protocol and inbound tag. |
 | `/sub/{token}/protocol/{protocol}` | Share links filtered by protocol name (e.g. `vless`, `vmess`, `trojan`, `ss`, `hysteria2`). |
 
@@ -849,6 +876,50 @@ GET /api/emergency/status
 
 ---
 
+## Retiring & Redirecting Inbounds
+
+When a transport stops passing DPI (e.g. REALITY gets behaviorally detected on the first hop), you usually don't want to *delete* the server inbound — you want it out of what clients download, instantly reversible. Two config levers do this without touching Xray:
+
+| Lever | Effect | When to use |
+|---|---|---|
+| `fallback_inbound_tags` | **Moves** the tag from the primary subscription into the per-user fallback subscription (`/sub/fallback/*`). Still live on the server. | Keep a transport in reserve behind the killswitch — clients only reach it via their fallback URL. |
+| `exclude_inbound_tags` | **Removes** the tag from *every* subscription response (primary, fallback, JSON, links). Still live on the server. | Retire a dead transport from client downloads while keeping it ready to restore. |
+
+Both are applied centrally across all three subscription handlers. **Clients must re-fetch their subscription** for the change to take effect. To restore, remove the tag from the list — no server-side inbound changes needed.
+
+The global **fallback killswitch** (toggled from the [Raven Dashboard](https://github.com/AlchemyLink/raven-dashboard) or DB) flips all `/sub/fallback/*` URLs on or off at once and, for tags listed in `killswitch_inbound_tags`, adds/removes the listener on the server via gRPC. A reconcile loop (`killswitch_reconcile_interval_seconds`) re-applies the desired state so an Xray restart can't leave it half-applied.
+
+---
+
+## Anti-DPI Client Tuning
+
+Generated configs include client-side tuning aimed at modern volumetric / fingerprint DPI (as seen on RU TSPU, net4people [#490](https://github.com/net4people/bbs/issues/490)/[#546](https://github.com/net4people/bbs/issues/546)):
+
+- **`xmux` connection rotation** — XHTTP outbounds get a tuned `xmux` (bounded reuse + randomized connection lifetime) so a single long-lived flow isn't exposed for the whole session. It is nested **inside** `streamSettings.xhttpSettings.extra`, because Xray rebuilds XHTTP config from `extra` when present and silently discards any sibling fields — emitting `xmux` at the top level (as older versions did) left it inert on every client. `xmux` is also injected into `vless://` share-link URIs, so URI-only clients (Happ, v2box, v2rayN/v2rayNG) get it too.
+- **`xPaddingBytes` body padding** — XHTTP requests/responses are padded to a random length (`"100-1000"` by default), flattening the packet-size distribution so DPI can't key on it. A server-provided value is preserved; otherwise the default is injected.
+
+Precedence for both: server top-level → server-nested-in-`extra` → built-in tuned default. **Clients must re-fetch their subscription** to pick up the active tuning; live connections are unaffected until they refetch.
+
+---
+
+## Observability (Prometheus)
+
+Set `metrics_listen` (e.g. `"127.0.0.1:9091"`) to expose a Prometheus text-format `/metrics` endpoint on a **dedicated** listener. It is intentionally kept off the main router, which is publicly reachable through the subscription vhost — bind it to loopback and scrape it locally or over a private network.
+
+```
+# HELP raven_fallback_enabled Global fallback subscription flag (1 = enabled, the steady state).
+# TYPE raven_fallback_enabled gauge
+raven_fallback_enabled 1
+# HELP raven_fallback_denied_total Fallback subscription requests rejected with 403 because the global flag is off.
+# TYPE raven_fallback_denied_total counter
+raven_fallback_denied_total 0
+```
+
+- **`raven_fallback_enabled`** — alert when it stays `0` outside a planned maintenance window (the fallback subscription is meant to be on in steady state).
+- **`raven_fallback_denied_total`** — counts user-facing `403`s from a disabled fallback, i.e. real client impact during an incident.
+
+---
+
 ## Supported Protocols & Transports
 
 ### Protocols
@@ -894,7 +965,7 @@ When `singbox_config` is set, Raven parses the sing-box server config, discovers
 
 Xray sync and sing-box sync are fully independent — if one core is not installed, the other still works.
 
-**Important:** Hysteria2 users are excluded from Xray JSON subscriptions (`/sub/{token}`, `/c/{token}`). They are served exclusively via the dedicated Hysteria2 endpoints below.
+**Important:** sing-box-discovered Hysteria2 users are excluded from Xray JSON subscriptions (`/sub/{token}`, `/c/{token}`) — Xray-core cannot dial Hysteria2. They are served via the dedicated Hysteria2 endpoints below. (The separate native [per-user reserve channel](#per-user-hysteria2-reserve-native) can optionally ride the link-list subscription via `in_main_sub`.)
 
 ### Configuration
 
@@ -973,6 +1044,45 @@ If your sing-box inbound has `obfs` configured, Raven automatically includes it 
 ```
 
 The generated `hysteria2://` share link will contain `?obfs=salamander&obfs-password=...` automatically, and the sing-box JSON config will include the `obfs` block in the outbound.
+
+### Per-user Hysteria2 reserve (native)
+
+Separate from sing-box discovery above, Raven can hand each user a **backup QUIC channel** pointing at a native hysteria daemon — useful as a second transport when the primary TCP/XHTTP path is under a blocking wave. It is driven by the `hysteria` config block (disabled by default):
+
+```json
+{
+  "hysteria": {
+    "enabled": true,
+    "host": "vpn.example.com",
+    "port": 47014,
+    "obfs_type": "salamander",
+    "obfs_password": "shared-obfs-key",
+    "sni": "vpn.example.com",
+    "cert_pin": "",
+    "in_main_sub": false
+  }
+}
+```
+
+| Field | Description |
+|---|---|
+| `enabled` | Master switch for the reserve channel. |
+| `host` / `port` | Address clients connect to (e.g. a relay UDP port forwarded to the hysteria server). |
+| `obfs_type` / `obfs_password` | Shared (server-wide) Salamander/Gecko obfuscation. |
+| `sni` | TLS SNI presented by the client (matches the server cert CN). |
+| `cert_pin` | Optional server cert SHA-256 fingerprint, emitted as `pinSHA256` in the URI so a **self-signed** cert verifies without a public CA — keeps the SNI domain out of Certificate Transparency logs while staying MITM-safe. Empty = rely on normal CA trust. |
+| `in_main_sub` | When `true`, the per-user `hysteria2://` URI is also appended to the link-list subscription (`/sub/{token}/links`, `/c/{token}/links`, `?format=links`/`b64`) so clients receive the reserve as an extra server without importing it separately. The hy2 URI is **added, never replaces** the primary links. |
+
+Endpoints:
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /sub/{token}/hy2` (+ `.b64`) | sub token | Returns the per-user `hysteria2://` client URI. |
+| `GET /api/users/{id}/hy2` | admin token | Read a user's `hy2_enabled` flag. |
+| `PUT /api/users/{id}/hy2` | admin token | Toggle a user's reserve access (`{"enabled": true}`). |
+| `POST /hysteria/auth` | loopback-only | Auth backend a native hysteria daemon (`auth.type: http`) calls to validate each connection against the user DB — gives per-user revocation and a per-user stats id. |
+
+This pairs with the `hysteria` + relay roles in [Raven-server-install](https://github.com/AlchemyLink/Raven-server-install) (native hysteria servers reached via an RU nginx UDP forward over the WireGuard mesh).
 
 ---
 
