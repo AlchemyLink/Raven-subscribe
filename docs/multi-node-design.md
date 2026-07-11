@@ -82,7 +82,19 @@ gRPC-слой как есть и не тронув локальный путь.
     },
     { "name": "eu-2", "api_addr": "10.7.0.2:10085",
       "inbound_tag": "vless-reality-in", "public_host": "eu2.example.com",
-      "public_port": 443, "enabled": true }
+      "public_port": 443, "enabled": true },
+
+    { "name": "eu-3",                      // нода БЕЗ WG → gRPC по публичному адресу под mTLS
+      "api_addr": "203.0.113.7:10085",     // публичный адрес разрешён, т.к. есть tls-блок (§7)
+      "inbound_tag": "vless-reality-in", "public_host": "eu3.example.com",
+      "public_port": 443, "enabled": true,
+      "tls": {                             // ОПЦИОНАЛЬНО, mTLS на gRPC-дайал к этой ноде
+        "ca_cert":     "/etc/raven/pki/node-ca.pem",   // CA, подписавший server-cert ноды
+        "client_cert": "/etc/raven/pki/raven-client.pem",
+        "client_key":  "/etc/raven/pki/raven-client.key",
+        "server_name": "eu-3.internal"     // пусто → host из api_addr
+      }
+    }
   ]
 }
 ```
@@ -94,8 +106,9 @@ gRPC-слой как есть и не тронув локальный путь.
 - `nodes` задан → legacy-поля игнорируются для провижининга (но `server_host`
   остаётся дефолтом для `HostForInbound`/балансера, если у ноды пусто).
 - Валидация: `name` уникален и непустой; `api_addr` непуст; при `mode="grpc"`
-  адрес обязан быть в private-диапазоне ИЛИ явный флаг `allow_public_grpc:true`
-  (анти-footgun против plaintext-по-интернету, §7).
+  адрес обязан быть в private-диапазоне ИЛИ иметь `tls`-блок (mTLS) ИЛИ явный
+  флаг `allow_public_grpc:true` (анти-footgun против plaintext-по-интернету, §7).
+  `tls`-блок, если задан, требует `ca_cert`+`client_cert`+`client_key`.
 
 ## 5. Модель БД
 
@@ -264,25 +277,33 @@ failures remain visible».
 
 ## 7. Security (блокер, не TODO)
 
-`dialXrayAPI` использует `insecure.NewCredentials()` — **plaintext gRPC**.
-HandlerService = полный контроль над юзерами/инбаундами. По интернету без
-auth/TLS это критическая дыра: кто угодно в сети добавит/удалит юзеров на
-всех нодах.
+HandlerService = полный контроль над юзерами/инбаундами (и, без per-RPC ACL,
+над inbound/outbound — §13). По интернету без auth/TLS это критическая дыра:
+кто угодно в сети добавит/удалит юзеров на всех нодах. **Multi-node нельзя
+выпускать с plaintext gRPC по публичной сети.** Транспорт выбирается
+**per-node по `api_addr`** в единственном chokepoint `dialXrayAPI`
+(`resolveCredentials`): нода из mTLS-мапы → TLS, любой другой адрес
+(WG/loopback) → plaintext. Два пути, в порядке предпочтения:
 
-**Multi-node нельзя выпускать с plaintext gRPC по публичной сети.** Два пути,
-в порядке предпочтения:
-
-1. **gRPC только по WireGuard** (рекомендация и для нашего прода, и для доки
-   комьюнити). Xray API слушает на WG-адресе ноды; шифрование и взаимная
-   аутентификация — на уровне WG. gRPC остаётся «insecure», но недостижим
-   извне. Идеально ложится на нашу существующую EU/RU mesh
-   (`f3_second_ru_research`), не требует gRPC-TLS-обвязки.
-2. **mTLS на gRPC** — для тех, у кого нет WG. Больше кода (cert provisioning).
-   Реализуется заменой `insecure.NewCredentials()` на
-   `credentials.NewTLS(...)` в `dialXrayAPI` + per-node cert в конфиге.
+1. **gRPC только по WireGuard (дефолт-рекомендация).** Xray API слушает на
+   WG-адресе ноды; шифрование и взаимная аутентификация — на уровне WG. gRPC
+   остаётся plaintext, но недостижим извне туннеля. Ложится на нашу
+   существующую EU/RU mesh (`f3_second_ru_research`), не требует gRPC-TLS-обвязки
+   и ротации сертов. Конфиг: `api_addr` в private-диапазоне, без `tls`-блока —
+   валидация проходит по `isPrivateHostPort`.
+2. **mTLS на gRPC (для нод без WG).** Реализовано (Фаза 5): опциональный
+   per-node `tls`-блок `{ca_cert, client_cert, client_key, server_name?}`.
+   Raven — TLS-клиент: предъявляет client-cert, проверяет server-cert по CA;
+   `server_name` пусто → host из `api_addr`; форсируется TLS 1.3. Серты читаются
+   **один раз на старте** (`main.configureNodeCredentials` → `xray.BuildTLSCredentials`
+   + `SetNodeCredentials`), **fail-closed** — битый cert = fatal, никогда не
+   молчаливый откат на plaintext против публичного адреса. Cert-provisioning
+   (server-cert + clientAuth на Xray-side) делает Ansible-роль ноды.
 
 Анти-footgun в `config.Load` (§4): `mode="grpc"` с публичным `api_addr` и без
-явного `allow_public_grpc:true` → ошибка старта с объяснением.
+защиты → ошибка старта. Guard снимается **любым** из: private/WG-адрес,
+`tls`-блок (mTLS сам по себе — шифрование+аутентификация), или явный
+`allow_public_grpc:true` (escape-hatch для внешней mTLS-терминации sidecar'ом).
 
 ## 8. SSH/rsync деплой — механизм durability, не просто опция
 
@@ -355,9 +376,12 @@ remote-нод; admin-эндпоинты `/api/nodes`.
 не роняет sync остальных.
 
 ### Фаза 5 — security + docs + Ansible
-WG-bound gRPC как дефолт; `allow_public_grpc` guard; опциональный mTLS;
-README + INSTALL multi-node секция; Ansible-роль для homogeneous-нод
-(cross-check с Raven-server-install). **Риск:** низкий.
+WG-bound gRPC как дефолт (рекомендация); `allow_public_grpc` guard; опциональный
+mTLS. **mTLS — ГОТОВО** (per-node `tls`-блок, §7): `dialXrayAPI` резолвит creds
+per-`api_addr`, WG/loopback остаётся plaintext, mTLS снимает public-grpc guard,
+fail-closed на старте, TLS 1.3. Остаётся: README + INSTALL multi-node секция;
+Ansible-роль для homogeneous-нод (cross-check с Raven-server-install) —
+provision server-cert + `clientAuth` на Xray gRPC-инбаунде. **Риск:** низкий.
 
 ## 10. Приёмка (инвариант «не сломали subscriber»)
 
@@ -370,9 +394,12 @@ README + INSTALL multi-node секция; Ansible-роль для homogeneous-н
 - При `nodes=[A,B]` гомогенных:
   - юзер, размещённый на A и B, получает балансер из 2 outbound-ов;
   - падение B → юзер всё ещё рабочий через A; `status.nodes["eu-2"].reachable=false`;
-  - plaintext gRPC на публичный адрес без `allow_public_grpc` → отказ старта.
-- `grep -rn 'insecure.NewCredentials' internal/xray` присутствует только за
-  WG-guard или mTLS-веткой (security-ревью Фазы 5).
+  - plaintext gRPC на публичный адрес без `tls`/`allow_public_grpc` → отказ старта;
+  - нода с `tls`-блоком и публичным `api_addr` → старт разрешён (mTLS = guard);
+  - `tls`-блок с битым/отсутствующим cert → fatal на старте (fail-closed).
+- `insecure.NewCredentials()` живёт только в `resolveCredentials` (дефолт для
+  WG/loopback-нод); все mTLS-ноды дайлятся через `credentials.NewTLS` из
+  `SetNodeCredentials`-мапы (security-ревью Фазы 5).
 
 ## 11. Открытые вопросы
 
