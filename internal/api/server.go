@@ -175,6 +175,12 @@ func (s *Server) Router() http.Handler {
 	api.HandleFunc("/sync", s.triggerSync).Methods(http.MethodPost)
 	api.HandleFunc("/sync/status", s.handleSyncStatus).Methods(http.MethodGet)
 
+	// ── Multi-node topology + per-user placement ──────────────────────────────
+	api.HandleFunc("/nodes", s.listNodes).Methods(http.MethodGet)
+	api.HandleFunc("/users/{id}/nodes", s.getUserNodes).Methods(http.MethodGet)
+	api.HandleFunc("/users/{id}/nodes", s.setUserNodes).Methods(http.MethodPost)
+	api.HandleFunc("/users/{id}/nodes/{nodeName}", s.deleteUserNode).Methods(http.MethodDelete)
+
 	// ── Fallback management ───────────────────────────────────────────────────
 	api.HandleFunc("/users/{id}/fallback/token", s.regenerateFallbackToken).Methods(http.MethodPost)
 	api.HandleFunc("/fallback/status", s.getFallbackStatus).Methods(http.MethodGet)
@@ -613,6 +619,18 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate explicit node placement before creating the user, so a bad node
+	// name fails cleanly rather than leaving a created-but-unplaced user.
+	if len(s.cfg.Nodes) > 0 && len(req.Nodes) > 0 {
+		if _, bad, err := s.resolveNodeNames(req.Nodes); err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		} else if len(bad) > 0 {
+			jsonError(w, "unknown node(s): "+strings.Join(bad, ", "), http.StatusBadRequest)
+			return
+		}
+	}
+
 	token := generateToken()
 	fallbackToken := generateToken()
 	// Email in DB mirrors username for Xray; not accepted on create and not exposed in API JSON.
@@ -654,6 +672,14 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 
 	if len(inboundsToAdd) > 0 && s.cfg.XrayAPIAddr == "" {
 		go func() { _ = s.syncer.Sync() }()
+	}
+
+	// Multi-node: place the user on the requested nodes (or all enabled by
+	// default). Names were validated above, so this only fails on a DB error —
+	// log it rather than failing the create (the user exists and provisioning
+	// already fanned out; the startup backfill will place them otherwise).
+	if err := s.placeUserOnNodes(user.ID, req.Nodes); err != nil {
+		log.Printf("WARN create user %s: set node placement: %v", sanitizeLogField(username), err)
 	}
 
 	jsonOK(w, models.UserResponse{User: *user, SubURL: s.cfg.SubURL(user.Token), SubURLs: s.cfg.SubURLsWithFallback(user.Token, user.FallbackToken)})

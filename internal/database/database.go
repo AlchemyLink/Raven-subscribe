@@ -1107,6 +1107,78 @@ func (db *DB) ListNodeIDsForUser(userID int64) ([]int64, error) {
 	return ids, rows.Err()
 }
 
+// ListNodesForUser returns the full node rows a user is placed on, ordered by name.
+func (db *DB) ListNodesForUser(userID int64) ([]models.Node, error) {
+	rows, err := db.conn.Query(
+		`SELECT n.id, n.name, n.api_addr, n.inbound_tag, n.public_host, n.public_port, n.enabled, n.created_at
+		 FROM nodes n
+		 JOIN user_nodes un ON un.node_id = n.id
+		 WHERE un.user_id = ?
+		 ORDER BY n.name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var nodes []models.Node
+	for rows.Next() {
+		var n models.Node
+		var enabled int
+		if err := rows.Scan(&n.ID, &n.Name, &n.APIAddr, &n.InboundTag, &n.PublicHost, &n.PublicPort, &enabled, &n.CreatedAt); err != nil {
+			return nil, err
+		}
+		n.Enabled = enabled != 0
+		nodes = append(nodes, n)
+	}
+	return nodes, rows.Err()
+}
+
+// SetUserNodes replaces a user's placement set with exactly the given node ids
+// (add missing, drop extra). An empty slice clears all placements. Runs in a
+// transaction so a subscription read never sees a half-applied set.
+func (db *DB) SetUserNodes(userID int64, nodeIDs []int64) error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }() // no-op after Commit
+
+	if _, err := tx.Exec(`DELETE FROM user_nodes WHERE user_id = ?`, userID); err != nil {
+		return err
+	}
+	for _, nid := range nodeIDs {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO user_nodes (user_id, node_id) VALUES (?, ?)`, userID, nid); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// RemoveUserFromNode drops a single placement. No-op if the user was not on the node.
+func (db *DB) RemoveUserFromNode(userID, nodeID int64) error {
+	_, err := db.conn.Exec(`DELETE FROM user_nodes WHERE user_id = ? AND node_id = ?`, userID, nodeID)
+	return err
+}
+
+// EnabledNodeIDs returns the ids of all enabled nodes, ordered by name.
+func (db *DB) EnabledNodeIDs() ([]int64, error) {
+	rows, err := db.conn.Query(`SELECT id FROM nodes WHERE enabled = 1 ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 func boolInt(b bool) int {
