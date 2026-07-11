@@ -15,6 +15,11 @@ import (
 // belt-and-suspenders the config file too, so a client added via gRPC that
 // happened to also be present on disk (e.g. after a restore) doesn't
 // resurrect after an Xray restart reloads config.d.
+//
+// When configDir is empty the admin runs in grpc-only mode: it never touches
+// local config files. This is used for remote fanout nodes (multi-node), whose
+// config.d is not on this host — durability there comes from the per-node
+// reconcile loop, not from a local file mirror (see docs/multi-node-design.md §8).
 type grpcAdmin struct {
 	apiAddr   string
 	configDir string
@@ -24,8 +29,9 @@ type grpcAdmin struct {
 var _ core.AdminAPI = (*grpcAdmin)(nil)
 
 // NewGRPCAdmin returns a core.AdminAPI backed by Xray's gRPC HandlerService at
-// apiAddr. configDir/filePerm are used only for the config-file cleanup half
-// of RemoveClient described above.
+// apiAddr. A non-empty configDir enables the config-file mirror in RemoveClient
+// (and the protocol lookup in AddClient); an empty configDir makes the admin
+// grpc-only (remote fanout node).
 func NewGRPCAdmin(apiAddr, configDir string, filePerm os.FileMode) core.AdminAPI {
 	return &grpcAdmin{apiAddr: apiAddr, configDir: configDir, filePerm: filePerm}
 }
@@ -40,6 +46,9 @@ func (a *grpcAdmin) AddExistingClient(inboundTag, identity, storedConfigJSON str
 
 func (a *grpcAdmin) RemoveClient(inboundTag, identity string) error {
 	apiErr := RemoveUserFromInboundViaAPI(a.apiAddr, inboundTag, identity)
+	if a.configDir == "" {
+		return apiErr // grpc-only: no local config.d to mirror
+	}
 	fileErr := RemoveUserFromInbound(a.configDir, inboundTag, identity, a.filePerm)
 	return errors.Join(apiErr, fileErr)
 }

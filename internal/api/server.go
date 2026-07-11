@@ -57,13 +57,33 @@ type Server struct {
 
 // NewServer creates a new Server with the given config, database, and syncer.
 func NewServer(cfg *config.Config, db *database.DB, syncer Syncer) *Server {
-	var admin core.AdminAPI
-	if apiAddr := strings.TrimSpace(cfg.XrayAPIAddr); apiAddr != "" {
-		admin = xray.NewGRPCAdmin(apiAddr, cfg.ConfigDir, cfg.XrayConfigFilePerm())
-	} else {
-		admin = xray.NewFileAdmin(cfg.ConfigDir, cfg.XrayConfigFilePerm())
+	return &Server{cfg: cfg, db: db, syncer: syncer, admin: buildAdmin(cfg)}
+}
+
+// buildAdmin selects the engine write backend:
+//   - multi-node (nodes configured): fan every mutation out to all enabled
+//     nodes over grpc (empty configDir per node — remote nodes have no local
+//     config.d; durability is the per-node reconcile loop, not a file mirror).
+//   - single-node (no nodes): the legacy path, byte-identical to before —
+//     grpc-with-config-mirror when xray_api_addr is set, else file-backed.
+func buildAdmin(cfg *config.Config) core.AdminAPI {
+	if len(cfg.Nodes) > 0 {
+		var targets []xray.NamedAdmin
+		for _, n := range cfg.Nodes {
+			if !n.IsEnabled() {
+				continue
+			}
+			targets = append(targets, xray.NamedAdmin{
+				Name:  n.Name,
+				Admin: xray.NewGRPCAdmin(n.APIAddr, "", cfg.XrayConfigFilePerm()),
+			})
+		}
+		return xray.NewFanoutAdmin(targets)
 	}
-	return &Server{cfg: cfg, db: db, syncer: syncer, admin: admin}
+	if apiAddr := strings.TrimSpace(cfg.XrayAPIAddr); apiAddr != "" {
+		return xray.NewGRPCAdmin(apiAddr, cfg.ConfigDir, cfg.XrayConfigFilePerm())
+	}
+	return xray.NewFileAdmin(cfg.ConfigDir, cfg.XrayConfigFilePerm())
 }
 
 // Router builds and returns the configured HTTP router.
