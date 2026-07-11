@@ -20,13 +20,16 @@ import (
 	"github.com/xtls/xray-core/proxy/vless"
 	"github.com/xtls/xray-core/proxy/vmess"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 const apiDialTimeout = 10 * time.Second
 
+// dialXrayAPI opens a gRPC client to a node's HandlerService. Transport security
+// is resolved per api_addr: a node configured with mTLS dials over TLS, every
+// other address (WireGuard/loopback, single-node local) dials plaintext. See
+// SetNodeCredentials / resolveCredentials in tls.go.
 func dialXrayAPI(apiAddr string) (*grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(apiAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(apiAddr, grpc.WithTransportCredentials(resolveCredentials(apiAddr)))
 	if err != nil {
 		return nil, fmt.Errorf("dial xray api %s: %w", apiAddr, err)
 	}

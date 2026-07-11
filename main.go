@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,6 +17,9 @@ import (
 	"github.com/alchemylink/raven-subscribe/internal/database"
 	"github.com/alchemylink/raven-subscribe/internal/models"
 	"github.com/alchemylink/raven-subscribe/internal/syncer"
+	"github.com/alchemylink/raven-subscribe/internal/xray"
+
+	"google.golang.org/grpc/credentials"
 )
 
 func main() {
@@ -31,6 +35,13 @@ func main() {
 	}
 	log.Printf("Server host: %s | Config dir: %s | Listen: %s",
 		cfg.ServerHost, cfg.ConfigDir, cfg.ListenAddr)
+
+	// ── Node transport security (multi-node mTLS, Phase 5) ────────────────────
+	// Build the per-node gRPC credentials before anything can dial a node. A
+	// node with a tls block dials over mTLS; every other api_addr stays
+	// plaintext. Fail closed: a configured-but-broken cert must never silently
+	// fall back to plaintext against a public HandlerService.
+	configureNodeCredentials(cfg)
 
 	// ── Database ────────────────────────────────────────────────────────────
 	db, err := database.New(cfg.DBPath)
@@ -153,6 +164,35 @@ func main() {
 		}
 	}
 	log.Println("Stopped")
+}
+
+// configureNodeCredentials builds mTLS transport credentials for every node
+// that declares a tls block and installs them on the xray dialer keyed by
+// api_addr. Nodes without a tls block (WireGuard/loopback) keep dialing
+// plaintext. A cert that fails to load is fatal — with a public api_addr the
+// only safe alternative to mTLS is refusing to start, never a plaintext dial.
+func configureNodeCredentials(cfg *config.Config) {
+	creds := make(map[string]credentials.TransportCredentials)
+	for _, n := range cfg.Nodes {
+		if n.TLS == nil {
+			continue
+		}
+		serverName := n.TLS.ServerName
+		if serverName == "" {
+			if host, _, err := net.SplitHostPort(n.APIAddr); err == nil {
+				serverName = host
+			} else {
+				serverName = n.APIAddr
+			}
+		}
+		c, err := xray.BuildTLSCredentials(n.TLS.CACert, n.TLS.ClientCert, n.TLS.ClientKey, serverName)
+		if err != nil {
+			log.Fatalf("Node %q mTLS: %v", n.Name, err)
+		}
+		creds[n.APIAddr] = c
+		log.Printf("Node %q: mTLS enabled (server_name=%s)", n.Name, serverName)
+	}
+	xray.SetNodeCredentials(creds)
 }
 
 // reconcileNodes syncs the resolved node topology from config into the DB and
