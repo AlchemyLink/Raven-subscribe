@@ -104,6 +104,30 @@ func (db *DB) migrate() error {
 		created_at   DATETIME NOT NULL,
 		updated_at   DATETIME NOT NULL
 	);
+
+	-- Multi-node topology (docs/multi-node-design.md §5). Additive: a
+	-- single-node deployment gets exactly one row ('local') and every user
+	-- placed on it via the startup backfill, so behaviour is unchanged.
+	CREATE TABLE IF NOT EXISTS nodes (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		name        TEXT    NOT NULL UNIQUE,
+		api_addr    TEXT    NOT NULL DEFAULT '',
+		inbound_tag TEXT    NOT NULL DEFAULT '',
+		public_host TEXT    NOT NULL DEFAULT '',
+		public_port INTEGER NOT NULL DEFAULT 0,
+		enabled     INTEGER NOT NULL DEFAULT 1,
+		created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+
+	-- Which users are placed on which node. Absence of a row = user is NOT on
+	-- that node. Credentials stay per-inbound in user_clients (nodes are
+	-- homogeneous), so this table governs placement only.
+	CREATE TABLE IF NOT EXISTS user_nodes (
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		node_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+		PRIMARY KEY (user_id, node_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_user_nodes_node ON user_nodes(node_id);
 	`
 	_, err := db.conn.Exec(schema)
 	if err != nil {
@@ -936,6 +960,151 @@ func (db *DB) ActivateEmergency(profileID int64) error {
 func (db *DB) DeactivateEmergency() error {
 	_, err := db.conn.Exec(`DELETE FROM app_settings WHERE key IN ('emergency_active', 'emergency_profile_id', 'emergency_activated_at')`)
 	return err
+}
+
+// ─── Nodes (multi-node topology) ──────────────────────────────────────────────
+
+// UpsertNode inserts a node or updates the mutable columns of an existing one,
+// keyed by name. created_at is preserved on update. Returns the node id.
+func (db *DB) UpsertNode(n models.Node) (int64, error) {
+	_, err := db.conn.Exec(
+		`INSERT INTO nodes (name, api_addr, inbound_tag, public_host, public_port, enabled)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(name) DO UPDATE SET
+		     api_addr    = excluded.api_addr,
+		     inbound_tag = excluded.inbound_tag,
+		     public_host = excluded.public_host,
+		     public_port = excluded.public_port,
+		     enabled     = excluded.enabled`,
+		n.Name, n.APIAddr, n.InboundTag, n.PublicHost, n.PublicPort, boolInt(n.Enabled),
+	)
+	if err != nil {
+		return 0, err
+	}
+	var id int64
+	if err := db.conn.QueryRow(`SELECT id FROM nodes WHERE name = ?`, n.Name).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// ListNodes returns all nodes ordered by name.
+func (db *DB) ListNodes() ([]models.Node, error) {
+	rows, err := db.conn.Query(
+		`SELECT id, name, api_addr, inbound_tag, public_host, public_port, enabled, created_at
+		 FROM nodes ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var nodes []models.Node
+	for rows.Next() {
+		var n models.Node
+		var enabled int
+		if err := rows.Scan(&n.ID, &n.Name, &n.APIAddr, &n.InboundTag, &n.PublicHost, &n.PublicPort, &enabled, &n.CreatedAt); err != nil {
+			return nil, err
+		}
+		n.Enabled = enabled != 0
+		nodes = append(nodes, n)
+	}
+	return nodes, rows.Err()
+}
+
+// GetNodeByName returns the node with the given name, or (nil, nil) if absent.
+func (db *DB) GetNodeByName(name string) (*models.Node, error) {
+	var n models.Node
+	var enabled int
+	err := db.conn.QueryRow(
+		`SELECT id, name, api_addr, inbound_tag, public_host, public_port, enabled, created_at
+		 FROM nodes WHERE name = ?`, name,
+	).Scan(&n.ID, &n.Name, &n.APIAddr, &n.InboundTag, &n.PublicHost, &n.PublicPort, &enabled, &n.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	n.Enabled = enabled != 0
+	return &n, nil
+}
+
+// ReconcileNodes makes the nodes table match the desired topology from config.
+// Desired nodes are upserted by name; existing nodes whose name is not in the
+// desired set are marked enabled=0 (never deleted, so user_nodes FKs survive a
+// node being temporarily removed from config). Config is the source of truth
+// for node rows.
+func (db *DB) ReconcileNodes(desired []models.Node) error {
+	keep := make(map[string]bool, len(desired))
+	for _, n := range desired {
+		if _, err := db.UpsertNode(n); err != nil {
+			return fmt.Errorf("upsert node %q: %w", n.Name, err)
+		}
+		keep[n.Name] = true
+	}
+
+	existing, err := db.ListNodes()
+	if err != nil {
+		return err
+	}
+	for _, n := range existing {
+		if keep[n.Name] || !n.Enabled {
+			continue
+		}
+		if _, err := db.conn.Exec(`UPDATE nodes SET enabled = 0 WHERE id = ?`, n.ID); err != nil {
+			return fmt.Errorf("disable vanished node %q: %w", n.Name, err)
+		}
+	}
+	return nil
+}
+
+// BackfillUserNodesToEnabled places every user that currently has no node
+// assignment onto all enabled nodes. This is the Phase-1 migration step that
+// keeps existing users working: on a single-node deployment it assigns everyone
+// to the sole "local" node. It is idempotent — users that already have any
+// placement are left untouched (so explicit per-user placement is never
+// overwritten), and the INSERT OR IGNORE guards the composite PK.
+func (db *DB) BackfillUserNodesToEnabled() error {
+	_, err := db.conn.Exec(
+		`INSERT OR IGNORE INTO user_nodes (user_id, node_id)
+		 SELECT u.id, n.id
+		 FROM users u
+		 CROSS JOIN nodes n
+		 WHERE n.enabled = 1
+		   AND NOT EXISTS (SELECT 1 FROM user_nodes un WHERE un.user_id = u.id)`)
+	return err
+}
+
+// AssignUserToNodes places a user on the given nodes (idempotent). Absence of a
+// row means the user is not on that node; this only adds placements.
+func (db *DB) AssignUserToNodes(userID int64, nodeIDs []int64) error {
+	for _, nid := range nodeIDs {
+		if _, err := db.conn.Exec(
+			`INSERT OR IGNORE INTO user_nodes (user_id, node_id) VALUES (?, ?)`, userID, nid,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ListNodeIDsForUser returns the node ids a user is placed on.
+func (db *DB) ListNodeIDsForUser(userID int64) ([]int64, error) {
+	rows, err := db.conn.Query(`SELECT node_id FROM user_nodes WHERE user_id = ? ORDER BY node_id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
