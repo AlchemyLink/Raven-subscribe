@@ -206,3 +206,107 @@ func TestUserNodes_CascadeOnUserDelete(t *testing.T) {
 		t.Errorf("user_nodes should cascade-delete with user, got %v", ids)
 	}
 }
+
+func TestSetUserNodes_ReplacesSet(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	u, err := db.CreateUser("alice", "", "tok", "")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	a, _ := db.UpsertNode(models.Node{Name: "a", APIAddr: "10.7.0.1:10085", Enabled: true})
+	b, _ := db.UpsertNode(models.Node{Name: "b", APIAddr: "10.7.0.2:10085", Enabled: true})
+	c, _ := db.UpsertNode(models.Node{Name: "c", APIAddr: "10.7.0.3:10085", Enabled: true})
+
+	if err := db.SetUserNodes(u.ID, []int64{a, b}); err != nil {
+		t.Fatalf("SetUserNodes: %v", err)
+	}
+	ids, _ := db.ListNodeIDsForUser(u.ID)
+	if len(ids) != 2 {
+		t.Fatalf("after first set: got %v, want 2 ids", ids)
+	}
+
+	// Replace with a different set — old placements must be dropped, not merged.
+	if err := db.SetUserNodes(u.ID, []int64{c}); err != nil {
+		t.Fatalf("SetUserNodes 2: %v", err)
+	}
+	ids, _ = db.ListNodeIDsForUser(u.ID)
+	if len(ids) != 1 || ids[0] != c {
+		t.Errorf("replace failed: got %v, want [%d]", ids, c)
+	}
+
+	// Empty set clears all placements.
+	if err := db.SetUserNodes(u.ID, nil); err != nil {
+		t.Fatalf("SetUserNodes clear: %v", err)
+	}
+	ids, _ = db.ListNodeIDsForUser(u.ID)
+	if len(ids) != 0 {
+		t.Errorf("clear failed: got %v", ids)
+	}
+}
+
+func TestRemoveUserFromNode(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	u, _ := db.CreateUser("bob", "", "tok2", "")
+	a, _ := db.UpsertNode(models.Node{Name: "a", APIAddr: "10.7.0.1:10085", Enabled: true})
+	b, _ := db.UpsertNode(models.Node{Name: "b", APIAddr: "10.7.0.2:10085", Enabled: true})
+	if err := db.SetUserNodes(u.ID, []int64{a, b}); err != nil {
+		t.Fatalf("SetUserNodes: %v", err)
+	}
+
+	if err := db.RemoveUserFromNode(u.ID, a); err != nil {
+		t.Fatalf("RemoveUserFromNode: %v", err)
+	}
+	ids, _ := db.ListNodeIDsForUser(u.ID)
+	if len(ids) != 1 || ids[0] != b {
+		t.Errorf("got %v, want [%d]", ids, b)
+	}
+	// Removing a non-placement is a no-op.
+	if err := db.RemoveUserFromNode(u.ID, a); err != nil {
+		t.Errorf("removing absent placement should be no-op: %v", err)
+	}
+}
+
+func TestListNodesForUser(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	u, _ := db.CreateUser("carol", "", "tok3", "")
+	a, _ := db.UpsertNode(models.Node{Name: "eu-1", APIAddr: "10.7.0.1:10085", InboundTag: "vless-in", PublicHost: "eu1.example.com", PublicPort: 443, Enabled: true})
+	_, _ = db.UpsertNode(models.Node{Name: "eu-2", APIAddr: "10.7.0.2:10085", Enabled: true})
+	if err := db.SetUserNodes(u.ID, []int64{a}); err != nil {
+		t.Fatalf("SetUserNodes: %v", err)
+	}
+
+	nodes, err := db.ListNodesForUser(u.ID)
+	if err != nil {
+		t.Fatalf("ListNodesForUser: %v", err)
+	}
+	if len(nodes) != 1 || nodes[0].Name != "eu-1" || nodes[0].PublicHost != "eu1.example.com" {
+		t.Errorf("got %+v, want just eu-1 with full fields", nodes)
+	}
+}
+
+func TestEnabledNodeIDs(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	a, _ := db.UpsertNode(models.Node{Name: "a", APIAddr: "10.7.0.1:10085", Enabled: true})
+	_, _ = db.UpsertNode(models.Node{Name: "b", APIAddr: "10.7.0.2:10085", Enabled: false})
+	c, _ := db.UpsertNode(models.Node{Name: "c", APIAddr: "10.7.0.3:10085", Enabled: true})
+
+	ids, err := db.EnabledNodeIDs()
+	if err != nil {
+		t.Fatalf("EnabledNodeIDs: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("got %v, want 2 enabled ids", ids)
+	}
+	set := map[int64]bool{ids[0]: true, ids[1]: true}
+	if !set[a] || !set[c] {
+		t.Errorf("expected enabled a,c; got %v", ids)
+	}
+}

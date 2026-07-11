@@ -95,8 +95,11 @@ type InboundSpec struct {
 
 // CreateUserRequest is the API request body for creating a user
 type CreateUserRequest struct {
-	Username string         `json:"username"`
-	Inbounds []InboundSpec  `json:"inbounds,omitempty"` // Optional: inbounds to add user to. If empty, uses api_user_inbound_tag from config.
+	Username string        `json:"username"`
+	Inbounds []InboundSpec `json:"inbounds,omitempty"` // Optional: inbounds to add user to. If empty, uses api_user_inbound_tag from config.
+	// Nodes optionally places the user on specific nodes by name (multi-node
+	// only). Empty => all enabled nodes (default policy). Ignored single-node.
+	Nodes []string `json:"nodes,omitempty"`
 }
 
 // SubURLs holds all subscription URL variants for a user.
