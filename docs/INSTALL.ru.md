@@ -182,6 +182,87 @@ curl -H "X-Admin-Token: ваш-секретный-токен" http://localhost:8
 
 ---
 
+## 6. Multi-node развёртывание
+
+Опционально. Для одиночной ноды пропустите — шаги выше уже дают полное
+развёртывание (случай N=1). Multi-node позволяет одному control plane управлять
+несколькими Xray-нодами за одними и теми же subscription-URL; поведение описано
+в [Multi-node секции README](../README.md#multi-node), полный дизайн — в
+[`multi-node-design.md`](multi-node-design.md).
+
+**Требования к каждой дополнительной ноде:**
+
+- Xray установлен и запущен с **той же** inbound/REALITY-конфигурацией, что и
+  основная (ноды гомогенны — одни ключи, один `inbound_tag`).
+- В Xray включён API с `HandlerService` в `services`, слушает на достижимом
+  `api_addr`.
+- gRPC-порт защищён — **не выставляйте plaintext gRPC на публичный IP.**
+
+### 6.1 Достижимость: WireGuard (рекомендуется)
+
+Разместите gRPC API каждой ноды на WireGuard-адресе и объедините control plane с
+нодами в mesh. Забиндите API-inbound Xray на WG-адрес (не `0.0.0.0`):
+
+```jsonc
+// на ноде, в API-inbound Xray
+{ "listen": "10.7.0.2", "port": 10085, "protocol": "dokodemo-door",
+  "settings": { "address": "10.7.0.2" }, "tag": "api" }
+```
+
+Затем укажите этот WG-адрес как `api_addr` ноды. Сертификаты не нужны —
+WireGuard обеспечивает шифрование и взаимную аутентификацию.
+
+### 6.2 Достижимость: mTLS (ноды без WG)
+
+Если у ноды нет WG-пути, выставьте её gRPC по TLS с client-cert аутентификацией.
+На **ноде** прикройте HandlerService TLS-листенером, требующим клиентский
+сертификат, подписанный вашим CA (через gRPC TLS `streamSettings` Xray, либо
+stunnel/nginx-stream терминатор). На **control plane** добавьте ноде `tls`-блок
+(пример — в README). Один раз развернуть небольшой PKI:
+
+```bash
+# CA (ключ держать оффлайн / в vault)
+openssl genrsa -out node-ca.key 4096
+openssl req -x509 -new -nodes -key node-ca.key -sha256 -days 3650 \
+  -subj "/CN=raven-node-ca" -out node-ca.pem
+
+# Клиентский сертификат control plane (его предъявляет Raven)
+openssl genrsa -out raven-client.key 2048
+openssl req -new -key raven-client.key -subj "/CN=raven-control-plane" -out raven-client.csr
+openssl x509 -req -in raven-client.csr -CA node-ca.pem -CAkey node-ca.key \
+  -CAcreateserial -days 825 -sha256 -out raven-client.pem
+```
+
+Скопируйте `node-ca.pem`, `raven-client.pem`, `raven-client.key` на хост control
+plane (например, в `/etc/raven/pki/`, режим `0600`, владелец — сервисный
+пользователь) и укажите их в `tls`-блоке ноды. Raven читает их **один раз на
+старте** — отсутствующий или нечитаемый сертификат фатален, отката на plaintext
+не будет.
+
+> Ansible-роль ноды AlchemyLink автоматизирует поднятие ноды (гомогенный inbound,
+> API-inbound, WG или серверный mTLS-листенер). Эта секция — ручной эквивалент
+> для тех, кто не использует Ansible.
+
+### 6.3 Указать control plane на ноды
+
+Добавьте массив `nodes` в `config.json` control plane (все поля — в таблице
+README) и перезапустите:
+
+```bash
+sudo systemctl restart xray-subscription
+
+# Существующие юзеры на первом старте раскладываются на все enabled-ноды.
+# Убедитесь, что каждая нода достижима и полностью заполнена:
+curl -H "X-Admin-Token: ваш-секретный-токен" http://localhost:8080/api/sync/status
+# → ищите "nodes": { "<name>": { "reachable": true, "users_present": N, ... } }
+```
+
+Если нода показывает `reachable: false` или `users_present` меньше
+`users_target`, reconcile-loop повторяет попытку каждый sync-интервал — проверьте
+gRPC-адрес ноды, firewall/WG-маршрут и (для mTLS) совпадение сертификатов.
+
+---
+
 ## Решение проблем
 
 ### "No such file or directory" при запуске

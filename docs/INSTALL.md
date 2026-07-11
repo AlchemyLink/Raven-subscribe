@@ -183,6 +183,86 @@ curl -H "X-Admin-Token: your-secret-token" http://localhost:8080/api/users
 
 ---
 
+## 6. Multi-node deployment
+
+Optional. Skip this section for a single-node install — the steps above already
+give you a complete N=1 deployment. Multi-node lets one control plane drive
+several Xray nodes behind the same subscription URLs; see the
+[Multi-node section of the README](../README.md#multi-node) for how it behaves
+and [`multi-node-design.md`](multi-node-design.md) for the full design.
+
+**Prerequisites for each extra node:**
+
+- Xray installed and running the **same** inbound/REALITY configuration as your
+  primary (nodes are homogeneous — same keys, same `inbound_tag`).
+- Xray's API enabled with `HandlerService` in `services`, listening on a
+  reachable `api_addr`.
+- The gRPC port protected — **do not expose plaintext gRPC on a public IP.**
+
+### 6.1 Reachability: WireGuard (recommended)
+
+Put every node's gRPC API on a WireGuard address and mesh the control plane with
+the nodes. Bind Xray's API inbound to the WG address (not `0.0.0.0`):
+
+```jsonc
+// on the node, in the Xray API inbound
+{ "listen": "10.7.0.2", "port": 10085, "protocol": "dokodemo-door",
+  "settings": { "address": "10.7.0.2" }, "tag": "api" }
+```
+
+Then reference that WG address as the node's `api_addr`. No certificates needed —
+WireGuard provides encryption and mutual authentication.
+
+### 6.2 Reachability: mTLS (nodes without WG)
+
+If a node has no WG path, expose its gRPC over TLS with client-certificate auth.
+On the **node**, front the HandlerService with a TLS listener that requires a
+client cert signed by your CA (e.g. via Xray's gRPC TLS `streamSettings`, or an
+stunnel/nginx-stream terminator). On the **control plane**, add a `tls` block to
+that node (see the README example). Provision a small PKI once:
+
+```bash
+# CA (keep the key offline / in vault)
+openssl genrsa -out node-ca.key 4096
+openssl req -x509 -new -nodes -key node-ca.key -sha256 -days 3650 \
+  -subj "/CN=raven-node-ca" -out node-ca.pem
+
+# Control-plane client cert (Raven presents this)
+openssl genrsa -out raven-client.key 2048
+openssl req -new -key raven-client.key -subj "/CN=raven-control-plane" -out raven-client.csr
+openssl x509 -req -in raven-client.csr -CA node-ca.pem -CAkey node-ca.key \
+  -CAcreateserial -days 825 -sha256 -out raven-client.pem
+```
+
+Ship `node-ca.pem`, `raven-client.pem`, `raven-client.key` to the control-plane
+host (e.g. under `/etc/raven/pki/`, mode `0600`, owned by the service user) and
+point the node's `tls` block at them. Raven reads them **once at startup** — a
+missing or unreadable cert is fatal, so it never falls back to plaintext.
+
+> The AlchemyLink Ansible node role automates node bring-up (homogeneous inbound,
+> API inbound, WG or the server-side mTLS listener). This section is the manual
+> equivalent for non-Ansible operators.
+
+### 6.3 Point the control plane at the nodes
+
+Add a `nodes` array to the control-plane `config.json` (see the README table for
+every field), then restart:
+
+```bash
+sudo systemctl restart xray-subscription
+
+# Existing users are backfilled onto all enabled nodes on first start.
+# Confirm each node is reachable and fully provisioned:
+curl -H "X-Admin-Token: your-secret-token" http://localhost:8080/api/sync/status
+# → look for "nodes": { "<name>": { "reachable": true, "users_present": N, ... } }
+```
+
+If a node shows `reachable: false` or `users_present` below `users_target`, the
+reconcile loop retries every sync interval — check the node's gRPC address,
+firewall/WG route, and (for mTLS) that the certs match.
+
+---
+
 ## Troubleshooting
 
 ### "No such file or directory" when starting
