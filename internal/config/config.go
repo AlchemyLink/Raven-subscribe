@@ -4,6 +4,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -165,7 +166,68 @@ type Config struct {
 	// No-op when xray_api_addr or fallback_inbound_tags are unset.
 	KillSwitchReconcileInterval int `json:"killswitch_reconcile_interval_seconds,omitempty"`
 
+	// Nodes is the optional multi-node topology. When empty, the service runs
+	// single-node exactly as before: ResolvedNodes() synthesizes one implicit
+	// "local" node from the legacy fields (server_host / xray_api_addr /
+	// api_user_inbound_tag). When set, each entry is a homogeneous Xray node
+	// (same inbound/REALITY shape, differing by public_host:public_port) that
+	// the control plane fans user operations out to. See docs/multi-node-design.md.
+	Nodes []NodeConfig `json:"nodes,omitempty"`
+
 	xrayFilePerm os.FileMode `json:"-"`
+}
+
+// NodeConfig describes a single Xray node in a multi-node topology. Nodes are
+// homogeneous by design (§2 of the design doc): they share inbound/REALITY
+// config and differ only in where clients connect (public_host:public_port)
+// and where the control plane provisions them (api_addr).
+type NodeConfig struct {
+	// Name is the stable node identifier used as the FK in the nodes table.
+	// Must be unique and non-empty across the topology.
+	Name string `json:"name"`
+	// APIAddr is the Xray gRPC HandlerService address (e.g. "10.7.0.1:10085").
+	// For grpc-mode nodes this MUST be a private/WG address unless
+	// AllowPublicGRPC is set (plaintext gRPC over the public internet is a
+	// full-control footgun — see §7). Empty is only valid for the implicit
+	// local node in file-backend mode.
+	APIAddr string `json:"api_addr"`
+	// InboundTag is the inbound clients are provisioned onto on this node.
+	InboundTag string `json:"inbound_tag"`
+	// PublicHost is the host that goes into the client outbound for this node.
+	PublicHost string `json:"public_host"`
+	// PublicPort is the port that goes into the client outbound for this node.
+	PublicPort int `json:"public_port"`
+	// Enabled controls whether the node participates in generation/sync. Nil
+	// means true (a node is in rotation by default). Use IsEnabled().
+	Enabled *bool `json:"enabled,omitempty"`
+	// Deploy configures how config durability is delivered to the node.
+	// Optional; nil means grpc mode. Use DeployMode().
+	Deploy *NodeDeploy `json:"deploy,omitempty"`
+	// AllowPublicGRPC opts a grpc-mode node out of the private-address
+	// requirement. Set only when you have mTLS or another out-of-band guard on
+	// a publicly reachable HandlerService.
+	AllowPublicGRPC bool `json:"allow_public_grpc,omitempty"`
+}
+
+// NodeDeploy configures how a node receives config for durability across
+// restarts (see §8). Only "grpc" is implemented in the first iteration;
+// "ssh_rsync" is reserved.
+type NodeDeploy struct {
+	Mode string `json:"mode,omitempty"` // "grpc" (default) | "ssh_rsync"
+}
+
+// IsEnabled reports whether the node participates in rotation. A nil Enabled
+// pointer defaults to true so operators opt out explicitly, never by omission.
+func (n NodeConfig) IsEnabled() bool {
+	return n.Enabled == nil || *n.Enabled
+}
+
+// DeployMode returns the node's deploy mode, defaulting to "grpc".
+func (n NodeConfig) DeployMode() string {
+	if n.Deploy == nil || strings.TrimSpace(n.Deploy.Mode) == "" {
+		return "grpc"
+	}
+	return strings.TrimSpace(n.Deploy.Mode)
 }
 
 // KillSwitchTags returns the inbound tags the fallback killswitch controls.
@@ -222,10 +284,84 @@ func Load(path string) (*Config, error) {
 	if cfg.BalancerStrategy == "" {
 		return nil, fmt.Errorf("invalid balancer_strategy: must be one of random, roundRobin, leastPing, leastLoad")
 	}
+	if err := validateNodes(cfg.Nodes); err != nil {
+		return nil, fmt.Errorf("nodes: %w", err)
+	}
 	if err := applyXrayFilePerm(cfg); err != nil {
 		return nil, fmt.Errorf("xray_config_file_mode: %w", err)
 	}
 	return cfg, nil
+}
+
+// validateNodes checks an explicitly-configured multi-node topology. It is a
+// no-op for single-node deployments (empty nodes): the implicit local node
+// synthesized by ResolvedNodes mirrors already-validated legacy fields and is
+// not subject to these checks.
+func validateNodes(nodes []NodeConfig) error {
+	seen := make(map[string]bool, len(nodes))
+	for i, n := range nodes {
+		name := strings.TrimSpace(n.Name)
+		if name == "" {
+			return fmt.Errorf("node[%d]: name is required", i)
+		}
+		if seen[name] {
+			return fmt.Errorf("node %q: duplicate name", name)
+		}
+		seen[name] = true
+
+		if strings.TrimSpace(n.APIAddr) == "" {
+			return fmt.Errorf("node %q: api_addr is required", name)
+		}
+		mode := n.DeployMode()
+		if mode != "grpc" && mode != "ssh_rsync" {
+			return fmt.Errorf("node %q: invalid deploy.mode %q (want grpc|ssh_rsync)", name, mode)
+		}
+		// Anti-footgun (§7): plaintext gRPC HandlerService grants full control
+		// over users/inbounds. Refuse a public api_addr in grpc mode unless the
+		// operator explicitly accepts the risk (they should be fronting it with
+		// mTLS or another guard).
+		if mode == "grpc" && !n.AllowPublicGRPC && !isPrivateHostPort(n.APIAddr) {
+			return fmt.Errorf("node %q: api_addr %q is not a private/loopback address; "+
+				"bind Xray's gRPC to a WireGuard/private address, or set allow_public_grpc:true "+
+				"if you guard it with mTLS", name, n.APIAddr)
+		}
+	}
+	return nil
+}
+
+// isPrivateHostPort reports whether host:port's host is a loopback or private
+// (RFC1918 / RFC4193 ULA / link-local) IP. A hostname that does not parse as an
+// IP is treated as non-private (conservative: force the operator to be explicit).
+func isPrivateHostPort(addr string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		host = strings.TrimSpace(addr) // tolerate a bare host with no port
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+}
+
+// ResolvedNodes returns the effective node list. When nodes are configured it
+// returns them verbatim; otherwise it synthesizes a single implicit "local"
+// node from the legacy single-node fields so downstream code can always work
+// with a []NodeConfig (single-node is just N=1). The synthesized node's
+// PublicPort is a placeholder (443) — single-node generation still resolves
+// per-inbound host/port via HostForInbound/InboundPorts until Phase 3 wires
+// per-node outbounds.
+func (c *Config) ResolvedNodes() []NodeConfig {
+	if len(c.Nodes) > 0 {
+		return c.Nodes
+	}
+	return []NodeConfig{{
+		Name:       "local",
+		APIAddr:    c.XrayAPIAddr,
+		InboundTag: c.APIUserInboundTag,
+		PublicHost: c.ServerHost,
+		PublicPort: 443,
+	}}
 }
 
 // normalizeVLESSClientEncryption trims map keys and values so lookups match Xray inbound tags

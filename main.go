@@ -14,6 +14,7 @@ import (
 	"github.com/alchemylink/raven-subscribe/internal/api"
 	"github.com/alchemylink/raven-subscribe/internal/config"
 	"github.com/alchemylink/raven-subscribe/internal/database"
+	"github.com/alchemylink/raven-subscribe/internal/models"
 	"github.com/alchemylink/raven-subscribe/internal/syncer"
 )
 
@@ -42,6 +43,15 @@ func main() {
 		}
 	}()
 	log.Printf("Database: %s", cfg.DBPath)
+
+	// ── Multi-node topology (Phase 1) ─────────────────────────────────────────
+	// Reconcile the configured nodes into the DB and place any unplaced users on
+	// the enabled nodes. Single-node deployments get one implicit "local" node
+	// and every user on it — behaviour unchanged, data ready for later phases.
+	// Non-fatal: nothing downstream consumes node placement yet.
+	if err := reconcileNodes(cfg, db); err != nil {
+		log.Printf("Node reconcile warning: %v", err)
+	}
 
 	// ── Syncer ──────────────────────────────────────────────────────────────
 	sync := syncer.New(cfg, db)
@@ -138,4 +148,28 @@ func main() {
 		}
 	}
 	log.Println("Stopped")
+}
+
+// reconcileNodes syncs the resolved node topology from config into the DB and
+// backfills user placement. It maps config.NodeConfig (which also carries
+// provisioning-only fields like deploy/allow_public_grpc) down to the DB's
+// models.Node, reconciles by name, then places any unplaced users on the
+// enabled nodes. See docs/multi-node-design.md §5.
+func reconcileNodes(cfg *config.Config, db *database.DB) error {
+	resolved := cfg.ResolvedNodes()
+	desired := make([]models.Node, 0, len(resolved))
+	for _, n := range resolved {
+		desired = append(desired, models.Node{
+			Name:       n.Name,
+			APIAddr:    n.APIAddr,
+			InboundTag: n.InboundTag,
+			PublicHost: n.PublicHost,
+			PublicPort: n.PublicPort,
+			Enabled:    n.IsEnabled(),
+		})
+	}
+	if err := db.ReconcileNodes(desired); err != nil {
+		return err
+	}
+	return db.BackfillUserNodesToEnabled()
 }

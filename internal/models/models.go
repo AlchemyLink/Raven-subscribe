@@ -46,6 +46,20 @@ type Inbound struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+// Node is a single Xray node in a multi-node topology (the nodes table). It
+// mirrors the DB row; deploy/allow_public_grpc are config-only provisioning
+// concerns and deliberately not stored here. See docs/multi-node-design.md §5.
+type Node struct {
+	ID         int64     `json:"id"`
+	Name       string    `json:"name"`
+	APIAddr    string    `json:"api_addr"`
+	InboundTag string    `json:"inbound_tag"`
+	PublicHost string    `json:"public_host"`
+	PublicPort int       `json:"public_port"`
+	Enabled    bool      `json:"enabled"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 // UserClient maps a user to their credentials in a specific inbound
 type UserClient struct {
 	ID           int64  `json:"id"`
