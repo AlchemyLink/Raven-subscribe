@@ -15,7 +15,7 @@ import (
 // HysteriaConfig configures the per-user Hysteria2 reserve subscription channel.
 type HysteriaConfig struct {
 	Enabled      bool   `json:"enabled"`
-	Host         string `json:"host"`          // domain clients connect to (relay apex, e.g. zirgate.com)
+	Host         string `json:"host"`          // domain clients connect to (relay apex, e.g. example.com)
 	Port         int    `json:"port"`          // relay UDP port forwarded to the EU hysteria server (e.g. 47014)
 	ObfsType     string `json:"obfs_type"`     // "salamander" (mainstream-client default) or "gecko"
 	ObfsPassword string `json:"obfs_password"` // shared obfs key (server-wide, not per-user)
