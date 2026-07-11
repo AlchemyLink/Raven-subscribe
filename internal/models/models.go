@@ -76,6 +76,15 @@ type UserClientFull struct {
 	InboundProtocol string `json:"inbound_protocol"`
 	InboundPort     int    `json:"inbound_port"`
 	InboundRaw      string `json:"inbound_raw"`
+
+	// Multi-node generation hints. Populated only by the node expansion in the
+	// API layer (docs/multi-node-design.md §6.3); empty in single-node mode.
+	// When NodeHost is set the generator emits this client's outbound pointing
+	// at that node's public endpoint instead of server_host, so a user placed
+	// on N nodes yields N balanced outbounds. NodeName is diagnostic only.
+	NodeName string `json:"-"`
+	NodeHost string `json:"-"`
+	NodePort int    `json:"-"`
 }
 
 // InboundSpec specifies an inbound to add the user to. Protocol is optional — derived from tag via DB/config when omitted.

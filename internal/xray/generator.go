@@ -68,6 +68,16 @@ func GenerateClientConfig(serverHost string, inboundHosts map[string]string, inb
 		if p, ok := inboundPorts[uc.InboundTag]; ok && p > 0 {
 			uc.InboundPort = p
 		}
+		// Multi-node: a per-node expanded client points the outbound at that
+		// node's public endpoint. Node wins over serverHost/inboundHosts so each
+		// placed node becomes its own balanced outbound (§6.3). Empty in
+		// single-node mode, leaving the resolution above byte-identical.
+		if strings.TrimSpace(uc.NodeHost) != "" {
+			host = uc.NodeHost
+		}
+		if uc.NodePort > 0 {
+			uc.InboundPort = uc.NodePort
+		}
 		ob, err := buildOutbound(host, uc, i)
 		if err != nil {
 			log.Printf("WARN: build outbound for inbound %s: %v", uc.InboundTag, err)
