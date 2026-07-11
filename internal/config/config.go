@@ -15,7 +15,7 @@ import (
 // HysteriaConfig configures the per-user Hysteria2 reserve subscription channel.
 type HysteriaConfig struct {
 	Enabled      bool   `json:"enabled"`
-	Host         string `json:"host"`          // domain clients connect to (relay apex, e.g. zirgate.com)
+	Host         string `json:"host"`          // domain clients connect to (relay apex, e.g. example.com)
 	Port         int    `json:"port"`          // relay UDP port forwarded to the EU hysteria server (e.g. 47014)
 	ObfsType     string `json:"obfs_type"`     // "salamander" (mainstream-client default) or "gecko"
 	ObfsPassword string `json:"obfs_password"` // shared obfs key (server-wide, not per-user)
@@ -207,6 +207,29 @@ type NodeConfig struct {
 	// requirement. Set only when you have mTLS or another out-of-band guard on
 	// a publicly reachable HandlerService.
 	AllowPublicGRPC bool `json:"allow_public_grpc,omitempty"`
+	// TLS enables mutual-TLS on the gRPC dial to this node (§9). Optional; nil
+	// means plaintext — the recommended posture for a node whose gRPC is bound to
+	// a WireGuard/private address. Configure it when you must reach the
+	// HandlerService over a public api_addr: mTLS then both encrypts the channel
+	// and satisfies the public-grpc anti-footgun guard (no allow_public_grpc
+	// needed). The certificate files are read at startup by main, not here.
+	TLS *NodeTLS `json:"tls,omitempty"`
+}
+
+// NodeTLS configures mutual-TLS for the control plane's gRPC dial to a node.
+// raven-subscribe acts as the TLS client: it presents ClientCert/ClientKey and
+// verifies the node's server certificate against CACert. All three paths are
+// required when the block is present.
+type NodeTLS struct {
+	// CACert is the path to the PEM CA bundle that signed the node's server cert.
+	CACert string `json:"ca_cert"`
+	// ClientCert is the path to raven's client certificate PEM.
+	ClientCert string `json:"client_cert"`
+	// ClientKey is the path to raven's client private-key PEM.
+	ClientKey string `json:"client_key"`
+	// ServerName overrides the expected certificate SAN. Empty defaults to the
+	// host portion of the node's api_addr.
+	ServerName string `json:"server_name,omitempty"`
 }
 
 // NodeDeploy configures how a node receives config for durability across
@@ -316,14 +339,22 @@ func validateNodes(nodes []NodeConfig) error {
 		if mode != "grpc" && mode != "ssh_rsync" {
 			return fmt.Errorf("node %q: invalid deploy.mode %q (want grpc|ssh_rsync)", name, mode)
 		}
+		if n.TLS != nil {
+			if strings.TrimSpace(n.TLS.CACert) == "" ||
+				strings.TrimSpace(n.TLS.ClientCert) == "" ||
+				strings.TrimSpace(n.TLS.ClientKey) == "" {
+				return fmt.Errorf("node %q: tls requires ca_cert, client_cert and client_key", name)
+			}
+		}
 		// Anti-footgun (§7): plaintext gRPC HandlerService grants full control
 		// over users/inbounds. Refuse a public api_addr in grpc mode unless the
-		// operator explicitly accepts the risk (they should be fronting it with
-		// mTLS or another guard).
-		if mode == "grpc" && !n.AllowPublicGRPC && !isPrivateHostPort(n.APIAddr) {
+		// operator explicitly accepts the risk — either by fronting it with mTLS
+		// (a tls block, the encrypted+authenticated guard) or by setting
+		// allow_public_grpc to acknowledge some other out-of-band protection.
+		if mode == "grpc" && n.TLS == nil && !n.AllowPublicGRPC && !isPrivateHostPort(n.APIAddr) {
 			return fmt.Errorf("node %q: api_addr %q is not a private/loopback address; "+
-				"bind Xray's gRPC to a WireGuard/private address, or set allow_public_grpc:true "+
-				"if you guard it with mTLS", name, n.APIAddr)
+				"bind Xray's gRPC to a WireGuard/private address, add a tls block to guard it "+
+				"with mTLS, or set allow_public_grpc:true if you guard it another way", name, n.APIAddr)
 		}
 	}
 	return nil

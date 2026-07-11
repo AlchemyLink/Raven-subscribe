@@ -121,6 +121,24 @@ func TestValidateNodes(t *testing.T) {
 			nodes:   []NodeConfig{{Name: "eu-1", APIAddr: "203.0.113.5:22", Deploy: &NodeDeploy{Mode: "ssh_rsync"}}},
 			wantErr: false,
 		},
+		{
+			name: "public grpc guarded by mTLS ok (tls satisfies footgun guard)",
+			nodes: []NodeConfig{{Name: "eu-1", APIAddr: "203.0.113.5:10085",
+				TLS: &NodeTLS{CACert: "/e/ca.pem", ClientCert: "/e/c.pem", ClientKey: "/e/c.key"}}},
+			wantErr: false,
+		},
+		{
+			name: "tls block missing ca_cert rejected",
+			nodes: []NodeConfig{{Name: "eu-1", APIAddr: "10.7.0.1:10085",
+				TLS: &NodeTLS{ClientCert: "/e/c.pem", ClientKey: "/e/c.key"}}},
+			wantErr: true,
+		},
+		{
+			name: "tls block missing client_key rejected",
+			nodes: []NodeConfig{{Name: "eu-1", APIAddr: "203.0.113.5:10085",
+				TLS: &NodeTLS{CACert: "/e/ca.pem", ClientCert: "/e/c.pem"}}},
+			wantErr: true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

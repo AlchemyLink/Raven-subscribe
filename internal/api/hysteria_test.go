@@ -65,7 +65,7 @@ func TestHysteriaInMainSub(t *testing.T) {
 	xID, _ := srv.db.UpsertInbound("vless-xhttp-v2-in", "vless", 443, "210.json",
 		`{"tag":"vless-xhttp-v2-in","protocol":"vless","port":443,"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"serverNames":["www.python.org"],"publicKey":"testpublickey12345678901234567890123456789012","shortIds":["ab"]},"xhttpSettings":{"mode":"packet-up","host":"www.python.org","path":"/x"}}}`)
 	_ = srv.db.UpsertUserClient(u.ID, xID, `{"protocol":"vless","id":"uuid1","flow":"xtls-rprx-vision","encryption":"none"}`)
-	hy := &config.HysteriaConfig{Enabled: true, Host: "zirgate.com", Port: 47014, ObfsType: "salamander", ObfsPassword: "pw", SNI: "www.python.org", CertPin: "abc"}
+	hy := &config.HysteriaConfig{Enabled: true, Host: "example.com", Port: 47014, ObfsType: "salamander", ObfsPassword: "pw", SNI: "www.python.org", CertPin: "abc"}
 
 	get := func() string {
 		req := httptest.NewRequest(http.MethodGet, "/sub/t-alice/links.txt", nil)
@@ -84,7 +84,7 @@ func TestHysteriaInMainSub(t *testing.T) {
 		hy.InMainSub = true
 		srv.cfg.Hysteria = hy
 		body := get()
-		if !strings.Contains(body, "hysteria2://t-alice@zirgate.com:47014") {
+		if !strings.Contains(body, "hysteria2://t-alice@example.com:47014") {
 			t.Errorf("hy2 URI missing from links: %s", body)
 		}
 		if !strings.Contains(body, "vless://") {
@@ -106,8 +106,8 @@ func TestHysteriaPerUserGate(t *testing.T) {
 		`{"tag":"vless-xhttp-v2-in","protocol":"vless","port":443,"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"serverNames":["www.python.org"],"publicKey":"testpublickey12345678901234567890123456789012","shortIds":["ab"]},"xhttpSettings":{"mode":"packet-up","host":"www.python.org","path":"/x"}}}`)
 	_ = srv.db.UpsertUserClient(u.ID, xID, `{"protocol":"vless","id":"uuid1","flow":"xtls-rprx-vision","encryption":"none"}`)
 	srv.cfg.Hysteria = &config.HysteriaConfig{
-		Enabled: true, Host: "zirgate.com", Port: 47014,
-		ObfsType: "salamander", ObfsPassword: "obfspw", SNI: "hy2.zirgate.com",
+		Enabled: true, Host: "example.com", Port: 47014,
+		ObfsType: "salamander", ObfsPassword: "obfspw", SNI: "hy2.example.com",
 		InMainSub: true,
 	}
 
@@ -166,7 +166,7 @@ func TestHysteriaSub(t *testing.T) {
 	defer cleanup()
 	hyTestUser(t, srv)
 	srv.cfg.Hysteria = &config.HysteriaConfig{
-		Enabled: true, Host: "zirgate.com", Port: 47014,
+		Enabled: true, Host: "example.com", Port: 47014,
 		ObfsType: "salamander", ObfsPassword: "obfspw", SNI: "www.python.org",
 		CertPin: "593c5be48dbc7697098beba3d3c326bbd722ca2a58b47a9abd69ab71f0345e3b",
 	}
@@ -179,7 +179,7 @@ func TestHysteriaSub(t *testing.T) {
 			t.Fatalf("got %d, want 200 (%s)", rec.Code, rec.Body.String())
 		}
 		uri := rec.Body.String()
-		for _, want := range []string{"hysteria2://t-alice@zirgate.com:47014", "obfs=salamander", "obfs-password=obfspw", "sni=www.python.org", "pinSHA256=593c5be4", "insecure=1"} {
+		for _, want := range []string{"hysteria2://t-alice@example.com:47014", "obfs=salamander", "obfs-password=obfspw", "sni=www.python.org", "pinSHA256=593c5be4", "insecure=1"} {
 			if !strings.Contains(uri, want) {
 				t.Errorf("URI missing %q: %s", want, uri)
 			}
