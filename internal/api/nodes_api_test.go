@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alchemylink/raven-subscribe/internal/config"
 	"github.com/alchemylink/raven-subscribe/internal/database"
@@ -177,5 +179,86 @@ func TestCreateUser_UnknownNodeIs400(t *testing.T) {
 	srv.Router().ServeHTTP(rec, adminReq(http.MethodPost, "/api/users", `{"username":"grace@z.com","nodes":["nope"]}`))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("unknown node on create should be 400, got %d", rec.Code)
+	}
+}
+
+func TestClientsToAdd(t *testing.T) {
+	want := []models.WantedClient{
+		{Email: "a@z", ClientConfig: "{}"},
+		{Email: "b@z", ClientConfig: "{}"},
+		{Email: "c@z", ClientConfig: "{}"},
+	}
+	// b already present on the node.
+	add := clientsToAdd(want, []string{"b@z"})
+	if len(add) != 2 {
+		t.Fatalf("expected 2 to add, got %d", len(add))
+	}
+	got := map[string]bool{add[0].Email: true, add[1].Email: true}
+	if !got["a@z"] || !got["c@z"] || got["b@z"] {
+		t.Errorf("wrong add set: %+v", add)
+	}
+	// All present → nothing to add.
+	if n := clientsToAdd(want, []string{"a@z", "b@z", "c@z"}); len(n) != 0 {
+		t.Errorf("expected empty add, got %+v", n)
+	}
+}
+
+func TestSyncStatus_SingleNodeOmitsNodes(t *testing.T) {
+	srv, _ := testServer(t) // no cfg.Nodes
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, adminReq(http.MethodGet, "/api/sync/status", ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: %d", rec.Code)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, ok := m["nodes"]; ok {
+		t.Error("single-node /api/sync/status must omit the nodes field")
+	}
+	// Flat fields still present (unchanged shape).
+	if _, ok := m["probe_ok"]; !ok {
+		t.Error("expected flat SyncStatus fields (probe_ok) to remain")
+	}
+}
+
+func TestSyncStatus_MultiNodeIncludesNodes(t *testing.T) {
+	srv, _ := multiNodeServer(t, twoNodes())
+	// Simulate a completed reconcile pass.
+	srv.storeNodeStatus("eu-1", nodeSyncStatus{Reachable: true, LastApplyOK: true, UsersTarget: 3, UsersPresent: 3})
+	srv.storeNodeStatus("eu-2", nodeSyncStatus{Reachable: false, LastError: "connection refused", UsersTarget: 3})
+
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, adminReq(http.MethodGet, "/api/sync/status", ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: %d", rec.Code)
+	}
+	var resp struct {
+		ProbeOK bool                      `json:"probe_ok"`
+		Nodes   map[string]nodeSyncStatus `json:"nodes"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Nodes) != 2 {
+		t.Fatalf("expected 2 node statuses, got %d", len(resp.Nodes))
+	}
+	if !resp.Nodes["eu-1"].Reachable || resp.Nodes["eu-2"].Reachable {
+		t.Errorf("node reachability wrong: %+v", resp.Nodes)
+	}
+	if resp.Nodes["eu-2"].LastError == "" {
+		t.Error("expected eu-2 to carry the unreachable error")
+	}
+}
+
+func TestReconcileNodesLoop_SingleNodeReturnsImmediately(t *testing.T) {
+	srv, _ := testServer(t) // no nodes
+	done := make(chan struct{})
+	go func() { srv.ReconcileNodesLoop(context.Background(), time.Second); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ReconcileNodesLoop should return immediately in single-node mode")
 	}
 }

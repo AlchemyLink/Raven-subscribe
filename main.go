@@ -93,6 +93,11 @@ func main() {
 	// See internal/api/fallback.go ReconcileKillSwitchLoop for the full rationale.
 	go srv.ReconcileKillSwitchLoop(syncCtx, time.Duration(cfg.KillSwitchReconcileInterval)*time.Second)
 
+	// Multi-node reconcile: re-apply DB placement onto remote gRPC nodes every
+	// sync interval (recovery after a node restart wipes its in-memory users).
+	// No-op in single-node mode.
+	go srv.ReconcileNodesLoop(syncCtx, time.Duration(cfg.SyncInterval)*time.Second)
+
 	// ── HTTP Server ─────────────────────────────────────────────────────────
 	httpServer := &http.Server{
 		Addr:         cfg.ListenAddr,

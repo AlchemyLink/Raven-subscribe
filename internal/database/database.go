@@ -1160,6 +1160,35 @@ func (db *DB) RemoveUserFromNode(userID, nodeID int64) error {
 	return err
 }
 
+// ListWantedClientsForNode returns the (email, credential) pairs the reconcile
+// expects on a node: enabled users placed on nodeID who hold an enabled
+// credential for inboundTag. This is the "want" set for the node's runtime
+// "have" set (GetInboundUsers).
+func (db *DB) ListWantedClientsForNode(nodeID int64, inboundTag string) ([]models.WantedClient, error) {
+	rows, err := db.conn.Query(
+		`SELECT u.email, uc.client_config
+		 FROM user_nodes un
+		 JOIN users u        ON u.id = un.user_id
+		 JOIN inbounds i     ON i.tag = ?
+		 JOIN user_clients uc ON uc.user_id = u.id AND uc.inbound_id = i.id
+		 WHERE un.node_id = ? AND u.enabled = 1 AND uc.enabled = 1
+		 ORDER BY u.email`, inboundTag, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []models.WantedClient
+	for rows.Next() {
+		var w models.WantedClient
+		if err := rows.Scan(&w.Email, &w.ClientConfig); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
 // EnabledNodeIDs returns the ids of all enabled nodes, ordered by name.
 func (db *DB) EnabledNodeIDs() ([]int64, error) {
 	rows, err := db.conn.Query(`SELECT id FROM nodes WHERE enabled = 1 ORDER BY name`)

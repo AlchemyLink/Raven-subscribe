@@ -310,3 +310,51 @@ func TestEnabledNodeIDs(t *testing.T) {
 		t.Errorf("expected enabled a,c; got %v", ids)
 	}
 }
+
+func TestListWantedClientsForNode(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+
+	// Inbound + node both on tag "vless-in".
+	ibID, err := db.UpsertInbound("vless-in", "vless", 443, "f.json", `{"tag":"vless-in"}`)
+	if err != nil {
+		t.Fatalf("UpsertInbound: %v", err)
+	}
+	nodeID, _ := db.UpsertNode(models.Node{Name: "eu-1", APIAddr: "10.7.0.1:10085", InboundTag: "vless-in", Enabled: true})
+
+	// alice: enabled, placed, has credential → wanted.
+	alice, _ := db.CreateUser("alice", "", "t-alice", "")
+	if err := db.UpsertUserClient(alice.ID, ibID, `{"id":"a"}`); err != nil {
+		t.Fatalf("UpsertUserClient alice: %v", err)
+	}
+	if err := db.AssignUserToNodes(alice.ID, []int64{nodeID}); err != nil {
+		t.Fatalf("AssignUserToNodes alice: %v", err)
+	}
+
+	// bob: placed + credential but DISABLED → excluded.
+	bob, _ := db.CreateUser("bob", "", "t-bob", "")
+	_ = db.UpsertUserClient(bob.ID, ibID, `{"id":"b"}`)
+	_ = db.AssignUserToNodes(bob.ID, []int64{nodeID})
+	if err := db.SetUserEnabled(bob.ID, false); err != nil {
+		t.Fatalf("disable bob: %v", err)
+	}
+
+	// carol: has credential but NOT placed on the node → excluded.
+	carol, _ := db.CreateUser("carol", "", "t-carol", "")
+	_ = db.UpsertUserClient(carol.ID, ibID, `{"id":"c"}`)
+
+	// dave: placed but NO credential for the inbound → excluded.
+	dave, _ := db.CreateUser("dave", "", "t-dave", "")
+	_ = db.AssignUserToNodes(dave.ID, []int64{nodeID})
+
+	want, err := db.ListWantedClientsForNode(nodeID, "vless-in")
+	if err != nil {
+		t.Fatalf("ListWantedClientsForNode: %v", err)
+	}
+	if len(want) != 1 {
+		t.Fatalf("expected only alice wanted, got %d: %+v", len(want), want)
+	}
+	if want[0].Email != "alice" || want[0].ClientConfig != `{"id":"a"}` {
+		t.Errorf("wrong wanted client: %+v", want[0])
+	}
+}

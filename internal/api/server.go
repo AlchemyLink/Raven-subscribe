@@ -53,11 +53,15 @@ type Server struct {
 	// monitoring can alert on users hitting a disabled fallback (a forgotten
 	// sanitization window). Resets on restart — alert on increase(), not value.
 	fallbackDenied atomic.Int64
+	// nodeStatus holds the last multi-node reconcile outcome per node name,
+	// surfaced additively on /api/sync/status. Nil/empty in single-node mode.
+	nodeStatusMu sync.Mutex
+	nodeStatus   map[string]nodeSyncStatus
 }
 
 // NewServer creates a new Server with the given config, database, and syncer.
 func NewServer(cfg *config.Config, db *database.DB, syncer Syncer) *Server {
-	return &Server{cfg: cfg, db: db, syncer: syncer, admin: buildAdmin(cfg)}
+	return &Server{cfg: cfg, db: db, syncer: syncer, admin: buildAdmin(cfg), nodeStatus: map[string]nodeSyncStatus{}}
 }
 
 // buildAdmin selects the engine write backend:
@@ -1633,7 +1637,16 @@ func (s *Server) triggerSync(w http.ResponseWriter, _ *http.Request) {
 //
 // GET /api/sync/status
 func (s *Server) handleSyncStatus(w http.ResponseWriter, _ *http.Request) {
-	jsonOK(w, s.syncer.Status())
+	// Embed the existing flat SyncStatus (unchanged for single-node consumers)
+	// and add an optional per-node map in multi-node mode.
+	resp := struct {
+		syncer.SyncStatus
+		Nodes map[string]nodeSyncStatus `json:"nodes,omitempty"`
+	}{
+		SyncStatus: s.syncer.Status(),
+		Nodes:      s.snapshotNodeStatus(),
+	}
+	jsonOK(w, resp)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
