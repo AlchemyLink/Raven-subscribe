@@ -60,6 +60,15 @@ type Node struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// WantedClient is one (identity, credential) the multi-node reconcile expects
+// to exist on a node: an enabled user placed on the node who holds an enabled
+// credential for the node's inbound_tag. Used as the "want" set against the
+// node's runtime "have" set from GetInboundUsers.
+type WantedClient struct {
+	Email        string
+	ClientConfig string
+}
+
 // UserClient maps a user to their credentials in a specific inbound
 type UserClient struct {
 	ID           int64  `json:"id"`

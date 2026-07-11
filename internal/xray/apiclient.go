@@ -326,6 +326,42 @@ func RemoveInboundViaAPI(apiAddr, tag string) error {
 	return nil
 }
 
+// GetInboundUsersViaAPI returns the emails of every user currently registered
+// on the given inbound at the running Xray instance (HandlerService
+// GetInboundUsers with an empty email = all users). This is the runtime "have"
+// set for multi-node reconcile: because gRPC-added users are in-memory only, a
+// node restart empties this list until the reconcile loop re-adds them.
+func GetInboundUsersViaAPI(apiAddr, tag string) ([]string, error) {
+	if apiAddr == "" {
+		return nil, fmt.Errorf("xray_api_addr required")
+	}
+	if strings.TrimSpace(tag) == "" {
+		return nil, fmt.Errorf("tag required")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), apiDialTimeout)
+	defer cancel()
+
+	conn, err := dialXrayAPI(apiAddr)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = conn.Close() }()
+
+	client := command.NewHandlerServiceClient(conn)
+	resp, err := client.GetInboundUsers(ctx, &command.GetInboundUserRequest{Tag: tag})
+	if err != nil {
+		return nil, fmt.Errorf("get inbound users: %w", err)
+	}
+	emails := make([]string, 0, len(resp.GetUsers()))
+	for _, u := range resp.GetUsers() {
+		if e := strings.TrimSpace(u.GetEmail()); e != "" {
+			emails = append(emails, e)
+		}
+	}
+	return emails, nil
+}
+
 // clientMapToProtocolUser converts a client map (from build*Client) to protocol.User.
 func clientMapToProtocolUser(protocolName string, client map[string]interface{}, email string) (*protocol.User, error) {
 	proto := strings.ToLower(protocolName)
