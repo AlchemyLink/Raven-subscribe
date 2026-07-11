@@ -88,7 +88,9 @@ func TestFanout_AddClient_AllFail_Errors(t *testing.T) {
 }
 
 func TestFanout_AddExistingClient_BenignExistsIsSuccess(t *testing.T) {
-	a := &fakeAdmin{addEx: fmt.Errorf("User user@z already exists.")}
+	// Xray's real reply is "User X already exists." — the matcher is
+	// case-insensitive substring ("exist"), so a lowercased form tests the same.
+	a := &fakeAdmin{addEx: fmt.Errorf("user user@z already exists")}
 	b := &fakeAdmin{addErr: fmt.Errorf("unused")}
 	f := NewFanoutAdmin([]NamedAdmin{named("eu-1", a), named("eu-2", b)})
 
@@ -98,7 +100,8 @@ func TestFanout_AddExistingClient_BenignExistsIsSuccess(t *testing.T) {
 }
 
 func TestFanout_RemoveClient_BenignNotFoundIsSuccess(t *testing.T) {
-	a := &fakeAdmin{rmErr: fmt.Errorf("User user@z not found.")}
+	// Xray's real reply is "User X not found." — matched case-insensitively.
+	a := &fakeAdmin{rmErr: fmt.Errorf("user user@z not found")}
 	b := &fakeAdmin{} // clean remove
 	f := NewFanoutAdmin([]NamedAdmin{named("eu-1", a), named("eu-2", b)})
 
