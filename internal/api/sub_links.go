@@ -353,6 +353,10 @@ func (s *Server) generateConfigForSubscriptionRequestWithForcedProtocol(r *http.
 	if err != nil {
 		return nil, "", fmt.Errorf("internal error")
 	}
+	clients = s.expandClientsForNodes(user.ID, clients)
+	if len(clients) == 0 {
+		return nil, "", fmt.Errorf("no client endpoints after node placement")
+	}
 	cfg, err := xray.GenerateClientConfig(
 		s.effectiveHost(r),
 		s.effectiveInboundHosts(r),

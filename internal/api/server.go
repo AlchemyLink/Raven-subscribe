@@ -369,6 +369,12 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	clients = s.expandClientsForNodes(user.ID, clients)
+	if len(clients) == 0 {
+		jsonError(w, "no client endpoints after node placement", http.StatusNotFound)
+		return
+	}
+
 	cfg, err := xray.GenerateClientConfig(
 		s.effectiveHost(r),
 		s.effectiveInboundHosts(r),
