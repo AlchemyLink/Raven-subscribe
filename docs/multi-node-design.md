@@ -2,6 +2,10 @@
 
 Status: implemented, shipped in v0.4.0.
 
+> **This is the design / architecture document, written for contributors.** To
+> **use** multi-node (configure nodes, place users, operate a fleet), read the
+> [Multi-node Usage Guide](multi-node.md) instead.
+
 > This document is maintained in English. A Russian translation is kept at [multi-node-design.ru.md](multi-node-design.ru.md) (may lag behind).
 
 Scope: Raven-subscribe. Touches `internal/{config,database,api,syncer,xray,core}`.

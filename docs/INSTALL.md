@@ -186,10 +186,11 @@ curl -H "X-Admin-Token: your-secret-token" http://localhost:8080/api/users
 ## 6. Multi-node deployment
 
 Optional. Skip this section for a single-node install — the steps above already
-give you a complete N=1 deployment. Multi-node lets one control plane drive
-several Xray nodes behind the same subscription URLs; see the
-[Multi-node section of the README](../README.md#multi-node) for how it behaves
-and [`multi-node-design.md`](multi-node-design.md) for the full design.
+give you a complete N=1 deployment. This section covers the **server side** —
+bringing up a node so the control plane can reach it. For configuring and
+operating multi-node from the control plane, see the
+[Multi-node Usage Guide](multi-node.md); for the architecture, see
+[`multi-node-design.md`](multi-node-design.md).
 
 **Prerequisites for each extra node:**
 

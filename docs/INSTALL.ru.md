@@ -185,11 +185,11 @@ curl -H "X-Admin-Token: ваш-секретный-токен" http://localhost:8
 ## 6. Multi-node развёртывание
 
 Опционально. Для одиночной ноды пропустите — шаги выше уже дают полное
-развёртывание (случай N=1). Multi-node позволяет одному control plane управлять
-несколькими Xray-нодами за одними и теми же subscription-URL; поведение описано
-в [Multi-node секции README](../README.md#multi-node), полный дизайн — в
-[`multi-node-design.ru.md`](multi-node-design.ru.md) (англ. оригинал —
-[`multi-node-design.md`](multi-node-design.md)).
+развёртывание (случай N=1). Эта секция про **серверную сторону** — как поднять
+ноду, чтобы control plane мог до неё достучаться. Настройка и эксплуатация
+multi-node со стороны control plane — в
+[Руководстве пользователя](multi-node.ru.md); архитектура — в
+[`multi-node-design.ru.md`](multi-node-design.ru.md).
 
 **Требования к каждой дополнительной ноде:**
 
