@@ -11,7 +11,7 @@ Status: implemented, shipped in v0.4.0.
 Scope: Raven-subscribe. Touches `internal/{config,database,api,syncer,xray,core}`.
 It does **not** change the subscription output for single-node installs (see §10).
 Issue: [#100 multi node support](https://github.com/AlchemyLink/Raven-subscribe/issues/100).
-Related: [`internal-core-design.md`](internal-core-design.md) — multi-node builds on top of it.
+Related: multi-node builds on the `core.AdminAPI` write-path seam in `internal/core`.
 
 ## 1. Why
 

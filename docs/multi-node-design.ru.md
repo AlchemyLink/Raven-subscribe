@@ -11,7 +11,7 @@
 Область: Raven-subscribe. Затрагивает `internal/{config,database,api,syncer,xray,core}`.
 На вывод подписки для одноузловых установок это **не** влияет (см. §10).
 Issue: [#100 multi node support](https://github.com/AlchemyLink/Raven-subscribe/issues/100).
-Связано: [`internal-core-design.md`](internal-core-design.md) — multi-node надстраивается над ним.
+Связано: multi-node надстраивается над write-path `core.AdminAPI` в `internal/core`.
 
 ## 1. Зачем
 
