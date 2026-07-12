@@ -1,82 +1,89 @@
 # `multi-node` — Design Doc
 
 Status: draft, 2026-06-07.
-Scope: Raven-subscribe. Затрагивает `internal/{config,database,api,syncer,xray,core}`.
-Не меняет wire-формат подписки для односерверных установок (verifiable, см. §10).
+
+> This document is maintained in English. A Russian translation is kept at [multi-node-design.ru.md](multi-node-design.ru.md) (may lag behind).
+
+Scope: Raven-subscribe. Touches `internal/{config,database,api,syncer,xray,core}`.
+Does not change the subscription wire format for single-node installs (verifiable, see §10).
 Issue: [#100 multi node support](https://github.com/AlchemyLink/Raven-subscribe/issues/100).
-Связанный док: [`internal-core-design.md`](internal-core-design.md) — multi-node садится поверх него.
+Related doc: [`internal-core-design.md`](internal-core-design.md) — multi-node sits on top of it.
 
-## 1. Зачем
+## 1. Why
 
-Сегодня один Raven управляет ровно одним Xray (локальный `config.d` + один
-`xray_api_addr`). Чтобы держать несколько Xray-нод, приходится поднимать
-отдельный Raven на каждой ноде со своей SQLite — дублирование стора юзеров,
-рассинхрон токенов, N точек админства.
+Today a single Raven manages exactly one Xray (local `config.d` + one
+`xray_api_addr`). To run several Xray nodes, you have to stand up a separate
+Raven on each node with its own SQLite — duplication of the user store,
+token drift, N points of administration.
 
-Запрос (#100): **один Raven как authoritative-стор юзеров → раздаёт юзеров на
-несколько удалённых Xray-нод**, без отдельного Raven на каждой. Для небольших
-приватных инсталляций это снимает главный ops-барьер.
+The request (#100): **one Raven as the authoritative user store → distributes
+users to several remote Xray nodes**, without a separate Raven on each. For
+small private installs this removes the main ops barrier.
 
-Ключевая находка ресерча: gRPC-слой (`internal/xray/apiclient.go`) **уже
-stateless и мультитаргетный** — каждая функция принимает `apiAddr` параметром
-и дайлит заново. Однотаргетность сидит только в одном поле конфига
-(`XrayAPIAddr`) и в вызывающем коде. А `internal/core` (Phase 1 готова) уже
-вводит интерфейс `core.AdminAPI` с конструкторами `NewGRPCAdmin(apiAddr)` /
-`NewFileAdmin(...)` — это ровно точка вставки мультинода.
+Key research finding: the gRPC layer (`internal/xray/apiclient.go`) **is
+already stateless and multi-target** — every function takes `apiAddr` as a
+parameter and dials anew. The single-target assumption lives in just one config
+field (`XrayAPIAddr`) and in the calling code. And `internal/core` (Phase 1
+done) already introduces the `core.AdminAPI` interface with constructors
+`NewGRPCAdmin(apiAddr)` / `NewFileAdmin(...)` — this is precisely the multi-node
+insertion point.
 
-## 2. Не-цели (явно)
+## 2. Non-goals (explicit)
 
-- **Не вводим второе ядро.** Multi-node ≠ multi-core. Все ноды — Xray. Sing-box
-  по-прежнему вне скоупа (см. `internal-core-design.md` §2). Multi-node —
-  ортогонален engine-абстракции и не требует её обобщать.
-- **Не делаем ноды гетерогенными по протоколу/REALITY.** Ноды **гомогенны**:
-  одинаковые inbound-структуры, REALITY-ключи, SNI, VLESS Encryption.
-  Различаются только `public_host:public_port` (и `api_addr`). Это «mirror
-  config» — тот же принцип, что уже принят для bridge (mldsa65 compat:
-  bridge mirrors EU). Гетерогенные ноды — отдельный проект, не сейчас.
-- **Не вводим оркестрацию деплоя Xray.** Raven не ставит и не настраивает
-  Xray на нодах — это работа Ansible. Raven лишь раздаёт юзеров на уже
-  поднятые, идентично сконфигурированные ноды.
-- **Не ломаем single-node путь.** При отсутствии секции `nodes` в конфиге
-  поведение байт-идентично сегодняшнему (CI-инвариант, §10).
-- **Не выпускаем plaintext gRPC по интернету.** См. §7 — это блокер, а не TODO.
+- **We do not introduce a second engine.** Multi-node ≠ multi-core. All nodes
+  are Xray. Sing-box remains out of scope (see `internal-core-design.md` §2).
+  Multi-node is orthogonal to the engine abstraction and does not require
+  generalizing it.
+- **We do not make nodes heterogeneous by protocol/REALITY.** Nodes are
+  **homogeneous**: identical inbound structures, REALITY keys, SNI, VLESS
+  Encryption. They differ only in `public_host:public_port` (and `api_addr`).
+  This is the "mirror config" — the same principle already adopted for the
+  bridge (mldsa65 compat: bridge mirrors EU). Heterogeneous nodes are a separate
+  project, not now.
+- **We do not introduce Xray deploy orchestration.** Raven does not install or
+  configure Xray on nodes — that's Ansible's job. Raven only distributes users
+  to already-provisioned, identically configured nodes.
+- **We do not break the single-node path.** Absent a `nodes` section in the
+  config, behavior is byte-identical to today's (CI invariant, §10).
+- **We do not ship plaintext gRPC over the internet.** See §7 — this is a
+  blocker, not a TODO.
 
-## 3. Текущая привязка к «одной ноде» (ground truth)
+## 3. Current binding to "one node" (ground truth)
 
-Где «один Xray» зашит в код:
+Where "one Xray" is baked into the code:
 
-| Точка | Что предполагает single-node |
+| Point | What it assumes about single-node |
 |---|---|
-| `config.Config.XrayAPIAddr` (string) | один gRPC-адрес |
-| `config.Config.APIUserInboundTag` (string) | один целевой inbound |
-| `config.Config.ServerHost` + `InboundHosts`/`InboundPorts` (map by tag) | один набор endpoint-ов; host/port keyed by **tag**, не by node |
-| `api/server.go` CRUD (~575-770) | `if apiAddr != "" { …ViaAPI } else { …file }` — один backend |
-| `syncer/syncer.go:229` Mode-2 drift | «have»-множество читается из **локального** `config.d` через `GetExistingIdentitiesInInbound` (файлы на диске) |
-| `syncer/status.go` `SyncStatus` | один глобальный health-снимок |
-| `xray/apiclient.go` | **уже мультитаргетный** — единственное место, что НЕ надо менять |
+| `config.Config.XrayAPIAddr` (string) | one gRPC address |
+| `config.Config.APIUserInboundTag` (string) | one target inbound |
+| `config.Config.ServerHost` + `InboundHosts`/`InboundPorts` (map by tag) | one set of endpoints; host/port keyed by **tag**, not by node |
+| `api/server.go` CRUD (~575-770) | `if apiAddr != "" { …ViaAPI } else { …file }` — one backend |
+| `syncer/syncer.go:229` Mode-2 drift | the "have" set is read from the **local** `config.d` via `GetExistingIdentitiesInInbound` (files on disk) |
+| `syncer/status.go` `SyncStatus` | one global health snapshot |
+| `xray/apiclient.go` | **already multi-target** — the one place that does NOT need changing |
 
-Логически single-node допущение живёт в 4 местах: config, БД-модель, CRUD-роутинг
-в api, и drift/status в syncer. Цель доки — расширить ровно эти 4, оставив
-gRPC-слой как есть и не тронув локальный путь.
+Logically the single-node assumption lives in 4 places: config, DB model,
+CRUD routing in api, and drift/status in syncer. The doc's goal is to extend
+exactly these 4, leaving the gRPC layer as-is and not touching the local path.
 
-## 4. Модель ноды
+## 4. Node model
 
 ```jsonc
-// config.json — новая опциональная секция. Отсутствует → single-node, как сегодня.
+// config.json — new optional section. Absent → single-node, as today.
 {
-  "server_host": "eu.example.com",        // legacy: остаётся как implicit local node
+  "server_host": "eu.example.com",        // legacy: stays as the implicit local node
   "xray_api_addr": "127.0.0.1:10085",     // legacy
   "api_user_inbound_tag": "vless-reality-in",
 
   "nodes": [
     {
-      "name": "eu-1",                      // стабильный id ноды (FK в БД)
-      "api_addr": "10.7.0.1:10085",        // gRPC HandlerService, ТОЛЬКО на WG-адресе (§7)
-      "inbound_tag": "vless-reality-in",   // в какой inbound лить юзеров
-      "public_host": "eu.example.com",     // что попадёт в outbound клиентского конфига
+      "name": "eu-1",                      // stable node id (FK in the DB)
+      "api_addr": "10.7.0.1:10085",        // gRPC HandlerService, ONLY on the WG address (§7)
+      "inbound_tag": "vless-reality-in",   // which inbound to pour users into
+      "public_host": "eu.example.com",     // what lands in the client config's outbound
       "public_port": 443,
-      "enabled": true,                     // нода в ротации генератора/синка
-      "deploy": {                          // ОПЦИОНАЛЬНО, только для file-backend нод
+      "enabled": true,                     // node is in the generator/sync rotation
+      "deploy": {                          // OPTIONAL, only for file-backend nodes
         "mode": "grpc"                     // "grpc" (default) | "ssh_rsync"
       }
     },
@@ -84,39 +91,42 @@ gRPC-слой как есть и не тронув локальный путь.
       "inbound_tag": "vless-reality-in", "public_host": "eu2.example.com",
       "public_port": 443, "enabled": true },
 
-    { "name": "eu-3",                      // нода БЕЗ WG → gRPC по публичному адресу под mTLS
-      "api_addr": "203.0.113.7:10085",     // публичный адрес разрешён, т.к. есть tls-блок (§7)
+    { "name": "eu-3",                      // node WITHOUT WG → gRPC over the public address under mTLS
+      "api_addr": "203.0.113.7:10085",     // public address allowed because a tls block is present (§7)
       "inbound_tag": "vless-reality-in", "public_host": "eu3.example.com",
       "public_port": 443, "enabled": true,
-      "tls": {                             // ОПЦИОНАЛЬНО, mTLS на gRPC-дайал к этой ноде
-        "ca_cert":     "/etc/raven/pki/node-ca.pem",   // CA, подписавший server-cert ноды
+      "tls": {                             // OPTIONAL, mTLS on the gRPC dial to this node
+        "ca_cert":     "/etc/raven/pki/node-ca.pem",   // CA that signed the node's server-cert
         "client_cert": "/etc/raven/pki/raven-client.pem",
         "client_key":  "/etc/raven/pki/raven-client.key",
-        "server_name": "eu-3.internal"     // пусто → host из api_addr
+        "server_name": "eu-3.internal"     // empty → host from api_addr
       }
     }
   ]
 }
 ```
 
-Правила обратной совместимости (в `config.Load`):
-- `nodes` отсутствует/пуст → синтезируем **одну** implicit-ноду `name="local"`
-  из legacy-полей (`xray_api_addr`/`api_user_inbound_tag`/`server_host`). Весь
-  downstream-код работает только с `[]Node`, single-node — частный случай N=1.
-- `nodes` задан → legacy-поля игнорируются для провижининга (но `server_host`
-  остаётся дефолтом для `HostForInbound`/балансера, если у ноды пусто).
-- Валидация: `name` уникален и непустой; `api_addr` непуст; при `mode="grpc"`
-  адрес обязан быть в private-диапазоне ИЛИ иметь `tls`-блок (mTLS) ИЛИ явный
-  флаг `allow_public_grpc:true` (анти-footgun против plaintext-по-интернету, §7).
-  `tls`-блок, если задан, требует `ca_cert`+`client_cert`+`client_key`.
+Backward-compat rules (in `config.Load`):
+- `nodes` absent/empty → synthesize **one** implicit node `name="local"` from
+  the legacy fields (`xray_api_addr`/`api_user_inbound_tag`/`server_host`). All
+  downstream code works only with `[]Node`, single-node being the special case
+  N=1.
+- `nodes` set → legacy fields are ignored for provisioning (but `server_host`
+  remains the default for `HostForInbound`/the balancer if a node leaves it
+  empty).
+- Validation: `name` unique and non-empty; `api_addr` non-empty; with
+  `mode="grpc"` the address must be in a private range OR have a `tls` block
+  (mTLS) OR an explicit `allow_public_grpc:true` flag (anti-footgun against
+  plaintext-over-the-internet, §7). The `tls` block, if set, requires
+  `ca_cert`+`client_cert`+`client_key`.
 
-## 5. Модель БД
+## 5. DB model
 
-Сейчас: `users`, `inbounds`, `user_clients(user_id, inbound_id, config_json)`,
-`app_settings`, `emergency_profiles`. Концепта ноды нет.
+Today: `users`, `inbounds`, `user_clients(user_id, inbound_id, config_json)`,
+`app_settings`, `emergency_profiles`. There is no node concept.
 
-Решение **A2 — per-node opt-in** (как просит автор: «enabled on selected
-targets»). Goose-миграция, additive, дефолт = no-op для односерверных:
+Decision **A2 — per-node opt-in** (as the author requests: "enabled on selected
+targets"). A goose migration, additive, default = no-op for single-node:
 
 ```sql
 -- migration NNN_multi_node.sql  (+goose Up)
@@ -131,7 +141,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- какие юзеры на какой ноде. Отсутствие строки = юзер НЕ на ноде.
+-- which users on which node. Absence of a row = user is NOT on the node.
 CREATE TABLE IF NOT EXISTS user_nodes (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     node_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
@@ -140,25 +150,26 @@ CREATE TABLE IF NOT EXISTS user_nodes (
 CREATE INDEX IF NOT EXISTS idx_user_nodes_node ON user_nodes(node_id);
 ```
 
-Бэкфилл при апгрейде (в `+goose Up`, идемпотентно):
-1. Если в конфиге одна implicit-нода → создать строку `nodes('local', …)` и
-   `INSERT INTO user_nodes SELECT id, <local_node_id> FROM users` (все
-   существующие юзеры → на локальной ноде). Поведение не меняется.
-2. Конфиг — источник истины для строк `nodes`: на старте Raven делает
-   reconcile `config.nodes` → таблицу `nodes` (upsert по `name`, пометка
-   `enabled=0` для исчезнувших, без удаления — чтобы `user_nodes` FK выжили).
+Backfill on upgrade (in `+goose Up`, idempotent):
+1. If the config has one implicit node → create a `nodes('local', …)` row and
+   `INSERT INTO user_nodes SELECT id, <local_node_id> FROM users` (all existing
+   users → on the local node). Behavior does not change.
+2. The config is the source of truth for `nodes` rows: at startup Raven
+   reconciles `config.nodes` → the `nodes` table (upsert by `name`, mark
+   `enabled=0` for those that vanished, without deletion — so that `user_nodes`
+   FKs survive).
 
-Invariant: `user_clients` (credential-блоб) остаётся **per-inbound**, не
-per-node. Поскольку ноды гомогенны (§2), один и тот же credential валиден на
-всех нодах с этим `inbound_tag`. `user_nodes` управляет лишь *размещением*,
-не credential-ами. Это держит миграцию маленькой.
+Invariant: `user_clients` (the credential blob) stays **per-inbound**, not
+per-node. Since nodes are homogeneous (§2), the same credential is valid on all
+nodes with that `inbound_tag`. `user_nodes` governs only *placement*, not the
+credentials. This keeps the migration small.
 
-## 6. Изменения по слоям
+## 6. Changes by layer
 
-### 6.1 `internal/core` — fan-out как `AdminAPI`
+### 6.1 `internal/core` — fan-out as `AdminAPI`
 
-Никаких новых интерфейсов. Multi-node — это **композитная реализация**
-существующего `core.AdminAPI`:
+No new interfaces. Multi-node is a **composite implementation** of the existing
+`core.AdminAPI`:
 
 ```go
 // internal/xray/fanout.go
@@ -168,531 +179,556 @@ type fanoutAdmin struct {
 
 func NewFanoutAdmin(nodes []core.NodeTarget) core.AdminAPI { … }
 
-// AddClient на fan-out = AddClient на каждой целевой ноде; собирает per-node
-// результат. Частичный успех НЕ откатывается (см. §6.4 — это by design:
-// «partial failures remain visible»), а репортится наверх.
+// AddClient on the fan-out = AddClient on each target node; collects per-node
+// results. A partial success is NOT rolled back (see §6.4 — this is by design:
+// "partial failures remain visible"), but reported upward.
 func (f *fanoutAdmin) AddClient(inboundTag, identity string, h core.AddClientHint) (string, error)
 ```
 
-Важно: `AddClient` должен вернуть **один** `storedConfigJSON` для записи в БД.
-Поскольку ноды гомогенны, credential идентичен на всех — берём с первой
-успешной ноды, остальные сверяем (mismatch = config-drift между нодами,
-логируем громко). Это закрывает open-question «какой config_json писать».
+Important: `AddClient` must return **one** `storedConfigJSON` to write to the
+DB. Since nodes are homogeneous, the credential is identical across all — take
+it from the first successful node and cross-check the rest (a mismatch =
+config drift between nodes, log loudly). This closes the open question "which
+config_json to write".
 
-Сигнатуры `core.AdminAPI` (`AddClient/RemoveClient/AddInboundFromJSON/…`)
-**не меняются** — fan-out прячется за тем же интерфейсом. `api.Server`,
-получивший поле `admin core.AdminAPI`, не замечает разницы между одной нодой и N.
+The signatures of `core.AdminAPI` (`AddClient/RemoveClient/AddInboundFromJSON/…`)
+**do not change** — the fan-out hides behind the same interface. `api.Server`,
+having received an `admin core.AdminAPI` field, does not notice the difference
+between one node and N.
 
-**Состояние core-рефактора (verified 2026-06-07):** заморожен на Phase 1 —
-все 4 интерфейса и value-типы объявлены (`internal/core/*.go`,
-`TestCoreInvariants`), но `internal/xray` их **не имплементирует** (нет
-`impl.go`, нет `NewGRPCAdmin/NewFileAdmin`), а `api`/`syncer` импортируют
-`xray` напрямую — **28 call-site**. Поэтому multi-node не ждёт весь рефактор
-(§9): берём **узкую адопцию** — имплементируем только `core.AdminAPI`
-(write-path) + инъекция в `Server`. Полную миграцию builder/parser/syncer
-(Phase 3/4 internal-core-design) оставляем отдельным проектом.
+**State of the core refactor (verified 2026-06-07):** frozen at Phase 1 — all
+4 interfaces and value types are declared (`internal/core/*.go`,
+`TestCoreInvariants`), but `internal/xray` **does not implement** them (no
+`impl.go`, no `NewGRPCAdmin/NewFileAdmin`), and `api`/`syncer` import `xray`
+directly — **28 call sites**. So multi-node does not wait for the whole
+refactor (§9): we take a **narrow adoption** — implement only `core.AdminAPI`
+(write-path) + injection into `Server`. The full migration of builder/parser/syncer
+(Phase 3/4 of internal-core-design) is left as a separate project.
 
-### 6.2 `internal/api` — CRUD и выбор нод
+### 6.2 `internal/api` — CRUD and node selection
 
-- `POST /api/users` принимает опциональный `nodes: ["eu-1","eu-2"]`. Пусто →
-  все `enabled` ноды (или дефолт-политика). Заполняет `user_nodes`.
-- CRUD идёт через `s.admin` (= fanoutAdmin) — никаких `if apiAddr` ветвей
-  (их и так убирает Фаза 3 core-рефактора).
-- Новые admin-эндпоинты: `GET/POST/DELETE /api/nodes`, `POST /api/users/{id}/nodes`.
+- `POST /api/users` accepts an optional `nodes: ["eu-1","eu-2"]`. Empty → all
+  `enabled` nodes (or the default policy). Populates `user_nodes`.
+- CRUD goes through `s.admin` (= fanoutAdmin) — no `if apiAddr` branches
+  (which Phase 3 of the core refactor removes anyway).
+- New admin endpoints: `GET/POST/DELETE /api/nodes`, `POST /api/users/{id}/nodes`.
 
-### 6.3 `internal/xray/generator.go` — outbound на ноду
+### 6.3 `internal/xray/generator.go` — outbound per node
 
-Сегодня генератор делает outbound(s) из inbound-структуры + `InboundHosts`/
-`InboundPorts` (keyed by tag). Для мультинода:
+Today the generator makes outbound(s) from the inbound structure +
+`InboundHosts`/`InboundPorts` (keyed by tag). For multi-node:
 
-- для каждой ноды, где юзер размещён (`user_nodes`), эмитим **один outbound**
-  с `node.public_host:node.public_port`, наследуя protocol/security/REALITY от
-  `inbound_tag`-структуры;
-- все эти outbound-ы кладём под **существующий балансер** (`BalancerStrategy`).
-  Клиент сам выбирает живую ноду по leastPing/leastLoad — бесплатно из коробки.
+- for each node where the user is placed (`user_nodes`), emit **one outbound**
+  with `node.public_host:node.public_port`, inheriting protocol/security/REALITY
+  from the `inbound_tag` structure;
+- put all these outbounds under the **existing balancer** (`BalancerStrategy`).
+  The client picks a live node itself by leastPing/leastLoad — for free, out of
+  the box.
 
-Это и есть «subscription generation includes target endpoint selection» из
-issue: endpoint-ы = ноды юзера, селекция = балансер.
+This is exactly the "subscription generation includes target endpoint selection"
+from the issue: the endpoints = the user's nodes, the selection = the balancer.
 
-Wire-инвариант: при N=1 (single-node) outbound байт-идентичен сегодняшнему
-(golden-тест, §10).
+Wire invariant: at N=1 (single-node) the outbound is byte-identical to today's
+(golden test, §10).
 
 ### 6.4 `internal/syncer` — per-node drift/status
 
-**Verified 2026-06-07 против `xray-core v1.260327.0`:** HandlerService **отдаёт
-список юзеров инбаунда через gRPC** — `GetInboundUsers(tag, email="")` →
-`um.GetUsers(ctx)` (весь список), плюс `GetInboundUsersCount(tag)` и
+**Verified 2026-06-07 against `xray-core v1.260327.0`:** HandlerService **returns
+the inbound's user list over gRPC** — `GetInboundUsers(tag, email="")` →
+`um.GetUsers(ctx)` (the whole list), plus `GetInboundUsersCount(tag)` and
 `ListInbounds(isOnlyTags)`
-(`app/proxyman/command/command.go:125-163`, `command.proto:48-97`). Эти RPC
-**не обёрнуты** в нашем `internal/xray/apiclient.go` сегодня — но доступны.
+(`app/proxyman/command/command.go:125-163`, `command.proto:48-97`). These RPCs
+**are not wrapped** in our `internal/xray/apiclient.go` today — but they are
+available.
 
-Следствие: для удалённой ноды доступен **полноценный reconcile по сети** —
-«have»-множество берём `GetInboundUsers`, «want» — из БД, diff устраняем
-`AddUser`/`RemoveUser`. Это та же семантика, что у локального config.d-пути,
-но без зависимости от файлов на диске.
+Consequence: a remote node has a **full reconcile over the network** — take the
+"have" set from `GetInboundUsers`, "want" from the DB, resolve the diff with
+`AddUser`/`RemoveUser`. This is the same semantics as the local config.d path,
+but without a dependency on files on disk.
 
-Модель для удалённых gRPC-нод — **реальный diff (DB=истина)**:
-- периодически (по `SyncInterval`) для каждой `enabled`-ноды:
+The model for remote gRPC nodes is a **real diff (DB=truth)**:
+- periodically (per `SyncInterval`) for each `enabled` node:
   `have = GetInboundUsers(tag)`; `want = user_nodes ∩ inbound`;
-  добавить `want\have` через `AddUser`, опционально удалить `have\want`;
-- `AddUser` на дубль → `"User X already exists."`; `RemoveUser` отсутствующего
-  → `"User X not found."` — fan-out **обязан** глотать обе как benign
-  (string-match), иначе idempotent re-apply спамит ошибками. Сейчас apiclient
-  глотает exist-ошибку только для AddInbound (см. §13);
-- per-node health = (gRPC reachable) + (drift count после diff).
+  add `want\have` via `AddUser`, optionally remove `have\want`;
+- `AddUser` on a duplicate → `"User X already exists."`; `RemoveUser` on a
+  missing one → `"User X not found."` — the fan-out **must** swallow both as
+  benign (string-match), otherwise idempotent re-apply spams errors. Right now
+  apiclient swallows the exist error only for AddInbound (see §13);
+- per-node health = (gRPC reachable) + (drift count after diff).
 
-**⚠️ Рестарт ноды стирает gRPC-юзеров (см. §13).** Reconcile-тик —
-не только drift-страховка, а **обязательный** recovery-механизм: после
-рестарта удалённой ноды все её юзера исчезают до следующего прохода.
-Для gRPC-only нод это означает outage ≤ `SyncInterval`.
+**⚠️ A node restart wipes gRPC users (see §13).** The reconcile tick is not
+just drift insurance but a **mandatory** recovery mechanism: after a remote node
+restarts, all of its users disappear until the next pass. For gRPC-only nodes
+this means an outage ≤ `SyncInterval`.
 
-**Бонус-упрощение (вне скоупа multi-node, но открывается):** локальный путь
-сейчас в gRPC-режиме читает диск через `GetExistingIdentitiesInInbound`
-(`syncer.go:237`). После обёртки `GetInboundUsers` обе ветви (local/remote)
-могут унифицироваться на gRPC, убрав disk-read из drift-детекта целиком.
-Не обязательно для multi-node — отметить как follow-up.
+**Bonus simplification (out of multi-node scope, but it opens up):** the local
+path today, in gRPC mode, reads the disk via `GetExistingIdentitiesInInbound`
+(`syncer.go:237`). After wrapping `GetInboundUsers`, both branches
+(local/remote) can be unified on gRPC, removing the disk read from drift
+detection entirely. Not required for multi-node — flag it as a follow-up.
 
-Локальная нода (с `config_dir`) до унификации продолжает использовать
-существующий config.d-based drift из `syncXray()` **без изменений**.
+The local node (with `config_dir`), until unification, continues to use the
+existing config.d-based drift from `syncXray()` **unchanged**.
 
 `SyncStatus` → per-node:
 
 ```go
 type MultiSyncStatus struct {
-    Nodes map[string]NodeSyncStatus `json:"nodes"` // ключ = node.name
+    Nodes map[string]NodeSyncStatus `json:"nodes"` // key = node.name
 }
 type NodeSyncStatus struct {
-    SyncStatus               // переиспользуем существующую структуру
-    Reachable   bool   `json:"reachable"`     // последний gRPC-дайл удался
+    SyncStatus               // reuse the existing struct
+    Reachable   bool   `json:"reachable"`     // last gRPC dial succeeded
     LastApplyOK bool   `json:"last_apply_ok"`
-    UsersTarget int    `json:"users_target"`  // сколько должно быть (DB)
+    UsersTarget int    `json:"users_target"`  // how many there should be (DB)
     ApplyErrors int    `json:"apply_errors"`
 }
 ```
 
-`/api/sync/status` отдаёт `MultiSyncStatus`. Для single-node — один ключ
-`"local"`, форма расширяется аддитивно (dashboard читает `.nodes["local"]`).
-Это и есть «sync status displays per-target rather than global» + «partial
-failures remain visible».
+`/api/sync/status` returns `MultiSyncStatus`. For single-node — one key
+`"local"`, the shape extends additively (the dashboard reads `.nodes["local"]`).
+This is exactly "sync status displays per-target rather than global" + "partial
+failures remain visible".
 
-## 7. Security (блокер, не TODO)
+## 7. Security (a blocker, not a TODO)
 
-HandlerService = полный контроль над юзерами/инбаундами (и, без per-RPC ACL,
-над inbound/outbound — §13). По интернету без auth/TLS это критическая дыра:
-кто угодно в сети добавит/удалит юзеров на всех нодах. **Multi-node нельзя
-выпускать с plaintext gRPC по публичной сети.** Транспорт выбирается
-**per-node по `api_addr`** в единственном chokepoint `dialXrayAPI`
-(`resolveCredentials`): нода из mTLS-мапы → TLS, любой другой адрес
-(WG/loopback) → plaintext. Два пути, в порядке предпочтения:
+HandlerService = full control over users/inbounds (and, without per-RPC ACL,
+over inbound/outbound — §13). Over the internet without auth/TLS this is a
+critical hole: anyone on the network can add/remove users on all nodes.
+**Multi-node must not ship with plaintext gRPC over the public network.** The
+transport is chosen **per-node by `api_addr`** in the single chokepoint
+`dialXrayAPI` (`resolveCredentials`): a node from the mTLS map → TLS, any other
+address (WG/loopback) → plaintext. Two paths, in order of preference:
 
-1. **gRPC только по WireGuard (дефолт-рекомендация).** Xray API слушает на
-   WG-адресе ноды; шифрование и взаимная аутентификация — на уровне WG. gRPC
-   остаётся plaintext, но недостижим извне туннеля. Ложится на нашу
-   существующую EU/RU mesh (`f3_second_ru_research`), не требует gRPC-TLS-обвязки
-   и ротации сертов. Конфиг: `api_addr` в private-диапазоне, без `tls`-блока —
-   валидация проходит по `isPrivateHostPort`.
-2. **mTLS на gRPC (для нод без WG).** Реализовано (Фаза 5): опциональный
-   per-node `tls`-блок `{ca_cert, client_cert, client_key, server_name?}`.
-   Raven — TLS-клиент: предъявляет client-cert, проверяет server-cert по CA;
-   `server_name` пусто → host из `api_addr`; форсируется TLS 1.3. Серты читаются
-   **один раз на старте** (`main.configureNodeCredentials` → `xray.BuildTLSCredentials`
-   + `SetNodeCredentials`), **fail-closed** — битый cert = fatal, никогда не
-   молчаливый откат на plaintext против публичного адреса. Cert-provisioning
-   (server-cert + clientAuth на Xray-side) делает Ansible-роль ноды.
+1. **gRPC over WireGuard only (default recommendation).** The Xray API listens
+   on the node's WG address; encryption and mutual authentication are handled at
+   the WG layer. gRPC stays plaintext but is unreachable from outside the tunnel.
+   It fits onto our existing EU/RU mesh (`f3_second_ru_research`), requires no
+   gRPC-TLS scaffolding or cert rotation. Config: `api_addr` in a private range,
+   no `tls` block — validation passes via `isPrivateHostPort`.
+2. **mTLS on gRPC (for nodes without WG).** Implemented (Phase 5): an optional
+   per-node `tls` block `{ca_cert, client_cert, client_key, server_name?}`.
+   Raven is the TLS client: presents the client-cert, verifies the server-cert
+   against the CA; `server_name` empty → host from `api_addr`; TLS 1.3 forced.
+   Certs are read **once at startup** (`main.configureNodeCredentials` →
+   `xray.BuildTLSCredentials` + `SetNodeCredentials`), **fail-closed** — a
+   broken cert = fatal, never a silent fallback to plaintext against a public
+   address. Cert provisioning (server-cert + clientAuth on the Xray side) is
+   done by the node's Ansible role.
 
-Анти-footgun в `config.Load` (§4): `mode="grpc"` с публичным `api_addr` и без
-защиты → ошибка старта. Guard снимается **любым** из: private/WG-адрес,
-`tls`-блок (mTLS сам по себе — шифрование+аутентификация), или явный
-`allow_public_grpc:true` (escape-hatch для внешней mTLS-терминации sidecar'ом).
+Anti-footgun in `config.Load` (§4): `mode="grpc"` with a public `api_addr` and
+no protection → startup error. The guard is lifted by **any** of: a private/WG
+address, a `tls` block (mTLS by itself = encryption+authentication), or an
+explicit `allow_public_grpc:true` (escape-hatch for external mTLS termination by
+a sidecar).
 
-## 8. SSH/rsync деплой — механизм durability, не просто опция
+## 8. SSH/rsync deploy — a durability mechanism, not just an option
 
-Изначально считал rsync second-class опцией. Ресерч рантайма Xray (§13)
-переквалифицирует его: **gRPC-мутации эфемерны (рантайм-онли), rsync в
-`config.d` даёт durability через рестарт ноды.** Это две ортогональные оси:
+I initially treated rsync as a second-class option. The Xray runtime research
+(§13) re-classifies it: **gRPC mutations are ephemeral (runtime-only), rsync
+into `config.d` gives durability across a node restart.** These are two
+orthogonal axes:
 
-| | live-апдейт | переживает рестарт ноды |
+| | live update | survives node restart |
 |---|---|---|
-| gRPC-only | ✅ мгновенно | ❌ юзера теряются до reconcile |
-| rsync config.d only | ❌ только при следующем pull/reload | ✅ |
-| **gRPC + rsync** (как локальная нода) | ✅ | ✅ |
+| gRPC-only | ✅ instant | ❌ users lost until reconcile |
+| rsync config.d only | ❌ only on the next pull/reload | ✅ |
+| **gRPC + rsync** (like the local node) | ✅ | ✅ |
 
-Локальная нода уже делает оба (dual-write gRPC + `config.d`, `RestoreOnStartup`).
-Удалённая нода для той же durability требует, чтобы Raven писал в её `config.d`
-— а это и есть SSH/rsync.
+The local node already does both (dual-write gRPC + `config.d`,
+`RestoreOnStartup`). A remote node needs, for the same durability, that Raven
+write into its `config.d` — and that is precisely SSH/rsync.
 
-Решение по приоритету:
-- **Итерация 1 — gRPC-only**, durability через частый reconcile (outage ≤
-  `SyncInterval` после рестарта ноды). Достаточно для малых инсталляций.
-  `deploy.mode="ssh_rsync"` заложен в схему, но возвращает «not implemented».
-- **Итерация 2 (по спросу) — gRPC + rsync** для durability. Минусы остаются:
-  SSH-ключи, sudo, race с reload; по умолчанию выключен.
+Priority decision:
+- **Iteration 1 — gRPC-only**, durability via frequent reconcile (outage ≤
+  `SyncInterval` after a node restart). Sufficient for small installs.
+  `deploy.mode="ssh_rsync"` is laid into the schema but returns "not implemented".
+- **Iteration 2 (on demand) — gRPC + rsync** for durability. The downsides
+  remain: SSH keys, sudo, a race with reload; off by default.
 
-## 9. План миграции
+## 9. Migration plan
 
-Фазы мерджатся отдельными PR; на каждом `make build && go test ./... -race`
-и integration-тесты зелёные; прод не трогается до Фазы 5.
+Phases are merged as separate PRs; on each, `make build && go test ./... -race`
+and integration tests are green; prod is not touched until Phase 5.
 
-### Фаза 0 — узкая адопция `core.AdminAPI` (НЕ весь рефактор)
-Предусловие, но **только write-path**, не вся internal-core миграция:
-- `internal/xray/impl.go`: `NewGRPCAdmin(apiAddr)` и `NewFileAdmin(dir, perm)`
-  — тонкие методы-обёртки над существующими свободными функциями
+### Phase 0 — narrow adoption of `core.AdminAPI` (NOT the whole refactor)
+A precondition, but **only the write-path**, not the whole internal-core
+migration:
+- `internal/xray/impl.go`: `NewGRPCAdmin(apiAddr)` and `NewFileAdmin(dir, perm)`
+  — thin wrapper methods over the existing free functions
   (`AddClientToInboundViaAPI`/`AddExistingClientToInboundViaAPI`/
   `RemoveUserFromInboundViaAPI`/`AddInboundFromJSONViaAPI`/`RemoveInboundViaAPI`
-  и file-аналоги). Static-check `var _ core.AdminAPI = (*grpcAdmin)(nil)`.
-- `api.Server` получает поле `admin core.AdminAPI`; **5 разбросанных
-  if/else-веток** (`addUserToInbound` server.go:612-616, `removeUserFromXray`
+  and the file analogs). Static-check `var _ core.AdminAPI = (*grpcAdmin)(nil)`.
+- `api.Server` gets an `admin core.AdminAPI` field; **5 scattered if/else
+  branches** (`addUserToInbound` server.go:612-616, `removeUserFromXray`
   :682-697, `addClientToXray` :710-720, `removeClientFromXray` :729-743,
-  `addUserToXray` :756-771) схлопываются в `s.admin.AddClient(...)` и т.д.
-- `parser`/`builder`/`sub_links` миграцию (Phase 3/4 internal-core-design)
-  **НЕ трогаем** — они multi-node не нужны.
+  `addUserToXray` :756-771) collapse into `s.admin.AddClient(...)` etc.
+- The `parser`/`builder`/`sub_links` migration (Phase 3/4 of
+  internal-core-design) **we do not touch** — they are not needed for multi-node.
 
-**Риск:** низкий-средний (write-path локализован в ~5 методах одного файла).
-**Acceptance:** существующие unit+integration зелёные; поведение N=1 идентично;
-`grep -n 'XrayAPIAddr' internal/api/server.go` → только в сборке `admin`, не в
-CRUD-ветвях.
+**Risk:** low-medium (the write-path is localized in ~5 methods of one file).
+**Acceptance:** existing unit+integration green; N=1 behavior identical;
+`grep -n 'XrayAPIAddr' internal/api/server.go` → only in building `admin`, not
+in the CRUD branches.
 
-### Фаза 1 — config + БД, additive, single-node no-op
-`config.nodes` секция + синтез implicit-ноды; goose-миграция `nodes`/
-`user_nodes` + бэкфилл. Downstream ещё не использует — только модель.
-**Риск:** низкий. **Acceptance:** апгрейд существующей БД → все юзеры на
-`local`, подписки байт-идентичны.
+### Phase 1 — config + DB, additive, single-node no-op
+`config.nodes` section + implicit-node synthesis; goose migration `nodes`/
+`user_nodes` + backfill. Downstream does not use it yet — model only.
+**Risk:** low. **Acceptance:** upgrade of an existing DB → all users on
+`local`, subscriptions byte-identical.
 
-### Фаза 2 — `fanoutAdmin`
-`internal/xray/fanout.go` реализует `core.AdminAPI` поверх `[]NewGRPCAdmin`.
-`main.go` собирает fanout из `nodes`. CRUD начинает раскидывать веером.
-**Риск:** низкий-средний. **Acceptance:** unit на partial-failure
-(2 ноды, одна падает → юзер на живой, статус показывает провал второй).
+### Phase 2 — `fanoutAdmin`
+`internal/xray/fanout.go` implements `core.AdminAPI` over `[]NewGRPCAdmin`.
+`main.go` builds the fanout from `nodes`. CRUD starts fanning out.
+**Risk:** low-medium. **Acceptance:** unit on partial-failure
+(2 nodes, one fails → user on the live one, status shows the second's failure).
 
-### Фаза 3 — генератор per-node outbounds + балансер
-`user_nodes` → один outbound на ноду под балансером.
-**Риск:** средний (wire-формат). **Acceptance:** golden-тест N=1
-байт-в-байт со старым; новый golden для N=2.
+### Phase 3 — generator per-node outbounds + balancer
+`user_nodes` → one outbound per node under the balancer.
+**Risk:** medium (wire format). **Acceptance:** golden test N=1 byte-for-byte
+with the old one; new golden for N=2.
 
-### Фаза 4 — per-node status + dashboard
-`MultiSyncStatus`, `/api/sync/status` расширен; idempotent re-apply loop для
-remote-нод; admin-эндпоинты `/api/nodes`.
-**Риск:** низкий. **Acceptance:** down-нода видна как `reachable:false`,
-не роняет sync остальных.
+### Phase 4 — per-node status + dashboard
+`MultiSyncStatus`, `/api/sync/status` extended; idempotent re-apply loop for
+remote nodes; admin endpoints `/api/nodes`.
+**Risk:** low. **Acceptance:** a down node shows as `reachable:false`, does not
+bring down the sync of the others.
 
-### Фаза 5 — security + docs + Ansible
-WG-bound gRPC как дефолт (рекомендация); `allow_public_grpc` guard; опциональный
-mTLS. **mTLS — ГОТОВО** (per-node `tls`-блок, §7): `dialXrayAPI` резолвит creds
-per-`api_addr`, WG/loopback остаётся plaintext, mTLS снимает public-grpc guard,
-fail-closed на старте, TLS 1.3. Остаётся: README + INSTALL multi-node секция;
-Ansible-роль для homogeneous-нод (cross-check с Raven-server-install) —
-provision server-cert + `clientAuth` на Xray gRPC-инбаунде. **Риск:** низкий.
+### Phase 5 — security + docs + Ansible
+WG-bound gRPC as the default (recommendation); `allow_public_grpc` guard;
+optional mTLS. **mTLS — DONE** (per-node `tls` block, §7): `dialXrayAPI`
+resolves creds per-`api_addr`, WG/loopback stays plaintext, mTLS lifts the
+public-grpc guard, fail-closed at startup, TLS 1.3. Remaining: README + INSTALL
+multi-node section; an Ansible role for homogeneous nodes (cross-check with
+Raven-server-install) — provision server-cert + `clientAuth` on the Xray gRPC
+inbound. **Risk:** low.
 
-## 10. Приёмка (инвариант «не сломали subscriber»)
+## 10. Acceptance (the "didn't break the subscriber" invariant)
 
-- При **отсутствии** `nodes` в конфиге:
-  - все unit + integration тесты зелёные;
-  - `/sub/{token}` (все view: full / links_txt / links_b64 / compact) и
-    `/c/{token}` дают **байт-идентичный** ответ до и после, на golden-наборе
-    (VLESS+REALITY, VLESS+XHTTP, fallback);
-  - `/api/sync/status` содержит ровно один ключ `"local"` с теми же полями.
-- При `nodes=[A,B]` гомогенных:
-  - юзер, размещённый на A и B, получает балансер из 2 outbound-ов;
-  - падение B → юзер всё ещё рабочий через A; `status.nodes["eu-2"].reachable=false`;
-  - plaintext gRPC на публичный адрес без `tls`/`allow_public_grpc` → отказ старта;
-  - нода с `tls`-блоком и публичным `api_addr` → старт разрешён (mTLS = guard);
-  - `tls`-блок с битым/отсутствующим cert → fatal на старте (fail-closed).
-- `insecure.NewCredentials()` живёт только в `resolveCredentials` (дефолт для
-  WG/loopback-нод); все mTLS-ноды дайлятся через `credentials.NewTLS` из
-  `SetNodeCredentials`-мапы (security-ревью Фазы 5).
+- With `nodes` **absent** from the config:
+  - all unit + integration tests green;
+  - `/sub/{token}` (all views: full / links_txt / links_b64 / compact) and
+    `/c/{token}` give a **byte-identical** response before and after, on the
+    golden set (VLESS+REALITY, VLESS+XHTTP, fallback);
+  - `/api/sync/status` contains exactly one key `"local"` with the same fields.
+- With `nodes=[A,B]` homogeneous:
+  - a user placed on A and B gets a balancer of 2 outbounds;
+  - B down → the user still works through A; `status.nodes["eu-2"].reachable=false`;
+  - plaintext gRPC to a public address without `tls`/`allow_public_grpc` →
+    startup refusal;
+  - a node with a `tls` block and a public `api_addr` → startup allowed
+    (mTLS = guard);
+  - a `tls` block with a broken/missing cert → fatal at startup (fail-closed).
+- `insecure.NewCredentials()` lives only in `resolveCredentials` (the default
+  for WG/loopback nodes); all mTLS nodes are dialed via `credentials.NewTLS`
+  from the `SetNodeCredentials` map (Phase 5 security review).
 
-## 11. Открытые вопросы
+## 11. Open questions
 
-- **Дефолт-политика размещения новых юзеров.** Все `enabled`-ноды, или явный
-  выбор обязателен? Предложение: дефолт = все `enabled`, переопределяемо
-  `nodes:[...]` в `POST /api/users`. Решить в Фазе 2.
-- **Reality-ключи per-node или общие.** §2 фиксирует гомогенность (общие).
-  Если кому-то нужны разные ключи — это гетерогенные ноды, отдельный проект.
-  Зафиксировать в README как ограничение.
-- **Emergency rotation × multi-node.** `fallback.go` поднимает inbound через
-  gRPC на одном адресе. При мультиноде killswitch/rotation должны идти веером
-  тоже. Вне скоупа первой итерации — но `fanoutAdmin` покрывает
-  `AddInboundFromJSON`/`RemoveInbound` тем же fan-out, так что почти бесплатно.
-  Отметить в Фазе 4.
-- **Stats/метрики per-node.** xray-stats-exporter сейчас скрейпит один Xray.
-  Multi-node → N экспортеров или один мульти-таргетный. Вне скоупа этого дока
-  (это Raven-subscribe), но отметить для observability-роадмапа.
+- **Default placement policy for new users.** All `enabled` nodes, or is an
+  explicit choice mandatory? Proposal: default = all `enabled`, overridable via
+  `nodes:[...]` in `POST /api/users`. Decide in Phase 2.
+- **Reality keys per-node or shared.** §2 fixes homogeneity (shared). If someone
+  needs different keys — that's heterogeneous nodes, a separate project. Record
+  it in the README as a limitation.
+- **Emergency rotation × multi-node.** `fallback.go` brings an inbound up via
+  gRPC on one address. With multi-node the killswitch/rotation must fan out too.
+  Out of scope for the first iteration — but `fanoutAdmin` covers
+  `AddInboundFromJSON`/`RemoveInbound` with the same fan-out, so it's nearly
+  free. Flag it in Phase 4.
+- **Stats/metrics per-node.** xray-stats-exporter currently scrapes one Xray.
+  Multi-node → N exporters or one multi-target one. Out of scope for this doc
+  (that's Raven-subscribe), but flag it for the observability roadmap.
 
-## 12. Что это **не** даёт
+## 12. What this does **not** give
 
-- Не делает ноды гетерогенными (разные протоколы/ключи) — §2.
-- Не оркестрирует деплой Xray — это Ansible.
-- Не решает SPOF самого Raven (один control-plane = одна SQLite). HA Raven —
-  другой проект (вероятно, replicated store, чего мы сознательно избегаем,
-  см. internal-core-design §10).
-- Не повышает throughput одной ноды — это про горизонтальное размещение
-  юзеров, не про производительность.
+- Does not make nodes heterogeneous (different protocols/keys) — §2.
+- Does not orchestrate Xray deploy — that's Ansible.
+- Does not solve the SPOF of Raven itself (one control-plane = one SQLite). HA
+  Raven is another project (probably a replicated store, which we deliberately
+  avoid, see internal-core-design §10).
+- Does not increase a single node's throughput — this is about horizontal
+  placement of users, not performance.
 
-## 13. Жизнеспособность Xray в многонодовом режиме (verified 2026-06-07)
+## 13. Viability of Xray in a multi-node regime (verified 2026-06-07)
 
-Изучение `xray-core v1.260327.0` (vendored) на предмет рантайм-семантики,
-которая решает, работает ли схема «один control-plane → N Xray по gRPC».
+A study of `xray-core v1.260327.0` (vendored) for the runtime semantics that
+decide whether the "one control-plane → N Xray over gRPC" scheme works.
 
-### 13.1 gRPC-мутации эфемерны (центральный факт)
+### 13.1 gRPC mutations are ephemeral (the central fact)
 
-Весь user-state — `MemoryValidator` (`sync.Map`, `proxy/vless/validator.go:28`;
-аналогично trojan/vmess/shadowsocks). `AddInboundHandler`
-(`core/xray.go:98`) — рантайм-регистрация. Во всём `app/proxyman` и
-`app/commander` **ноль** дисковой персистентности (`WriteFile`/`SaveConfig`).
+All user state is a `MemoryValidator` (`sync.Map`, `proxy/vless/validator.go:28`;
+similarly trojan/vmess/shadowsocks). `AddInboundHandler`
+(`core/xray.go:98`) is a runtime registration. Across all of `app/proxyman` and
+`app/commander` there is **zero** disk persistence (`WriteFile`/`SaveConfig`).
 
-**Следствие:** рестарт Xray на ноде стирает всех, кто был добавлен только по
-gRPC. Переживают рестарт лишь юзера в `config.d` (грузятся при старте).
-- Локальная нода: уже закрыто dual-write (gRPC + `config.d`) +
+**Consequence:** an Xray restart on a node wipes everyone added by gRPC alone.
+Only users in `config.d` (loaded at startup) survive a restart.
+- Local node: already closed by dual-write (gRPC + `config.d`) +
   `RestoreOnStartup` (`server.go:688`, `syncer.go:105`).
-- Удалённая gRPC-only нода: локального `config.d` нет → её рестарт = полный
-  отказ юзеров до следующего reconcile. **Reconcile-тик обязателен как
-  recovery, не только как drift-страховка.** Durability — через rsync (§8).
+- Remote gRPC-only node: has no local `config.d` → its restart = a full loss of
+  users until the next reconcile. **The reconcile tick is mandatory as recovery,
+  not just as drift insurance.** Durability is via rsync (§8).
 
-### 13.2 Семантика ошибок (idempotency)
+### 13.2 Error semantics (idempotency)
 
-| Операция | На дубль / отсутствие | Источник |
+| Operation | On duplicate / absence | Source |
 |---|---|---|
-| `AddUser` существующего | `"User X already exists."` | `vless/validator.go:39`, `trojan/validator.go:23` |
-| `RemoveUser` отсутствующего | `"User X not found."` | `vless/validator.go:54`, `shadowsocks/validator.go:66` |
-| `AddInbound` существующего | `*exist*` (уже глотаем) | `fallback.go` |
+| `AddUser` of an existing one | `"User X already exists."` | `vless/validator.go:39`, `trojan/validator.go:23` |
+| `RemoveUser` of an absent one | `"User X not found."` | `vless/validator.go:54`, `shadowsocks/validator.go:66` |
+| `AddInbound` of an existing one | `*exist*` (already swallowed) | `fallback.go` |
 
-Fan-out reconcile **обязан** string-match'ить «already exists» (AddUser) и
-«not found» (RemoveUser) как benign. Текущий `apiclient.go` глотает только
-exist для AddInbound — для AddUser/RemoveUser нужно добавить.
+The fan-out reconcile **must** string-match "already exists" (AddUser) and
+"not found" (RemoveUser) as benign. The current `apiclient.go` swallows only
+exist for AddInbound — for AddUser/RemoveUser it needs to be added.
 
-### 13.3 `GetInboundUsers` отдаёт рантайм-состояние
+### 13.3 `GetInboundUsers` returns runtime state
 
-`GetUsers` → `validator.GetAll()` (`vless/inbound/inbound.go:256`) ранжирует по
-map `email`. Diff корректен (видит и gRPC-, и config-загруженных). Edge-case:
-юзер с **пустым email не вернётся** (`GetAll` идёт по `v.email`). У нас email
-всегда задан (username) — ок, но для чужих конфигов отметить.
+`GetUsers` → `validator.GetAll()` (`vless/inbound/inbound.go:256`) ranges over
+the `email` map. The diff is correct (it sees both gRPC- and config-loaded
+users). Edge case: a user with an **empty email will not be returned** (`GetAll`
+iterates over `v.email`). For us the email is always set (username) — fine, but
+for foreign configs flag it.
 
-### 13.4 Ноды = единый trust-домен (REALITY)
+### 13.4 Nodes = a single trust domain (REALITY)
 
-Гомогенность требует **идентичных** REALITY `privateKey`, `shortIds` (и
-`mldsa65Seed`, если PQ) на всех нодах — иначе один клиентский конфиг не
-аутентифицируется через балансер. Цена: компрометация ключа на любой ноде =
-компрометация REALITY-идентичности всех нод. Это та же модель, что у нашего
-bridge (mirror EU, `feedback_mldsa65_compat`) — приемлемо, но задокументировать
-в README как явное свойство безопасности.
+Homogeneity requires **identical** REALITY `privateKey`, `shortIds` (and
+`mldsa65Seed`, if PQ) on all nodes — otherwise one client config won't
+authenticate across the balancer. The cost: compromise of the key on any node =
+compromise of the REALITY identity of all nodes. This is the same model as our
+bridge (mirror EU, `feedback_mldsa65_compat`) — acceptable, but document it in
+the README as an explicit security property.
 
-### 13.5 Предусловие на ноде (Ansible, не Raven)
+### 13.5 Node precondition (Ansible, not Raven)
 
-Каждая нода должна иметь:
-- `api`-inbound + routing-rule `inboundTag:["api"]` + `services` со списком
-  `HandlerService` (юзеры) и опц. `StatsService` (метрики);
-- API-listener на **WG-адресе** (§7), не на `0.0.0.0`;
-- идентичную inbound-структуру (tag, протокол, REALITY) — homogeneous.
+Every node must have:
+- an `api` inbound + a routing rule `inboundTag:["api"]` + `services` with a
+  list of `HandlerService` (users) and optionally `StatsService` (metrics);
+- the API listener on the **WG address** (§7), not on `0.0.0.0`;
+- an identical inbound structure (tag, protocol, REALITY) — homogeneous.
 
-Raven Xray не настраивает — ноды провижинятся Ansible-ролью заранее (Фаза 5).
+Raven does not configure Xray — nodes are provisioned by an Ansible role in
+advance (Phase 5).
 
-### 13.6 Stats размазаны по нодам
+### 13.6 Stats are smeared across nodes
 
-`StatsService` — per-instance. При балансировке трафик юзера дробится по нодам,
-counters живут на той, что обслужила сессию. Агрегация per-user = сумма по
-нодам. Касается `xray-stats-exporter` (N target'ов или мульти-скрейп), вне
-scope этого дока, но критично для квот/биллинга — отметить в observability.
+`StatsService` is per-instance. Under balancing a user's traffic is split across
+nodes, and counters live on the one that served the session. Per-user
+aggregation = the sum across nodes. It concerns `xray-stats-exporter` (N targets
+or a multi-scrape), out of the scope of this doc, but critical for quotas/billing
+— flag it in observability.
 
-### 13.7 Вердикт
+### 13.7 Verdict
 
-Схема **жизнеспособна** при соблюдении: (1) reconcile как recovery после
-рестарта ноды, (2) benign-обработка idempotency-ошибок, (3) гомогенные ноды
-с общим REALITY-ключом в одном trust-домене, (4) gRPC только по WG, (5)
-ноды предварительно провижинятся Ansible с `api`-inbound. Durability через
-рестарт для gRPC-only нод ограничена `SyncInterval` — для строгой durability
-нужен rsync-путь (§8, итерация 2).
+The scheme is **viable** provided: (1) reconcile as recovery after a node
+restart, (2) benign handling of idempotency errors, (3) homogeneous nodes with a
+shared REALITY key in one trust domain, (4) gRPC over WG only, (5) nodes
+pre-provisioned by Ansible with an `api` inbound. Durability across a restart
+for gRPC-only nodes is limited to `SyncInterval` — for strict durability the
+rsync path is needed (§8, iteration 2).
 
-## 14. Индустриальные паттерны (enterprise Xray multi-node, ресерч 2026-06-07)
+## 14. Industry patterns (enterprise Xray multi-node, research 2026-06-07)
 
-Как multi-node Xray реально устроен у зрелых OSS-панелей — внешняя валидация
-нашего дизайна.
+How multi-node Xray is actually built in mature OSS panels — external validation
+of our design.
 
-### 14.1 Консенсус: node-агент, НЕ прямой cross-network Xray-gRPC
+### 14.1 Consensus: a node agent, NOT direct cross-network Xray gRPC
 
-| Панель | Node-компонент | Panel↔node | Engine на ноде |
+| Panel | Node component | Panel↔node | Engine on the node |
 |---|---|---|---|
-| **Marzban** | `marzban-node` (агент) | REST/HTTPS или RPyC, SSL-серты | Xray (агент владеет lifecycle) |
-| **Marzneshin** (форк Marzban «ради scalability») | `marznode` (агент) | **gRPC + client SSL cert** (`CLIENT_SSL_CERT`) | Xray / Hysteria / sing-box (multi-backend) |
-| **Remnawave** | `remnanode` (агент, NestJS+Xray) | push конфига по «secure internal API», `NODE_PORT` фаерволлится только на IP панели | Xray |
-| **Hiddify-Manager** | — (per-server install) | multi-node — **открытый запрос** (issue #5111) | Xray/sing-box |
+| **Marzban** | `marzban-node` (agent) | REST/HTTPS or RPyC, SSL certs | Xray (the agent owns the lifecycle) |
+| **Marzneshin** (a Marzban fork "for scalability") | `marznode` (agent) | **gRPC + client SSL cert** (`CLIENT_SSL_CERT`) | Xray / Hysteria / sing-box (multi-backend) |
+| **Remnawave** | `remnanode` (agent, NestJS+Xray) | config push over a "secure internal API", `NODE_PORT` firewalled only to the panel's IP | Xray |
+| **Hiddify-Manager** | — (per-server install) | multi-node — an **open request** (issue #5111) | Xray/sing-box |
 
-**Все, у кого multi-node зрелый, ставят агент на ноду.** Никто не дёргает
-Xray HandlerService напрямую по сети из центра. Агент даёт ровно то, чего нет
-у нашего raw-gRPC: **durability** (агент держит конфиг на ноде → сам
-поднимает Xray после рестарта, не завися от reconnect панели), **автономию**
-(Remnawave: нода работает, даже если панель оффлайн), **чистую security-границу**
-(свой протокол + TLS + firewall-на-IP, а не голый Xray API), **config push**
-(агент провижинит inbound-ы, а не только юзеров) и **сбор stats**.
+**Everyone with mature multi-node puts an agent on the node.** No one pokes the
+Xray HandlerService directly over the network from the center. The agent gives
+exactly what our raw gRPC lacks: **durability** (the agent holds the config on
+the node → brings Xray up itself after a restart, not depending on a reconnect
+from the panel), **autonomy** (Remnawave: the node works even if the panel is
+offline), **a clean security boundary** (its own protocol + TLS + firewall-on-IP,
+not raw Xray API), **config push** (the agent provisions inbounds, not just
+users) and **stats collection**.
 
-### 14.2 Чему это учит наш дизайн
+### 14.2 What this teaches our design
 
-- **Наш agentless-выбор — осознанное отклонение от мейнстрима, не незнание.**
-  Оправдан масштабом (мы не панель на тысячи нод), наличием WG-mesh и Ansible,
-  и явным запросом автора issue «no separate Raven on each node». Но **durability-
-  gap реален именно потому, что из-за него все остальные и держат агент** —
-  значит reconcile+rsync (§8, §13.1) это не опция, а обязательная компенсация.
-- **Наш live-delta через `AlterInbound` ЛУЧШE, чем у Marzban.** Marzban
-  исторически переписывает `config.json` и **рестартит Xray** на изменение/
-  истечение юзера → рвёт чужие коннекты (3x-ui issue #4777, Marzban #105). Мы
-  меняем юзеров горячим gRPC без рестарта — это преимущество, сохранить.
-- **Config push мы сознательно НЕ делаем** (inbound-ы провижинит Ansible) —
-  агентные панели делают. Для нас ок: ноды гомогенны и статичны.
-- **Multi-backend (xray/hysteria/singbox) выбрал именно scalability-форк
-  (marznode).** Мы в `internal-core-design §2` это явно отвергли. Trade-off
-  осознан: мы оптимизируем под Xray-only, не под «любой engine».
-- **Stats per-node — нерешённая проблема у всех.** Marzban вводит
-  `usage_coefficient` (множитель биллинга на ноду) + центральный сбор. Если
-  пойдём в квоты/биллинг — нужен аналогичный мульти-таргет сбор
+- **Our agentless choice is a deliberate departure from the mainstream, not
+  ignorance.** Justified by scale (we are not a panel for thousands of nodes),
+  the presence of a WG mesh and Ansible, and the issue author's explicit request
+  "no separate Raven on each node". But the **durability gap is real precisely
+  because it is why everyone else keeps an agent** — meaning reconcile+rsync
+  (§8, §13.1) is not an option but a mandatory compensation.
+- **Our live-delta via `AlterInbound` is BETTER than Marzban's.** Marzban
+  historically rewrites `config.json` and **restarts Xray** on a user's
+  change/expiry → tearing others' connections (3x-ui issue #4777, Marzban #105).
+  We change users with hot gRPC without a restart — this is an advantage, keep it.
+- **Config push we deliberately do NOT do** (inbounds are provisioned by
+  Ansible) — agent-based panels do. For us it's fine: nodes are homogeneous and
+  static.
+- **Multi-backend (xray/hysteria/singbox) was chosen precisely by the
+  scalability fork (marznode).** In `internal-core-design §2` we explicitly
+  rejected it. The trade-off is conscious: we optimize for Xray-only, not for
+  "any engine".
+- **Per-node stats is an unsolved problem for everyone.** Marzban introduces a
+  `usage_coefficient` (a per-node billing multiplier) + central collection. If
+  we go into quotas/billing — a similar multi-target collection is needed
   (`xray-stats-exporter`, §13.6).
 
-### 14.3 Growth-path
+### 14.3 Growth path
 
-Если AlchemyLink когда-нибудь вырастет в продукт со множеством нод/продажей —
-**agent-модель (`raven-node`) становится оправданной**: durability + автономия +
-security-граница перевесят стоимость лишнего компонента. Тогда узкая
-`core.AdminAPI`-адопция (Фаза 0) переиспользуется: `raven-node` имплементирует
-тот же интерфейс локально, а fan-out из центра ходит в агенты вместо голого
-Xray. То есть **текущий agentless-дизайн — не тупик, а первый шаг**, совместимый
-с будущим агентом. Перформанс-заметка (для sizing ноды, не control-plane):
-Xray держит ~40-55 KB/conn, память растёт до ~1 GB и не освобождается; при
-тысячах юзеров нужен OS-тюнинг (`fs.file-max`, `somaxconn`, `nofile`) — нода,
-а не Raven, упирается первой.
+If AlchemyLink ever grows into a product with many nodes/sales — **the agent
+model (`raven-node`) becomes justified**: durability + autonomy + security
+boundary will outweigh the cost of an extra component. Then the narrow
+`core.AdminAPI` adoption (Phase 0) is reused: `raven-node` implements the same
+interface locally, and the fan-out from the center goes to agents instead of
+raw Xray. That is, **the current agentless design is not a dead end but a first
+step**, compatible with a future agent. Performance note (for node sizing, not
+the control-plane): Xray holds ~40-55 KB/conn, memory grows to ~1 GB and is not
+released; at thousands of users OS tuning is needed (`fs.file-max`, `somaxconn`,
+`nofile`) — the node, not Raven, hits the wall first.
 
-## 15. Агентная модель и единая точка управления конфигами — углублённый разбор
+## 15. The agent model and a single point of config management — an in-depth analysis
 
-Запрос: рассмотреть **агентный** вариант и **единую точку управления
-конфигами** всерьёз. Все четыре драйвера признаны интересными: durability,
-автономия при оффлайн-панели, устранение Ansible↔Raven split-brain,
-динамическое управление конфигом нод. Этот раздел разбирает их без упрощений
-и приходит к нетривиальному выводу: **правильно урезанный тонкий агент
-безопаснее нашего же agentless-варианта** — то есть аргумент ЗА агент есть
-даже на нашем масштабе, но не тот, что у Marzban.
+The request: consider the **agent** variant and a **single point of config
+management** seriously. All four drivers are recognized as interesting:
+durability, autonomy when the panel is offline, eliminating the Ansible↔Raven
+split-brain, dynamic management of node config. This section analyzes them
+without simplifications and arrives at a non-trivial conclusion: **a correctly
+trimmed thin agent is safer than our own agentless variant** — that is, there is
+an argument FOR an agent even at our scale, but not the one Marzban has.
 
-### 15.1 Две независимые оси (их нельзя смешивать)
+### 15.1 Two independent axes (they must not be conflated)
 
-«Агент» и «единая точка управления конфигами» — **разные** решения:
+"Agent" and "single point of config management" are **different** decisions:
 
-- **Ось 1 — runtime-plane**: кто применяет user-/lifecycle-операции к Xray.
-  Варианты: голый Xray-gRPC из центра (A) ↔ агент на ноде (B/C).
-- **Ось 2 — config-plane**: кто источник истины для inbound/REALITY/routing.
-  Варианты: git+Ansible (A/B) ↔ Raven как authority (C).
+- **Axis 1 — runtime-plane**: who applies user/lifecycle operations to Xray.
+  Options: raw Xray gRPC from the center (A) ↔ an agent on the node (B/C).
+- **Axis 2 — config-plane**: who is the source of truth for inbound/REALITY/routing.
+  Options: git+Ansible (A/B) ↔ Raven as authority (C).
 
-Драйверы ложатся на разные оси: durability/автономия — **ось 1**;
-split-brain/динам.конфиг — **ось 2**. Поэтому «давайте сделаем агентов» и
-«давайте единую точку конфигов» — это два решения, и их надо принимать
-отдельно.
+The drivers map onto different axes: durability/autonomy — **axis 1**;
+split-brain/dynamic config — **axis 2**. So "let's do agents" and "let's do a
+single config point" are two decisions, and they must be made separately.
 
-### 15.2 Seizure-переоценка: голый gRPC скрытно ОПАСНЕЕ агента
+### 15.2 Seizure re-appraisal: raw gRPC is covertly MORE dangerous than an agent
 
-Раньше (§7, §14) я отнёс agentless-A к «низкому seizure-радиусу», потому что
-Raven не *хранит* конфиги. Это **неполно**. Голый Xray HandlerService
-**не имеет per-RPC ACL** — кто дотянулся до порта, тот может всё:
-`AddInbound` (поднять backdoor-листенер), `AddOutbound` (перенаправить
-трафик), `RemoveInbound` (DoS), не только `AddUser`
-(`app/proxyman/command/command.go` — все RPC на одном сервисе без авторизации).
+Earlier (§7, §14) I put agentless-A in the "low seizure radius" bucket, because
+Raven does not *store* configs. This is **incomplete**. The raw Xray
+HandlerService **has no per-RPC ACL** — whoever reached the port can do
+everything: `AddInbound` (bring up a backdoor listener), `AddOutbound`
+(redirect traffic), `RemoveInbound` (DoS), not just `AddUser`
+(`app/proxyman/command/command.go` — all RPCs on one service without
+authorization).
 
-В модели A Raven по WG достаёт HandlerService **каждой** ноды. Значит
-**захват Raven = полный контроль рантайм-конфига всех нод**, даже без хранения
-ключей: атакующий добавляет свои inbound/outbound на весь флот. «Не хранит
-конфиг» ≠ «не может его менять».
+In model A, Raven reaches the HandlerService of **every** node over WG. That
+means **seizing Raven = full control of the runtime config of all nodes**, even
+without storing keys: the attacker adds their own inbound/outbound to the whole
+fleet. "Doesn't store config" ≠ "can't change it".
 
-| Модель | Raven *хранит* ключи/конфиг | Raven *может* на ноде | Seizure-радиус |
+| Model | Raven *stores* keys/config | Raven *can do* on the node | Seizure radius |
 |---|---|---|---|
-| **A** agentless raw-gRPC | нет | **всё** (Add/RemoveInbound/Outbound) — Xray API без ACL | средне-высокий (полный runtime-контроль флота) |
-| **B** тонкий агент, capability-урезанный | нет | **только** user-ops (агент не отдаёт inbound/outbound-API) | **низкий** (макс. add/remove юзеров — ротируемо) |
-| **C** полный control-plane | **да** (все ключи) | всё + хранит истину | высокий |
+| **A** agentless raw-gRPC | no | **everything** (Add/RemoveInbound/Outbound) — Xray API without ACL | medium-high (full runtime control of the fleet) |
+| **B** thin agent, capability-trimmed | no | **only** user-ops (the agent does not expose the inbound/outbound API) | **low** (max add/remove users — rotatable) |
+| **C** full control-plane | **yes** (all keys) | everything + stores the truth | high |
 
-**Вывод, разворачивающий §14:** тонкий агент, который наружу отдаёт Raven'у
-**только** `AddUser/RemoveUser/GetUsers/GetStats` (а `AddInbound` и т.п. —
-нет), даёт **меньший** seizure-радиус, чем наш agentless raw-gRPC. Это
-capability-confinement, которого Xray сам по себе не умеет. Так что «смысл в
-агенте» есть и под нашу threat-model — но ценность не durability (её даёт и
-rsync), а **сужение того, что захваченный центр может сделать с нодами**.
+**Conclusion, reversing §14:** a thin agent that exposes to Raven **only**
+`AddUser/RemoveUser/GetUsers/GetStats` (but not `AddInbound` etc.) gives a
+**smaller** seizure radius than our agentless raw gRPC. This is
+capability-confinement, which Xray itself cannot do. So there is "a point to an
+agent" under our threat model too — but the value is not durability (rsync
+provides that too), it is **narrowing what a seized center can do to the nodes**.
 
-### 15.3 Как сделать config-plane без амплификации захвата
+### 15.3 How to build a config-plane without amplifying a seizure
 
-Если хотим и единую точку конфигов (ось 2), но без «захватил Raven → пушит
-малварь на все ноды» — ключ в **разделении capability** и **подписи**:
+If we want a single config point too (axis 2), but without "seized Raven →
+pushes malware to all nodes" — the key is in **capability separation** and
+**signing**:
 
-1. **Pull, а не push.** Агент сам тянет конфиг-артефакт (из git/CI/artifact
-   store), Raven его не пушит. Захват Raven не даёт push-канала.
-2. **Подписанные конфиг-бандлы, ключ подписи — оффлайн.** Конфиг подписывается
-   ключом оператора (laptop/CI/HSM), агент отвергает неподписанное/чужой
-   подписи. Захваченный Raven может раздать только уже подписанные (старые)
-   бандлы — не сфабриковать новый малварный.
-3. **Capability split = главный принцип.** Always-on плоскость (Raven, юзеры)
-   держит только low-blast-radius операции; high-value (ключи/inbound/routing)
-   живёт в git+vault и приезжает подписанным бандлом. Разделяем «что онлайн и
-   достижимо» от «что ценно».
-4. **Per-node scoping.** mTLS client-cert на ноду; агент применяет команды
-   только для своего node-id. Узкий креденшл Raven→агент (user-ops scope).
+1. **Pull, not push.** The agent pulls the config artifact itself (from
+   git/CI/artifact store), Raven does not push it. Seizing Raven gives no push
+   channel.
+2. **Signed config bundles, the signing key offline.** The config is signed with
+   the operator's key (laptop/CI/HSM), the agent rejects the unsigned/wrongly
+   signed. A seized Raven can hand out only already-signed (old) bundles — it
+   can't fabricate a new malicious one.
+3. **Capability split = the main principle.** The always-on plane (Raven, users)
+   holds only low-blast-radius operations; the high-value (keys/inbound/routing)
+   lives in git+vault and arrives as a signed bundle. We separate "what is online
+   and reachable" from "what is valuable".
+4. **Per-node scoping.** An mTLS client-cert per node; the agent applies commands
+   only for its node-id. A narrow Raven→agent credential (user-ops scope).
 
-Это превращает «единую точку конфигов» из **push-authority** (опасно) в
-**signed-distribution** (безопасно): единый логический источник = git, агент
-верифицирует подпись, Raven в config-цепочке — максимум транспорт, не доверенный.
+This turns "single config point" from a **push-authority** (dangerous) into a
+**signed-distribution** (safe): the single logical source = git, the agent
+verifies the signature, Raven in the config chain is at most transport, not
+trusted.
 
-### 15.4 Что конкретно «переезжает» в каждой модели
+### 15.4 What concretely "moves" in each model
 
-| Объект | A (текущий) | B (тонкий агент) | B+ (агент + signed config) | C (full plane) |
+| Object | A (current) | B (thin agent) | B+ (agent + signed config) | C (full plane) |
 |---|---|---|---|---|
-| Юзеры (CRUD) | Raven→gRPC | Raven→агент | Raven→агент | Raven |
-| Durability юзеров при рестарте | reconcile/rsync | агент (локальный store) | агент | агент |
-| inbound-структура | Ansible | Ansible | git→signed→агент pull | Raven push |
-| REALITY-ключи/секреты | Ansible+vault | Ansible+vault | git+vault→signed | **Raven БД** |
+| Users (CRUD) | Raven→gRPC | Raven→agent | Raven→agent | Raven |
+| User durability on restart | reconcile/rsync | agent (local store) | agent | agent |
+| inbound structure | Ansible | Ansible | git→signed→agent pull | Raven push |
+| REALITY keys/secrets | Ansible+vault | Ansible+vault | git+vault→signed | **Raven DB** |
 | routing/outbounds | Ansible | Ansible | git→signed | Raven push |
-| emergency rotation | Raven gRPC (есть) | Raven→агент | Raven→агент | Raven |
-| stats | exporter скрейпит Xray | агент relays | агент relays | агент relays |
-| split-brain убран? | нет (есть contract-test опция) | нет | **да** (один signed источник) | да |
-| seizure-радиус | средне-высокий | низкий | низкий | высокий |
+| emergency rotation | Raven gRPC (exists) | Raven→agent | Raven→agent | Raven |
+| stats | exporter scrapes Xray | agent relays | agent relays | agent relays |
+| split-brain removed? | no (a contract-test option exists) | no | **yes** (one signed source) | yes |
+| seizure radius | medium-high | low | low | high |
 
-### 15.5 Драйверы → что их закрывает
+### 15.5 Drivers → what closes them
 
-| Драйвер | Минимально достаточно | Заметка |
+| Driver | Minimally sufficient | Note |
 |---|---|---|
-| Durability при рестарте | A+rsync **или** B | агент не обязателен |
-| Автономия при оффлайн-панели | **B** (только агент) | rsync не даёт автономию управления, только данные |
-| Убить split-brain | contract-тесты (дёшево) **или** B+/C | git-источник + verify |
-| Динам. управление конфигом нод | B+ (signed pull) **или** C | C опаснее по seizure |
+| Durability on restart | A+rsync **or** B | an agent is not required |
+| Autonomy when the panel is offline | **B** (agent only) | rsync gives no management autonomy, only data |
+| Kill split-brain | contract tests (cheap) **or** B+/C | git source + verify |
+| Dynamic node-config management | B+ (signed pull) **or** C | C is more dangerous on seizure |
 
-Все четыре сразу закрывает **B+** (тонкий агент + pull-based signed config),
-**не** трогая Raven как authority ключей — то есть без seizure-амплификации C.
+All four at once are closed by **B+** (thin agent + pull-based signed config),
+**without** touching Raven as the key authority — that is, without the seizure
+amplification of C.
 
-### 15.6 Рекомендация
+### 15.6 Recommendation
 
-**Цель-максимум: B+ — capability-урезанный `raven-node` + pull-based signed
-config из git.** Закрывает все четыре драйвера И *улучшает* seizure-постуру
-против текущего agentless-A. Config authority остаётся git/vault (не дублируем
-Ansible как источник, но Ansible сводится к bootstrap агента; рендер
-конфига можно оставить в Ansible-CI как «подписывающий» шаг).
+**Max goal: B+ — a capability-trimmed `raven-node` + pull-based signed config
+from git.** Closes all four drivers AND *improves* the seizure posture versus
+the current agentless-A. Config authority stays in git/vault (we do not
+duplicate Ansible as the source, but Ansible reduces to bootstrapping the agent;
+config rendering can stay in Ansible-CI as the "signing" step).
 
-**Чего НЕ делать: наивный C** (Raven хранит ключи + push-authority) — единая
-точка ценой максимального seizure-радиуса и дублирования vault. Под нашу
-threat-model (A2 seizure-reduction, RU-compromise runbook) — плохой размен.
+**What NOT to do: naive C** (Raven stores keys + push-authority) — a single
+point at the cost of the maximal seizure radius and vault duplication. Under our
+threat model (A2 seizure-reduction, RU-compromise runbook) — a bad trade.
 
-**Прагматичный interim (если B+ не сейчас): A + rsync** (§8) — durability без
-агента, но **без** capability-confinement и без автономии. Сознательно
-принимаем, что захваченный Raven имеет полный runtime-контроль флота (риск
-такой же, как сегодня у single-node EU, просто умноженный на число нод).
+**Pragmatic interim (if B+ not now): A + rsync** (§8) — durability without an
+agent, but **without** capability-confinement and without autonomy. We
+consciously accept that a seized Raven has full runtime control of the fleet
+(the risk is the same as today's single-node EU, just multiplied by the number
+of nodes).
 
-**Порядок, совместимый с уже описанными фазами:**
-- Фаза 0-4 (§9) реализуют **A** — это база и first step (узкая `core.AdminAPI`).
-- **B+ как Фаза 6** (новая, по решению): `raven-node` имплементирует ту же
-  `core.AdminAPI` локально + user-ops-only внешний API + config-pull+verify.
-  Fan-out из центра переключается с голого Xray-gRPC на агенты — **смена одной
-  имплементации `core.AdminAPI`, без переписывания api/syncer**. Вот ради чего
-  узкий core-seam в Фазе 0 окупается.
+**An order compatible with the phases already described:**
+- Phases 0-4 (§9) implement **A** — this is the base and the first step (the
+  narrow `core.AdminAPI`).
+- **B+ as Phase 6** (new, by decision): `raven-node` implements the same
+  `core.AdminAPI` locally + a user-ops-only external API + config-pull+verify.
+  The fan-out from the center switches from raw Xray gRPC to agents — **a swap
+  of one `core.AdminAPI` implementation, without rewriting api/syncer**. This is
+  what the narrow core seam in Phase 0 pays off for.
 
-### 15.7 Что валидировать перед B+ (открыто)
+### 15.7 What to validate before B+ (open)
 
-- **Язык/деплой агента.** Go (один бинарь, как Raven/exporter; переиспользуем
-  apiclient) vs повторить ошибки Marzban с version-matrix panel↔node.
-- **Формат signed-bundle.** minisign/cosign/age + git-tag? Кто держит ключ
-  подписи (laptop/CI/offline)? Привязка к нашему vault-flow.
-- **Pull-trigger.** Агент поллит git? Или Raven шлёт «обнови себя» (только
-  сигнал, не контент — тогда контент всё равно из git, push-радиус не растёт)?
-- **Backward-compat с A.** Нода может работать в режиме A (raw-gRPC) ИЛИ B+
-  (агент) — конфиг-флаг `node.mode`, чтобы мигрировать ноды по одной.
-- **Стоимость.** Новый repo `raven-node` (AGPL, как остальные), CI, release,
-  Ansible-роль, integration-тесты агент↔Xray. Оценка: B+ ≈ 3-4 недели против
-  ~1-1.5 недели на A+rsync. Решение — функция от того, насколько автономия и
-  capability-confinement приоритетны против срока.
+- **Agent language/deploy.** Go (one binary, like Raven/exporter; reuse
+  apiclient) vs repeating Marzban's mistakes with a panel↔node version matrix.
+- **Signed-bundle format.** minisign/cosign/age + a git tag? Who holds the
+  signing key (laptop/CI/offline)? Binding to our vault flow.
+- **Pull trigger.** The agent polls git? Or Raven sends "update yourself" (a
+  signal only, not content — then content still comes from git, the push radius
+  does not grow)?
+- **Backward-compat with A.** A node can run in mode A (raw-gRPC) OR B+ (agent)
+  — a config flag `node.mode`, to migrate nodes one at a time.
+- **Cost.** A new `raven-node` repo (AGPL, like the others), CI, release, an
+  Ansible role, integration tests agent↔Xray. Estimate: B+ ≈ 3-4 weeks vs
+  ~1-1.5 weeks for A+rsync. The decision is a function of how much autonomy and
+  capability-confinement are prioritized against the timeline.
