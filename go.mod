@@ -8,8 +8,8 @@ require (
 	github.com/xtls/xray-core v1.260327.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/time v0.16.0
-	google.golang.org/grpc v1.84.0
-	modernc.org/sqlite v1.58.0
+	google.golang.org/grpc v1.83.2
+	modernc.org/sqlite v1.59.0
 )
 
 require (
@@ -52,7 +52,7 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gvisor.dev/gvisor v0.0.0-20260122175437-89a5d21be8f0 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
-	modernc.org/libc v1.75.6 // indirect
+	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
