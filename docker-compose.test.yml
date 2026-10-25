@@ -1,6 +1,6 @@
 services:
   xray:
-    image: ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:latest}
+    image: ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:26.3.27}
     command: ["run", "-confdir", "/etc/xray/config.d"]
     volumes:
       - ${XRAY_CONFIG_DIR:-./docker/xray/config.d}:/etc/xray/config.d:ro
@@ -32,7 +32,7 @@ services:
   # XRAY_CLIENT_CONFIG_PATH must point to a Raven-subscribe-generated client
   # config rendered by the test harness before compose up.
   xray-client:
-    image: ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:latest}
+    image: ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:26.3.27}
     profiles: ["e2e-user"]
     command: ["run", "-c", "/etc/xray-client/config.json"]
     volumes:
@@ -168,7 +168,7 @@ services:
   # topology: xray-bridge accepts client traffic and chains it to the xray
   # service via a VLESS outbound. Activate with profile "e2e-user-bridge".
   xray-bridge:
-    image: ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:latest}
+    image: ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:26.3.27}
     profiles: ["e2e-user-bridge"]
     command: ["run", "-confdir", "/etc/xray-bridge/config.d"]
     volumes:

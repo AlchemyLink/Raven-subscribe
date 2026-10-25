@@ -1,0 +1,10 @@
+# govulncheck findings that are reviewed and temporarily accepted.
+# One OSV ID per line; everything after the ID is a comment. Each entry
+# needs a reason and a removal condition — this is not a permanent ignore list.
+
+# pinnedPeerCertSha256 CA-pin MITM in the xray-core TLS *client* dialer
+# (hysteria/gRPC transports). Raven-subscribe never dials those transports;
+# it only passes `pcs` through to client configs. The fix exists only as an
+# untagged pseudo-version that also drops shadowsocks.CipherType_NONE (#6303).
+# Remove when xray-core publishes a tagged module version past 64fada3.
+GO-2026-6651
