@@ -125,7 +125,8 @@ func storedConfigToProtocolUser(storedJSON, email string) (*protocol.User, error
 		case "xchacha20-poly1305":
 			ct = shadowsocks.CipherType_XCHACHA20_POLY1305
 		case "none":
-			ct = shadowsocks.CipherType_NONE
+			// Removed upstream (XTLS/Xray-core#6303).
+			return nil, fmt.Errorf("shadowsocks method %q is no longer supported", "none")
 		}
 		return &protocol.User{
 			Email: email,
@@ -417,7 +418,8 @@ func clientMapToProtocolUser(protocolName string, client map[string]interface{},
 		case "xchacha20-poly1305":
 			ct = shadowsocks.CipherType_XCHACHA20_POLY1305
 		case "none":
-			ct = shadowsocks.CipherType_NONE
+			// Removed upstream (XTLS/Xray-core#6303).
+			return nil, fmt.Errorf("shadowsocks method %q is no longer supported", "none")
 		}
 		return &protocol.User{
 			Email: email,
