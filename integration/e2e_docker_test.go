@@ -18,7 +18,7 @@ import (
 
 const (
 	testAdminHeaderValue = "e2e-admin-value"
-	defaultXrayImage = "ghcr.io/xtls/xray-core:latest"
+	defaultXrayImage = "ghcr.io/xtls/xray-core:26.3.27"
 	xrayInboundPort  = 18443
 )
 
