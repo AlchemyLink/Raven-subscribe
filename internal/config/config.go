@@ -38,12 +38,21 @@ type Config struct {
 	// at /metrics on a dedicated listener. Deliberately separate from ListenAddr:
 	// the main router is publicly reachable through the subscription vhost, and
 	// metrics must never be. Empty = metrics disabled.
-	MetricsListen     string `json:"metrics_listen,omitempty"`
-	ServerHost        string `json:"server_host"`
-	ConfigDir         string `json:"config_dir"`
-	DBPath            string `json:"db_path"`
-	SyncInterval      int    `json:"sync_interval_seconds"`
-	BaseURL           string `json:"base_url"`
+	MetricsListen string `json:"metrics_listen,omitempty"`
+	// MetricsAnonymizeSecret pseudonymises the email label on /metrics exactly
+	// like xray-stats-exporter's --anonymize-secret, so per-user series from
+	// both join in PromQL. MUST equal the exporter's secret. Empty = raw email.
+	MetricsAnonymizeSecret string `json:"metrics_anonymize_secret,omitempty"`
+	// ProfileUpdateIntervalHours, when > 0, is sent as the Profile-Update-Interval
+	// header on subscription responses (honoured by Happ, v2rayN/NG, Hiddify,
+	// Clash-family). A predictable refresh cadence turns the last-fetch timestamp
+	// into a per-user liveness signal. 0 = header not sent.
+	ProfileUpdateIntervalHours int    `json:"profile_update_interval_hours,omitempty"`
+	ServerHost                 string `json:"server_host"`
+	ConfigDir                  string `json:"config_dir"`
+	DBPath                     string `json:"db_path"`
+	SyncInterval               int    `json:"sync_interval_seconds"`
+	BaseURL                    string `json:"base_url"`
 	// FallbackBaseURL overrides BaseURL for fallback subscription URLs (/sub/fallback/*).
 	// When set, fallback tokens point to this domain (e.g. "https://sub.example.com" — EU direct,
 	// bypassing RU relay). Allows fallback URLs to remain reachable even when RU VPS is down.
@@ -52,7 +61,7 @@ type Config struct {
 	// FallbackServerHost overrides ServerHost in VPN links served via /sub/fallback/*.
 	// Set to EU VPS IP or EU-direct domain so fallback configs bypass RU relay.
 	// When empty, ServerHost is used (same server address as primary subscription).
-	FallbackServerHost   string            `json:"fallback_server_host,omitempty"`
+	FallbackServerHost string `json:"fallback_server_host,omitempty"`
 	// FallbackInboundHosts overrides InboundHosts for fallback subscription requests.
 	// When nil, InboundHosts is used.
 	FallbackInboundHosts map[string]string `json:"fallback_inbound_hosts,omitempty"`
@@ -272,9 +281,9 @@ func Load(path string) (*Config, error) {
 		SyncInterval: 60,
 		BaseURL:      "http://localhost:8080",
 		// Supported values: random, roundRobin, leastPing, leastLoad
-		BalancerStrategy:  "leastPing",
-		BalancerProbeURL:  "https://www.gstatic.com/generate_204",
-		BalancerProbeFreq: "30s",
+		BalancerStrategy:            "leastPing",
+		BalancerProbeURL:            "https://www.gstatic.com/generate_204",
+		BalancerProbeFreq:           "30s",
 		KillSwitchReconcileInterval: 30,
 	}
 

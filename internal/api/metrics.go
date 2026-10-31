@@ -38,5 +38,6 @@ func (s *Server) MetricsHandler() http.HandlerFunc {
 			enabledVal, s.fallbackDenied.Load())
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		_, _ = w.Write([]byte(body))
+		s.writeLivenessMetrics(w)
 	}
 }

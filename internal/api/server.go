@@ -57,6 +57,9 @@ type Server struct {
 	// surfaced additively on /api/sync/status. Nil/empty in single-node mode.
 	nodeStatusMu sync.Mutex
 	nodeStatus   map[string]nodeSyncStatus
+	// fetches records successful subscription fetches for the liveness
+	// metric (liveness.go).
+	fetches fetchTracker
 }
 
 // NewServer creates a new Server with the given config, database, and syncer.
@@ -93,6 +96,9 @@ func buildAdmin(cfg *config.Config) core.AdminAPI {
 // Router builds and returns the configured HTTP router.
 func (s *Server) Router() http.Handler {
 	r := mux.NewRouter()
+	// Router-level so it sees the matched route template and {token}; acts
+	// only on subscription routes (liveness.go).
+	r.Use(s.subscriptionMiddleware)
 
 	// ── Fallback subscription endpoints (stable token, never rotated) ────────
 	// Mirrors the primary /sub/* and /c/* route set, keyed on fallback_token.
